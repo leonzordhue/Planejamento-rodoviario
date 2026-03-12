@@ -710,6 +710,48 @@
 
   <!-- ─── ABA SERVIÇOS ─── -->
   <div id="tab-servicos" class="tab-panel" style="display:none">
+
+    <!-- ═══ PAINEL DE FRENTES DE SERVIÇO ═══ -->
+    <div class="card" style="margin-bottom:1.2rem;border:2px solid var(--azul-borda);">
+      <div class="card-header" style="background:var(--azul);padding:0.75rem 1.2rem;">
+        <div class="card-header-icon" style="color:white">🚧</div>
+        <div class="card-header-title" style="color:white;font-size:0.85rem">
+          Frentes de Serviço
+          <span id="frentes-badge" style="background:var(--amarelo);color:var(--azul);font-size:0.6rem;font-weight:800;padding:0.1rem 0.5rem;border-radius:100px;margin-left:0.6rem">0 frentes</span>
+        </div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:0.6rem">
+          <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;color:white;font-size:0.72rem;font-weight:600">
+            <input type="checkbox" id="usar-frentes-check" onchange="toggleUsarFrentes(this.checked)" style="width:16px;height:16px;cursor:pointer"/>
+            Usar frentes de serviço no cronograma
+          </label>
+        </div>
+      </div>
+      <div id="frentes-panel" style="display:none">
+        <div class="card-body" style="border-bottom:1px solid var(--borda)">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.7rem;margin-bottom:1rem">
+            <div style="background:#EBF0FA;border-radius:8px;padding:0.8rem 1rem;border-left:3px solid var(--azul)">
+              <div style="font-size:0.6rem;font-weight:700;color:var(--azul);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.3rem">📍 Sequencial</div>
+              <div style="font-size:0.75rem;color:var(--cinza-txt)">Uma frente começa após a anterior terminar. Mesma equipe, realocada.</div>
+            </div>
+            <div style="background:#E8F5E9;border-radius:8px;padding:0.8rem 1rem;border-left:3px solid #2E7D32">
+              <div style="font-size:0.6rem;font-weight:700;color:#2E7D32;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.3rem">⚡ Paralela</div>
+              <div style="font-size:0.75rem;color:var(--cinza-txt)">Frentes ocorrem ao mesmo tempo com equipes independentes.</div>
+            </div>
+            <div style="background:#FFF8E1;border-radius:8px;padding:0.8rem 1rem;border-left:3px solid var(--amarelo)">
+              <div style="font-size:0.6rem;font-weight:700;color:#E65100;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.3rem">📦 Realocação</div>
+              <div style="font-size:0.75rem;color:var(--cinza-txt)">Ao terminar um KM, a equipe avança para o próximo. Sem sobreposição.</div>
+            </div>
+          </div>
+          <div id="frentes-lista" style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1rem"></div>
+          <div style="display:flex;gap:0.6rem;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-primary btn-sm" onclick="addFrente()">+ Nova Frente</button>
+            <button class="btn btn-outline btn-sm" onclick="autoFrentes()" style="color:var(--azul);border-color:var(--azul-borda);font-weight:700">⚡ Auto-dividir (grupos de 5 KMs)</button>
+            <button class="btn btn-outline btn-sm" onclick="limparFrentes()" style="color:#c00;border-color:#c00">✕ Limpar tudo</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.8rem;">
       <div class="sec-title" style="margin-bottom:0"><div class="sec-title-bar"></div><h2>Serviços e Quantitativos</h2></div>
       <div class="btn-group">
@@ -750,29 +792,6 @@
       <div class="formula"><strong>QEQ</strong> = ROUNDUP(Qtde × taxa_EQP / (DA × Jornada), 0)</div>
     </div>
 
-    <!-- PAINEL DE FRENTES DE SERVIÇO -->
-    <div class="card" style="margin-top:1.5rem;">
-      <div class="card-header" style="cursor:pointer;user-select:none" onclick="toggleFrentesPanel()">
-        <div class="card-header-icon">🚧</div>
-        <div class="card-header-title">Frentes de Serviço
-          <span id="frentes-badge" style="background:var(--amarelo);color:var(--azul);font-size:0.6rem;font-weight:800;padding:0.1rem 0.5rem;border-radius:100px;margin-left:0.5rem;vertical-align:middle">0</span>
-        </div>
-        <div style="margin-left:auto;font-size:0.7rem;color:var(--cinza-aux)">Clique para expandir ▼</div>
-      </div>
-      <div class="card-body" id="frentes-panel" style="display:none">
-        <div style="font-size:0.72rem;color:var(--cinza-aux);margin-bottom:1rem;background:var(--cinza-bg);border-radius:8px;padding:0.8rem 1rem;border-left:3px solid var(--azul)">
-          <strong style="color:var(--azul)">O que são frentes?</strong> Cada frente agrupa um range de KMs executados em sequência por uma equipe.
-          Frentes <span style="background:#2E7D32;color:white;padding:0 5px;border-radius:4px;font-size:0.65rem">PARALELAS</span> iniciam ao mesmo tempo (equipes diferentes).
-          Frentes <span style="background:var(--azul);color:white;padding:0 5px;border-radius:4px;font-size:0.65rem">SEQUENCIAIS</span> começam após a frente anterior terminar.
-        </div>
-        <div id="frentes-lista" style="display:flex;flex-direction:column;gap:0.6rem;margin-bottom:1rem"></div>
-        <div style="display:flex;gap:0.6rem;flex-wrap:wrap">
-          <button class="btn btn-primary btn-sm" onclick="addFrente()">+ Nova Frente</button>
-          <button class="btn btn-outline btn-sm" onclick="autoFrentes()" style="color:var(--azul);border-color:var(--azul-borda)">⚡ Auto-dividir pela extensão</button>
-          <button class="btn btn-outline btn-sm" onclick="limparFrentes()" style="color:#c00;border-color:#c00">✕ Limpar Frentes</button>
-        </div>
-      </div>
-    </div>
   </div>
 
   <!-- ─── ABA EAP ─── -->
@@ -1117,7 +1136,7 @@ function gerarCronograma() {
   const fimCanteiro = canteiroParam.prazo;
 
   // Se não há frentes configuradas → sequenciamento simples por KM
-  const usarFrentes = FRENTES.length > 0;
+  const usarFrentes = usarFrentesAtivo();
   const grupos = usarFrentes
     ? FRENTES
     : [{ id:0, nome:null, cor:null, kmInicio:1, kmFim:nKm, paralelo:false }];
@@ -1455,6 +1474,20 @@ function toggleFrentesPanel() {
   p.style.display = p.style.display === "none" ? "block" : "none";
 }
 
+function toggleUsarFrentes(usar) {
+  const p = document.getElementById("frentes-panel");
+  p.style.display = usar ? "block" : "none";
+  if (!usar) {
+    // Não apaga as frentes, só ignora no cálculo
+  }
+  calcularTudo();
+}
+
+function usarFrentesAtivo() {
+  const cb = document.getElementById("usar-frentes-check");
+  return cb && cb.checked && FRENTES.length > 0;
+}
+
 function addFrente(kmIni, kmFim, paralelo) {
   const nKm = parseInt(getV("obra-frentes")) || 1;
   const id  = mkFrenteId();
@@ -1467,6 +1500,12 @@ function addFrente(kmIni, kmFim, paralelo) {
     kmFim:    kmFim != null ? kmFim : nKm,
     paralelo: paralelo || false,
   });
+  // Auto-ativa frentes se ainda não estava ativo
+  const cb = document.getElementById("usar-frentes-check");
+  if (cb && !cb.checked) {
+    cb.checked = true;
+    document.getElementById("frentes-panel").style.display = "block";
+  }
   renderFrentes();
   calcularTudo();
 }
@@ -1512,6 +1551,12 @@ function autoFrentes() {
     km = fim + 1;
     idx++;
   }
+  // Auto-ativa frentes
+  const cb2 = document.getElementById("usar-frentes-check");
+  if (cb2 && !cb2.checked) {
+    cb2.checked = true;
+    document.getElementById("frentes-panel").style.display = "block";
+  }
   renderFrentes();
   calcularTudo();
 }
@@ -1528,12 +1573,11 @@ function renderFrentes() {
   const lista = document.getElementById("frentes-lista");
   const badge = document.getElementById("frentes-badge");
   if (!lista) return;
-  badge.textContent = FRENTES.length;
+  badge.textContent = FRENTES.length > 0 ? FRENTES.length + " frente" + (FRENTES.length>1?"s":"") : "0 frentes";
 
   if (!FRENTES.length) {
-    lista.innerHTML = `<div style="text-align:center;padding:1.2rem;color:var(--cinza-aux);font-size:0.8rem">
-      Nenhuma frente configurada. O cronograma usa sequenciamento simples por KM.<br>
-      Clique em <strong>+ Nova Frente</strong> ou <strong>⚡ Auto-dividir</strong> para organizar em frentes.
+    lista.innerHTML = `<div style="padding:0.8rem 0;color:var(--cinza-aux);font-size:0.78rem">
+      Nenhuma frente configurada. Use <strong>⚡ Auto-dividir</strong> para criar automaticamente, ou <strong>+ Nova Frente</strong> para configurar manualmente.
     </div>`;
     return;
   }
