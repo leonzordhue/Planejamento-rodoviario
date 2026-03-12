@@ -486,6 +486,30 @@
       .ptable thead th, .ptable tbody td, .ptable tfoot td { padding: 0.3rem 0.35rem !important; white-space: normal !important; }
     }
   </style>
+  <!-- Leaflet para o mapa -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    /* Mapa Leaflet */
+    #mapa-rodovia { height: 440px; border-radius: 10px; z-index:0; border:1px solid var(--borda); }
+    .mapa-container { position:relative; }
+    .mapa-badge { position:absolute;top:10px;right:10px;z-index:999;background:white;
+      padding:0.4rem 0.8rem;border-radius:8px;font-size:0.7rem;font-weight:700;
+      color:var(--azul);box-shadow:0 2px 8px rgba(0,0,0,.15);max-width:200px; }
+    .road-search-wrap { position:relative; }
+    .road-search-wrap .road-dropdown {
+      position:absolute;top:100%;left:0;right:0;background:white;border:1px solid var(--borda);
+      border-radius:0 0 8px 8px;max-height:220px;overflow-y:auto;z-index:1000;
+      box-shadow:0 4px 16px rgba(0,0,0,.12);
+    }
+    .road-dropdown-item { padding:0.55rem 0.9rem;font-size:0.78rem;cursor:pointer;border-bottom:1px solid #f0f0f0; }
+    .road-dropdown-item:hover { background:var(--azul-claro); }
+    .road-dropdown-item .rd-name { font-weight:600;color:var(--cinza-txt); }
+    .road-dropdown-item .rd-meta { font-size:0.65rem;color:var(--cinza-aux); }
+    .road-loading { padding:0.7rem;text-align:center;color:var(--cinza-aux);font-size:0.75rem; }
+    .ext-override { display:flex;align-items:center;gap:0.5rem;margin-top:4px; }
+    .ext-override input { width:90px; }
+    .ext-badge { font-size:0.65rem;padding:0.1rem 0.4rem;border-radius:4px;background:#E3F2FD;color:var(--azul);font-weight:700; }
+  </style>
 </head>
 <body>
 
@@ -608,7 +632,7 @@
             </div>
             <div class="form-group">
               <label>Tipo de Modal</label>
-              <select id="obra-tipo" onchange="syncObra();renderParamCards()">
+              <select id="obra-tipo" onchange="onTipoChange()">
                 <option>RAMAL / VICINAL</option>
                 <option>RODOVIA ESTADUAL</option>
                 <option>VIÁRIO URBANO</option>
@@ -619,6 +643,31 @@
               <label>Nº Orçamento (e-Obras)</label>
               <input type="text" id="obra-orcamento" placeholder="Ex.: 2025.001.0042"/>
             </div>
+
+            <!-- SELETOR INTELIGENTE DE RODOVIA/RAMAL -->
+            <div class="form-group form-span-2" id="road-selector-wrap">
+              <label id="road-selector-label">🔍 Buscar Rodovia/Ramal na base SEINFRA</label>
+              <div class="road-search-wrap">
+                <input type="text" id="road-search-input"
+                  placeholder="Digite o nome, código ou município..."
+                  oninput="onRoadSearch(this.value)"
+                  onfocus="onRoadSearch(this.value)"
+                  autocomplete="off"
+                  style="width:100%"/>
+                <div id="road-dropdown" class="road-dropdown" style="display:none"></div>
+              </div>
+              <div id="road-selected-info" style="display:none;margin-top:0.5rem;background:var(--azul-claro);border-radius:8px;padding:0.6rem 1rem;border-left:3px solid var(--azul)">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                  <div>
+                    <div id="road-sel-nome" style="font-weight:700;color:var(--azul);font-size:0.85rem"></div>
+                    <div id="road-sel-meta" style="font-size:0.68rem;color:var(--cinza-aux);margin-top:2px"></div>
+                  </div>
+                  <button onclick="clearRoadSelection()" style="background:none;border:none;color:var(--cinza-aux);cursor:pointer;font-size:1rem;padding:0" title="Limpar seleção">✕</button>
+                </div>
+              </div>
+              <div id="road-status" style="font-size:0.65rem;color:var(--cinza-aux);margin-top:3px"></div>
+            </div>
+
             <div class="form-group">
               <label>Localização (Município/UF)</label>
               <input type="text" id="obra-local" placeholder="Ex.: Manaus / AM"/>
@@ -628,8 +677,19 @@
               <input type="text" id="obra-rodovia" placeholder="Ex.: AM-070 / km 12"/>
             </div>
             <div class="form-group">
-              <label>Extensão Total (km)</label>
-              <input type="number" id="obra-extensao" value="2" min="0.1" step="0.1" oninput="syncObra()"/>
+              <label>Extensão Total (km)
+                <span id="ext-full-badge" style="display:none;margin-left:0.4rem;font-size:0.62rem;background:#E8F5E9;color:#2E7D32;padding:0.1rem 0.5rem;border-radius:100px;font-weight:700"></span>
+              </label>
+              <div style="display:flex;gap:0.5rem;align-items:center">
+                <input type="number" id="obra-extensao" value="2" min="0.1" step="0.1" oninput="syncObra(); updateExtBadge()" style="flex:1"/>
+                <button id="ext-reset-btn" onclick="resetExtensao()" title="Restaurar extensão original da rodovia"
+                  style="display:none;background:var(--azul-claro);border:1px solid var(--azul-borda);color:var(--azul);border-radius:6px;padding:0.3rem 0.6rem;font-size:0.68rem;cursor:pointer;white-space:nowrap">
+                  ↩ Original
+                </button>
+              </div>
+              <div id="ext-help" style="font-size:0.63rem;color:var(--cinza-aux);margin-top:3px">
+                Edite livremente — representa o trecho a ser executado
+              </div>
             </div>
             <div class="form-group">
               <label>📍 KM do Canteiro de Obras</label>
@@ -901,6 +961,24 @@
         <button class="btn btn-verde" onclick="exportarMemorialPDF()">⬇ Exportar Memorial PDF</button>
       </div>
     </div>
+
+    <!-- MAPA LEAFLET -->
+    <div class="card" style="margin-bottom:1.2rem">
+      <div class="card-header">
+        <div class="card-header-icon">🗺️</div>
+        <div class="card-header-title">Localização Geográfica da Obra</div>
+        <div id="mapa-status" style="margin-left:auto;font-size:0.68rem;color:rgba(255,255,255,0.7)"></div>
+        <button class="btn btn-outline btn-sm" onclick="recarregarMapa()" style="margin-left:0.8rem;color:white;border-color:rgba(255,255,255,0.3);font-size:0.68rem">🔄 Recarregar</button>
+      </div>
+      <div class="card-body" style="padding:0">
+        <div class="mapa-container">
+          <div id="mapa-rodovia"></div>
+          <div class="mapa-badge" id="mapa-badge" style="display:none"></div>
+        </div>
+        <div id="mapa-legenda" style="padding:0.6rem 1rem;display:flex;gap:1rem;flex-wrap:wrap;background:var(--cinza-bg);border-top:1px solid var(--borda);font-size:0.68rem"></div>
+      </div>
+    </div>
+
     <div class="memorial-grid" id="memorial-content"></div>
   </div>
 
@@ -2712,6 +2790,427 @@ function gerarPreviewImpressao() {
     document.getElementById(id)?.addEventListener("input", calcularTudo);
   });
 })();
+</script>
+
+<!-- ══ LEAFLET ══ -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// BASE DE DADOS DE RODOVIAS/RAMAIS — Google Sheets CSV
+// ═══════════════════════════════════════════════════════════════════
+const SHEETS = {
+  "RAMAL / VICINAL": {
+    url: "https://docs.google.com/spreadsheets/d/1Cr5Qbj_My7oOcIYiIjZ6NgJiCsij4ZAQCSxdP49cffc/export?format=csv&gid=0",
+    geojson: "https://raw.githubusercontent.com/leonzordhue/Planejamento-rodoviario/main/geojson/RAMAIS_SEINFRA.geojson",
+    label: "Ramais SEINFRA/AM",
+    cor: "#F5A623",
+  },
+  "RODOVIA ESTADUAL": {
+    url: "https://docs.google.com/spreadsheets/d/1bYf2anVF4un84-lusSOeSRaNLiod9fq0joUEnbgHxnM/export?format=csv&gid=0",
+    geojson: "https://raw.githubusercontent.com/leonzordhue/Planejamento-rodoviario/main/geojson/RODOVIAS_ESTADUAIS_AMAZONAS.geojson",
+    label: "Rodovias Estaduais AM",
+    cor: "#1565C0",
+  },
+};
+
+let _roadCache = {};        // { tipo: [ {id, nome, codigo, municipio, extensao, ...raw} ] }
+let _selectedRoad = null;   // road object selecionado
+let _leafletMap = null;
+let _layerAll = null;
+let _layerSelected = null;
+let _geojsonCache = {};
+
+// ── CSV parser simples ─────────────────────────────────────────────
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/);
+  if (!lines.length) return [];
+  const headers = splitCSVLine(lines[0]).map(h => h.trim().toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")  // remove acentos
+    .replace(/[^a-z0-9_]/g,"_").replace(/__+/g,"_").replace(/^_|_$/g,"")
+  );
+  return lines.slice(1).filter(l => l.trim()).map(l => {
+    const vals = splitCSVLine(l);
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = (vals[i]||"").trim().replace(/^"|"$/g,""); });
+    return obj;
+  });
+}
+
+function splitCSVLine(line) {
+  const res = []; let cur = ""; let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { inQ = !inQ; }
+    else if (c === "," && !inQ) { res.push(cur); cur = ""; }
+    else { cur += c; }
+  }
+  res.push(cur);
+  return res;
+}
+
+// ── Detecta coluna pelo nome (busca fuzzy em headers) ─────────────
+function detectCol(row, candidates) {
+  const keys = Object.keys(row);
+  for (const c of candidates) {
+    const found = keys.find(k => k.includes(c));
+    if (found && row[found]) return row[found];
+  }
+  return "";
+}
+
+function normalizeRoadRow(row) {
+  return {
+    nome:      detectCol(row, ["nome","denominacao","descricao","trecho","ramal","rodovia"]),
+    codigo:    detectCol(row, ["codigo","cod","id","sigla","am_"]),
+    municipio: detectCol(row, ["municipio","municipios","cidade","local"]),
+    extensao:  parseFloat(String(detectCol(row, ["extensao","extensao_km","comprimento","km","length"])||"0").replace(",",".")) || 0,
+    situacao:  detectCol(row, ["situacao","status","condicao","estado"]),
+    raw: row,
+  };
+}
+
+// ── Carrega dados da sheet ─────────────────────────────────────────
+async function loadRoadData(tipo) {
+  if (_roadCache[tipo]) return _roadCache[tipo];
+  const sheet = SHEETS[tipo];
+  if (!sheet) return [];
+  setRoadStatus("⏳ Carregando base de dados...");
+  try {
+    const resp = await fetch(sheet.url);
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const text = await resp.text();
+    const rows = parseCSV(text).map(normalizeRoadRow).filter(r => r.nome || r.codigo);
+    _roadCache[tipo] = rows;
+    setRoadStatus(`✅ ${rows.length} registros carregados`);
+    return rows;
+  } catch(e) {
+    setRoadStatus("⚠️ Não foi possível carregar a base. Verifique se a planilha é pública.");
+    console.error("Road data load error:", e);
+    return [];
+  }
+}
+
+function setRoadStatus(msg) {
+  const el = document.getElementById("road-status");
+  if (el) el.textContent = msg;
+}
+
+// ── Busca ──────────────────────────────────────────────────────────
+async function onRoadSearch(q) {
+  const tipo = getV("obra-tipo");
+  if (!["RAMAL / VICINAL","RODOVIA ESTADUAL"].includes(tipo)) {
+    showRoadDropdown([]);
+    return;
+  }
+  const data = await loadRoadData(tipo);
+  const term = q.toLowerCase().trim();
+  const results = term.length < 1
+    ? data.slice(0, 50)
+    : data.filter(r =>
+        r.nome.toLowerCase().includes(term) ||
+        r.codigo.toLowerCase().includes(term) ||
+        r.municipio.toLowerCase().includes(term)
+      ).slice(0, 40);
+  showRoadDropdown(results);
+}
+
+function showRoadDropdown(results) {
+  const dd = document.getElementById("road-dropdown");
+  if (!dd) return;
+  if (!results.length) { dd.style.display = "none"; return; }
+  dd.style.display = "block";
+  dd.innerHTML = results.map((r, i) => `
+    <div class="road-dropdown-item" onmousedown="selectRoad(${i},'${getV('obra-tipo').replace(/'/g,'')}')" data-idx="${i}">
+      <div class="rd-name">${r.nome || r.codigo || "—"}</div>
+      <div class="rd-meta">
+        ${r.codigo ? '<strong>'+r.codigo+'</strong> · ' : ''}
+        ${r.municipio || ''}
+        ${r.extensao > 0 ? ' · ' + r.extensao.toFixed(2) + ' km' : ''}
+        ${r.situacao ? ' · ' + r.situacao : ''}
+      </div>
+    </div>`).join("");
+  // Store results temporarily for selection
+  dd._results = results;
+}
+
+async function selectRoad(idx, tipo) {
+  const dd = document.getElementById("road-dropdown");
+  const results = dd?._results || [];
+  const road = results[idx];
+  if (!road) return;
+
+  _selectedRoad = { ...road, tipo };
+  dd.style.display = "none";
+  document.getElementById("road-search-input").value = road.nome || road.codigo;
+
+  // Show info card
+  const info = document.getElementById("road-selected-info");
+  const nomEl = document.getElementById("road-sel-nome");
+  const metEl = document.getElementById("road-sel-meta");
+  if (info && nomEl && metEl) {
+    nomEl.textContent = road.nome || road.codigo;
+    metEl.textContent = [
+      road.codigo ? "Cód: " + road.codigo : "",
+      road.municipio ? "Município: " + road.municipio : "",
+      road.extensao > 0 ? "Extensão: " + road.extensao.toFixed(2) + " km" : "",
+      road.situacao ? "Situação: " + road.situacao : "",
+    ].filter(Boolean).join(" | ");
+    info.style.display = "block";
+  }
+
+  // Auto-fill campos
+  if (road.nome && !document.getElementById("obra-nome").value) {
+    document.getElementById("obra-nome").value = road.nome;
+  }
+  if (road.municipio) {
+    document.getElementById("obra-local").value = road.municipio;
+  }
+  if (road.codigo) {
+    document.getElementById("obra-rodovia").value = road.codigo;
+  }
+  if (road.extensao > 0) {
+    document.getElementById("obra-extensao").value = road.extensao.toFixed(2);
+    syncObra();
+    setTimeout(updateExtBadge, 50);
+    // Show reset button and badge
+    const resetBtn = document.getElementById("ext-reset-btn");
+    if (resetBtn) resetBtn.style.display = "none"; // starts hidden since cur==orig
+  }
+
+  setRoadStatus("✅ " + (road.nome || road.codigo) + " selecionado");
+
+  // Atualiza mapa se estiver na aba memorial
+  if (_leafletMap) highlightRoadOnMap(road);
+}
+
+function updateExtBadge() {
+  const road = _selectedRoad;
+  if (!road || !road.extensao) return;
+  const cur = parseFloat(document.getElementById("obra-extensao").value)||0;
+  const orig = road.extensao;
+  const badge = document.getElementById("ext-full-badge");
+  const resetBtn = document.getElementById("ext-reset-btn");
+  if (badge) {
+    if (Math.abs(cur - orig) > 0.01) {
+      badge.textContent = "extensão total: " + orig.toFixed(2) + " km";
+      badge.style.display = "inline";
+      if (resetBtn) resetBtn.style.display = "inline-block";
+    } else {
+      badge.style.display = "none";
+      if (resetBtn) resetBtn.style.display = "none";
+    }
+  }
+}
+
+function resetExtensao() {
+  if (!_selectedRoad?.extensao) return;
+  document.getElementById("obra-extensao").value = _selectedRoad.extensao.toFixed(2);
+  syncObra();
+  updateExtBadge();
+}
+
+function clearRoadSelection() {
+  _selectedRoad = null;
+  document.getElementById("road-search-input").value = "";
+  document.getElementById("road-selected-info").style.display = "none";
+  document.getElementById("road-dropdown").style.display = "none";
+  setRoadStatus("");
+  if (_layerSelected) { _leafletMap?.removeLayer(_layerSelected); _layerSelected = null; }
+}
+
+// ── Muda tipo: recarrega estado do seletor ─────────────────────────
+function onTipoChange() {
+  syncObra(); renderParamCards();
+  const tipo = getV("obra-tipo");
+  const lbl = document.getElementById("road-selector-label");
+  const wrap = document.getElementById("road-selector-wrap");
+  if (["RAMAL / VICINAL","RODOVIA ESTADUAL"].includes(tipo)) {
+    wrap.style.display = "block";
+    if (lbl) lbl.textContent = tipo === "RAMAL / VICINAL"
+      ? "🔍 Buscar Ramal na base SEINFRA/AM"
+      : "🔍 Buscar Rodovia Estadual AM";
+    // Pre-carrega dados em background
+    loadRoadData(tipo);
+  } else {
+    wrap.style.display = "none";
+    clearRoadSelection();
+  }
+  // fecha dropdown ao mudar tipo
+  const dd = document.getElementById("road-dropdown");
+  if (dd) dd.style.display = "none";
+}
+
+// Fecha dropdown ao clicar fora
+document.addEventListener("click", e => {
+  const wrap = document.getElementById("road-selector-wrap");
+  if (wrap && !wrap.contains(e.target)) {
+    const dd = document.getElementById("road-dropdown");
+    if (dd) dd.style.display = "none";
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// MAPA LEAFLET
+// ═══════════════════════════════════════════════════════════════════
+let _mapaIniciado = false;
+
+function initMapa() {
+  if (_mapaIniciado || !document.getElementById("mapa-rodovia")) return;
+  _mapaIniciado = true;
+
+  _leafletMap = L.map("mapa-rodovia", { zoomControl: true }).setView([-3.5, -62], 6);
+
+  // Tiles OpenStreetMap
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
+    maxZoom: 18,
+  }).addTo(_leafletMap);
+
+  // Carrega os dois GeoJSONs
+  loadAllGeoJSON();
+}
+
+async function loadAllGeoJSON() {
+  setMapaStatus("⏳ Carregando camadas...");
+  const tipos = Object.keys(SHEETS);
+  for (const tipo of tipos) {
+    await loadGeoJSONLayer(tipo);
+  }
+  setMapaStatus("");
+  if (_selectedRoad) highlightRoadOnMap(_selectedRoad);
+}
+
+async function loadGeoJSONLayer(tipo) {
+  if (_geojsonCache[tipo]) return _geojsonCache[tipo];
+  const sheet = SHEETS[tipo];
+  if (!sheet?.geojson) return null;
+  try {
+    const resp = await fetch(sheet.geojson);
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const gj = await resp.json();
+    _geojsonCache[tipo] = gj;
+
+    const cor = sheet.cor;
+    const layer = L.geoJSON(gj, {
+      style: f => ({ color: cor, weight: 2, opacity: 0.5, fillOpacity: 0.1 }),
+      onEachFeature: (feature, layer) => {
+        const p = feature.properties || {};
+        const nome = p.nome || p.NOME || p.name || p.denominacao || p.DENOMINACAO || "";
+        const cod  = p.codigo || p.CODIGO || p.sigla || p.SIGLA || p.cd_setor || "";
+        const ext  = p.extensao || p.EXTENSAO || p.comprimento || "";
+        layer.bindTooltip(
+          `<strong>${nome||cod||"Via"}</strong>${ext?" · "+parseFloat(ext).toFixed(1)+"km":""}`,
+          { sticky: true, className: "leaflet-tooltip" }
+        );
+        layer.on("click", () => {
+          // Seleciona a rodovia clicando no mapa
+          const road = normalizeRoadRow(p);
+          selectRoadFromMap(road, tipo);
+        });
+      },
+    }).addTo(_leafletMap);
+
+    addMapaLegenda(tipo, cor, sheet.label);
+    return layer;
+  } catch(e) {
+    console.warn("GeoJSON não carregado:", tipo, e.message);
+    addMapaLegenda(tipo, "#ccc", sheet.label + " (aguardando upload)");
+    return null;
+  }
+}
+
+function selectRoadFromMap(road, tipo) {
+  _selectedRoad = { ...road, tipo };
+  // Preenche os campos
+  if (road.nome) document.getElementById("road-search-input").value = road.nome;
+  const info = document.getElementById("road-selected-info");
+  if (info) {
+    document.getElementById("road-sel-nome").textContent = road.nome || road.codigo;
+    document.getElementById("road-sel-meta").textContent = [
+      road.municipio ? "Município: " + road.municipio : "",
+      road.extensao > 0 ? "Extensão: " + road.extensao.toFixed(2) + " km" : "",
+    ].filter(Boolean).join(" | ");
+    info.style.display = "block";
+  }
+  if (road.extensao > 0) {
+    document.getElementById("obra-extensao").value = road.extensao.toFixed(2);
+    syncObra();
+  }
+  setRoadStatus("✅ Selecionado no mapa: " + (road.nome || road.codigo));
+}
+
+function highlightRoadOnMap(road) {
+  if (!_leafletMap) return;
+  if (_layerSelected) { _leafletMap.removeLayer(_layerSelected); _layerSelected = null; }
+  const tipo = road.tipo;
+  const gj = _geojsonCache[tipo];
+  if (!gj) return;
+
+  const nome = (road.nome || "").toLowerCase();
+  const cod  = (road.codigo || "").toLowerCase();
+
+  // Busca feature pelo nome ou código
+  const matching = { type:"FeatureCollection", features: gj.features.filter(f => {
+    const p = f.properties || {};
+    const fn = (p.nome||p.NOME||p.name||p.denominacao||p.DENOMINACAO||"").toLowerCase();
+    const fc = (p.codigo||p.CODIGO||p.sigla||p.SIGLA||"").toLowerCase();
+    return (nome && fn.includes(nome.substring(0,15))) || (cod && fc.includes(cod.substring(0,10)));
+  })};
+
+  if (!matching.features.length) return;
+
+  _layerSelected = L.geoJSON(matching, {
+    style: { color: "#F5A623", weight: 5, opacity: 1 },
+  }).addTo(_leafletMap);
+
+  try { _leafletMap.fitBounds(_layerSelected.getBounds(), { padding: [30, 30] }); } catch(e){}
+
+  const badge = document.getElementById("mapa-badge");
+  if (badge) {
+    badge.textContent = road.nome || road.codigo;
+    badge.style.display = "block";
+  }
+}
+
+function setMapaStatus(msg) {
+  const el = document.getElementById("mapa-status");
+  if (el) el.textContent = msg;
+}
+
+function addMapaLegenda(tipo, cor, label) {
+  const el = document.getElementById("mapa-legenda");
+  if (!el) return;
+  el.innerHTML += `<div style="display:flex;align-items:center;gap:5px">
+    <div style="width:20px;height:3px;background:${cor};border-radius:2px"></div>
+    <span>${label}</span>
+  </div>`;
+}
+
+function recarregarMapa() {
+  _geojsonCache = {};
+  document.getElementById("mapa-legenda").innerHTML = "";
+  loadAllGeoJSON();
+}
+
+// ── Inicializa mapa ao entrar na aba memorial ──────────────────────
+// Patch no switchTab existente
+const _origSwitchTab = window.switchTab;
+// We already have a tab switch handler; let's hook into it
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    if (btn.dataset.tab === "memorial") {
+      setTimeout(initMapa, 100);
+    }
+  });
+});
+
+// Pre-carrega dados da sheet ao abrir a página
+window.addEventListener("load", () => {
+  const tipo = getV("obra-tipo");
+  onTipoChange();
+  if (["RAMAL / VICINAL","RODOVIA ESTADUAL"].includes(tipo)) loadRoadData(tipo);
+});
 </script>
 </body>
 </html>
