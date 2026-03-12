@@ -686,7 +686,8 @@
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.8rem;">
       <div class="sec-title" style="margin-bottom:0"><div class="sec-title-bar"></div><h2>Serviços e Quantitativos</h2></div>
       <div class="btn-group">
-        <button class="btn btn-primary" onclick="addServico()">+ Adicionar Serviço</button>
+        <button class="btn btn-primary" onclick="addServico()">+ Serviço no KM atual</button>
+        <button class="btn btn-outline btn-sm" onclick="addNovoKm()" style="color:var(--azul);border-color:var(--azul-borda);font-weight:700;" title="Duplica os serviços para um novo KM">📍 Novo KM</button>
         <button class="btn btn-outline btn-sm" onclick="autoPreencherServicos()" style="background:var(--amarelo);color:var(--azul);border-color:var(--amarelo);font-weight:700;" title="Gera serviços padrão por tipo × extensão">⚡ Auto-Preencher</button>
         <button class="btn btn-outline btn-sm" onclick="calcularTudo()">🔄 Recalcular</button>
       </div>
@@ -715,6 +716,7 @@
 
     <div class="kpi-row" id="kpis-servicos"></div>
     <div class="formulas">
+      <div class="formula"><strong>MO Total (h)</strong> = Qtde × coef_MO &nbsp;|&nbsp; <em style="color:var(--cinza-aux)">coef_MO = h·homem / unidade (SICRO2)</em></div>
       <div class="formula"><strong>DP</strong> = ROUNDUP(MO_Total / Jornada, 0)</div>
       <div class="formula"><strong>DA</strong> = ROUNDUP(DP / QE, 0) &nbsp;&nbsp;|&nbsp;&nbsp; QE = Quantidade de Equipes/Frentes</div>
       <div class="formula"><strong>QMO</strong> = ROUNDUP(Qtde × taxa_MO / (DA × Jornada), 0)</div>
@@ -1302,11 +1304,37 @@ function dragEnd(e) {
 function addServico() {
   const tipo = getV("obra-tipo");
   const etapas = etapasDoTipo(tipo).filter(e => !PARAMETROS[tipo].find(p=>p.etapa===e&&!p.porKm));
-  SERVICOS.push({ id:mkId(), km:"1", etapa:etapas[0]||"Terraplenagem", codigo:"2.2.2", qtde:0, qe:1 });
+  // Default KM = o maior KM já existente
+  const kmAtual = SERVICOS.length ? Math.max(...SERVICOS.map(s=>parseInt(s.km)||1)) : 1;
+  SERVICOS.push({ id:mkId(), km:String(kmAtual), etapa:etapas[0]||"Terraplenagem", codigo:"2.2.2", qtde:0, qe:1 });
+  calcularTudo();
+  // Rola para o fim da tabela
+  setTimeout(()=>{ const t=document.getElementById("tabela-servicos"); if(t) t.scrollIntoView({behavior:"smooth",block:"end"}); }, 100);
+}
+
+// Duplica o bloco de serviços do último KM para um KM+1
+function addNovoKm() {
+  if (!SERVICOS.length) { addServico(); return; }
+  const kmMax = Math.max(...SERVICOS.map(s=>parseInt(s.km)||1));
+  const novoKm = kmMax + 1;
+  const bloco = SERVICOS.filter(s=>parseInt(s.km)===kmMax);
+  if (!bloco.length) { alert("Nenhum serviço no KM atual para duplicar."); return; }
+  bloco.forEach(s => {
+    SERVICOS.push({ id:mkId(), km:String(novoKm), etapa:s.etapa, codigo:s.codigo, qtde:s.qtde, qe:s.qe });
+  });
+  calcularTudo();
+  alert(`✅ KM ${novoKm} criado com ${bloco.length} serviço(s) copiado(s) do KM ${kmMax}.\nAjuste as quantidades conforme necessário.`);
+}
+
+// Adiciona serviço diretamente em um KM específico
+function addServicoKm(km) {
+  const tipo = getV("obra-tipo");
+  const etapas = etapasDoTipo(tipo).filter(e => !PARAMETROS[tipo].find(p=>p.etapa===e&&!p.porKm));
+  SERVICOS.push({ id:mkId(), km:String(km), etapa:etapas[0]||"Terraplenagem", codigo:"2.2.2", qtde:0, qe:1 });
   calcularTudo();
 }
 
-function removeServico(id) {
+
   SERVICOS = SERVICOS.filter(s => s.id !== id);
   calcularTudo();
 }
@@ -1325,13 +1353,26 @@ function renderServicos() {
   const etapas = etapasDoTipo(tipo);
 
   const tbody = document.getElementById("tbody-servicos");
+  // Agrupa por KM para inserir separadores visuais
+  let lastKm = null;
   tbody.innerHTML = SERVICOS.map((s, i) => {
     const calc = EAP_CALC.find(c => c.id===s.id);
     const cor = etapaCor(s.etapa);
     const etapasOpts = etapas.map(e =>
       `<option value="${e}" ${e===s.etapa?"selected":""}>${e}</option>`
     ).join("");
-    return `<tr draggable="true"
+    const kmInt = parseInt(s.km)||1;
+    let separador = "";
+    if (String(s.km) !== String(lastKm)) {
+      lastKm = s.km;
+      separador = `<tr style="background:#EBF0FA;border-top:2px solid var(--azul-borda)">
+        <td colspan="10" style="padding:0.4rem 0.8rem;font-size:0.68rem;font-weight:700;color:var(--azul);letter-spacing:0.1em;text-transform:uppercase">
+          📍 KM ${s.km}
+          <button onclick="addServicoKm('${s.km}')" style="margin-left:0.8rem;font-size:0.65rem;font-weight:700;padding:0.15rem 0.5rem;background:var(--azul);color:white;border:none;border-radius:4px;cursor:pointer">+ Serviço neste KM</button>
+        </td>
+      </tr>`;
+    }
+    return separador + `<tr draggable="true"
       ondragstart="dragStart(event,${s.id})"
       ondragover="dragOver(event,${s.id})"
       ondragleave="dragLeave(event)"
@@ -2067,18 +2108,28 @@ function gerarPreviewImpressao() {
   // ── PÁGINA 3: GANTT ──
   if (checks.gantt && GANTT_DATA.length > 0) {
     // Captura o SVG gerado
-    const ganttSVG = document.getElementById("gantt-svg");
-    let ganttContent = "";
-    if (ganttSVG && ganttSVG.outerHTML && ganttSVG.getAttribute("width")) {
-      ganttContent = `<div class="print-gantt-wrap" style="overflow-x:auto">${ganttSVG.outerHTML}</div>`;
-    } else {
-      // Re-gera o gantt para captura
+    let srcSVG = document.getElementById("gantt-svg");
+    if (!srcSVG || !srcSVG.getAttribute("width")) {
       renderGantt();
-      const g2 = document.getElementById("gantt-svg");
-      ganttContent = g2 && g2.getAttribute("width")
-        ? `<div class="print-gantt-wrap" style="overflow-x:auto">${g2.outerHTML}</div>`
-        : "<p style='color:var(--cinza-aux);padding:1rem'>Acesse a aba Cronograma antes de imprimir para gerar o Gantt.</p>";
+      srcSVG = document.getElementById("gantt-svg");
     }
+
+    // Função que gera o SVG escalado para caber na largura do preview
+    const buildScaledGantt = (svg) => {
+      if (!svg || !svg.getAttribute("width")) {
+        return "<p style='color:var(--cinza-aux);padding:1rem'>Acesse a aba Cronograma antes de imprimir para gerar o Gantt.</p>";
+      }
+      const svgW = parseInt(svg.getAttribute("width"))  || 2000;
+      const svgH = parseInt(svg.getAttribute("height")) || 600;
+      // Adiciona viewBox ao SVG para que seja responsivo
+      const svgHtml = svg.outerHTML
+        .replace(/width="[^"]*"/, `width="100%"`)
+        .replace(/height="[^"]*"/, `height="auto"`)
+        .replace(/<svg /, `<svg viewBox="0 0 ${svgW} ${svgH}" preserveAspectRatio="xMinYMin meet" `);
+      return `<div style="width:100%;overflow:hidden">${svgHtml}</div>`;
+    };
+
+    let ganttContent = buildScaledGantt(srcSVG);
 
     const maxDia = GANTT_DATA.reduce((m,a)=>Math.max(m,a.termino),0);
     html += `<div class="print-page">
