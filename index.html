@@ -614,8 +614,10 @@
               <input type="number" id="obra-extensao" value="2" min="0.1" step="0.1" oninput="syncObra()"/>
             </div>
             <div class="form-group">
-              <label>Número de Frentes</label>
-              <input type="number" id="obra-frentes" value="2" min="1" step="1" oninput="syncObra()"/>
+              <label>Nº de KMs (automático)</label>
+              <input type="number" id="obra-frentes" value="2" min="1" step="1" readonly
+                style="background:var(--cinza-bg);color:var(--cinza-med);cursor:not-allowed;"
+                title="Calculado automaticamente a partir da Extensão Total"/>
             </div>
           </div>
         </div>
@@ -1176,6 +1178,22 @@ function renderParamCards() {
 function syncObra() {
   const nome = getV("obra-nome");
   document.getElementById("header-obra-nome").textContent = nome || "Obra não identificada";
+
+  // Calcula nº de KMs automaticamente a partir da extensão
+  const ext = parseFloat(getV("obra-extensao")) || 1;
+  const nKmTotal = Math.ceil(ext);           // ex: 15.21 → 16
+  const nKmInteiros = Math.floor(ext);       // ex: 15.21 → 15
+  const fracao = +(ext - nKmInteiros).toFixed(6); // ex: 0.21
+  const nKmLabel = fracao > 0
+    ? `${nKmTotal} (${nKmInteiros} completo${nKmInteiros!==1?"s":""} + KM ${nKmTotal} com ${Math.round(fracao*100)}%)`
+    : `${nKmTotal}`;
+  const frentesInput = document.getElementById("obra-frentes");
+  frentesInput.value = nKmTotal;
+  frentesInput.title = nKmLabel;
+  // Atualiza o tooltip/label ao lado do campo
+  const lbl = frentesInput.parentElement.querySelector("label");
+  if (lbl) lbl.textContent = `KMs: ${nKmLabel}`;
+  calcularTudo();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1243,30 +1261,43 @@ const SERVICOS_PADRAO = {
 };
 
 function autoPreencherServicos() {
-  const tipo     = getV("obra-tipo");
-  const nKm      = parseFloat(getV("obra-extensao")) || 1;
-  const nFrentes = parseInt(getV("obra-frentes")) || 1;
-  const template = SERVICOS_PADRAO[tipo];
+  const tipo        = getV("obra-tipo");
+  const ext         = parseFloat(getV("obra-extensao")) || 1;
+  const nKmInteiros = Math.floor(ext);
+  const fracao      = +(ext - nKmInteiros).toFixed(6);
+  const nKmTotal    = Math.ceil(ext);  // total de KMs (incluindo o parcial)
+  const template    = SERVICOS_PADRAO[tipo];
   if (!template) { alert("Tipo de obra sem template padrão."); return; }
   if (SERVICOS.length > 0) {
     if (!confirm('Substituir serviços atuais pelos padrão para "' + tipo + '"?')) return;
   }
   SERVICOS = [];
-  for (let fr = 1; fr <= nFrentes; fr++) {
+
+  for (let km = 1; km <= nKmTotal; km++) {
+    const ehParcial = (fracao > 0 && km === nKmTotal);
+    const fator     = ehParcial ? fracao : 1.0;
+
     template.forEach(t => {
       const compMatch = COMPOSICOES.find(c => c.cod === t.codigo);
-      if (!compMatch) return; // Pula silenciosamente se código não existe
+      if (!compMatch) return;
+      const qtdeBase = t.qtdePkm * fator;
+      const qtde     = ehParcial ? Math.max(1, Math.round(qtdeBase)) : Math.round(t.qtdePkm);
       SERVICOS.push({
         id:    mkId(),
-        km:    String(fr),
+        km:    String(km),
         etapa: t.etapa,
         codigo:t.codigo,
-        qtde:  Math.round(t.qtdePkm * nKm),
+        qtde:  qtde,
         qe:    t.qe,
       });
     });
   }
   calcularTudo();
+
+  const msg = fracao > 0
+    ? `✅ Gerados ${nKmInteiros} KM(s) completo(s) + KM ${nKmTotal} parcial (${Math.round(fracao*100)}% das quantidades).`
+    : `✅ Gerados ${nKmTotal} KM(s) completo(s).`;
+  alert(msg);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1315,15 +1346,23 @@ function addServico() {
 // Duplica o bloco de serviços do último KM para um KM+1
 function addNovoKm() {
   if (!SERVICOS.length) { addServico(); return; }
-  const kmMax = Math.max(...SERVICOS.map(s=>parseInt(s.km)||1));
-  const novoKm = kmMax + 1;
+  const ext        = parseFloat(getV("obra-extensao")) || 1;
+  const nKmTotal   = Math.ceil(ext);
+  const kmMax      = Math.max(...SERVICOS.map(s=>parseInt(s.km)||1));
+  const novoKm     = kmMax + 1;
+  const fracao     = +(ext - Math.floor(ext)).toFixed(6);
+  const ehParcial  = (fracao > 0 && novoKm === nKmTotal);
+
   const bloco = SERVICOS.filter(s=>parseInt(s.km)===kmMax);
   if (!bloco.length) { alert("Nenhum serviço no KM atual para duplicar."); return; }
+
   bloco.forEach(s => {
-    SERVICOS.push({ id:mkId(), km:String(novoKm), etapa:s.etapa, codigo:s.codigo, qtde:s.qtde, qe:s.qe });
+    const qtde = ehParcial ? Math.max(1, Math.round(s.qtde * fracao)) : s.qtde;
+    SERVICOS.push({ id:mkId(), km:String(novoKm), etapa:s.etapa, codigo:s.codigo, qtde, qe:s.qe });
   });
   calcularTudo();
-  alert(`✅ KM ${novoKm} criado com ${bloco.length} serviço(s) copiado(s) do KM ${kmMax}.\nAjuste as quantidades conforme necessário.`);
+  const label = ehParcial ? `KM ${novoKm} (parcial — ${Math.round(fracao*100)}%)` : `KM ${novoKm}`;
+  alert(`✅ ${label} criado com ${bloco.length} serviço(s) copiado(s) do KM ${kmMax}.\nAjuste as quantidades conforme necessário.`);
 }
 
 // Adiciona serviço diretamente em um KM específico
@@ -1355,19 +1394,26 @@ function renderServicos() {
   const tbody = document.getElementById("tbody-servicos");
   // Agrupa por KM para inserir separadores visuais
   let lastKm = null;
+  const ext        = parseFloat(getV("obra-extensao")) || 1;
+  const nKmTotal   = Math.ceil(ext);
+  const fracao     = +(ext - Math.floor(ext)).toFixed(6);
   tbody.innerHTML = SERVICOS.map((s, i) => {
     const calc = EAP_CALC.find(c => c.id===s.id);
     const cor = etapaCor(s.etapa);
     const etapasOpts = etapas.map(e =>
       `<option value="${e}" ${e===s.etapa?"selected":""}>${e}</option>`
     ).join("");
-    const kmInt = parseInt(s.km)||1;
     let separador = "";
     if (String(s.km) !== String(lastKm)) {
       lastKm = s.km;
+      const kmNum   = parseInt(s.km)||0;
+      const parcial = (fracao > 0.001 && kmNum === nKmTotal);
+      const badge   = parcial
+        ? `<span style="margin-left:0.6rem;background:#F5A623;color:#fff;font-size:0.6rem;padding:0.1rem 0.45rem;border-radius:100px;font-weight:700">PARCIAL ${Math.round(fracao*100)}%</span>`
+        : "";
       separador = `<tr style="background:#EBF0FA;border-top:2px solid var(--azul-borda)">
         <td colspan="10" style="padding:0.4rem 0.8rem;font-size:0.68rem;font-weight:700;color:var(--azul);letter-spacing:0.1em;text-transform:uppercase">
-          📍 KM ${s.km}
+          📍 KM ${s.km}${badge}
           <button onclick="addServicoKm('${s.km}')" style="margin-left:0.8rem;font-size:0.65rem;font-weight:700;padding:0.15rem 0.5rem;background:var(--azul);color:white;border:none;border-radius:4px;cursor:pointer">+ Serviço neste KM</button>
         </td>
       </tr>`;
@@ -2322,7 +2368,7 @@ function gerarPreviewImpressao() {
   document.getElementById("obra-inicio").value = today;
 
   renderParamCards();
-  calcularTudo();
+  syncObra(); // inicializa frentes a partir da extensão (isso já chama calcularTudo)
 
   // Monitorar mudanças nos campos de parâmetros
   ["obra-jornada","obra-defasagem","obra-inicio"].forEach(id => {
