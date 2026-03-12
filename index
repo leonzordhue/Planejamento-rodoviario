@@ -1,0 +1,2138 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SEINFRA/AM — Plataforma de Planejamento de Obras</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <!-- Chart.js para histogramas -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- jsPDF para exportação -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.7.0/jspdf.plugin.autotable.min.js"></script>
+
+  <style>
+    :root {
+      --azul:         #002D72;
+      --azul-hover:   #00348A;
+      --azul-claro:   #EBF0FA;
+      --azul-borda:   #C4D0E8;
+      --amarelo:      #F5A623;
+      --amarelo-cl:   #FEF3DC;
+      --amarelo-brd:  #F5C878;
+      --verde:        #007B3E;
+      --verde-cl:     #E6F4ED;
+      --verde-brd:    #A3D9B8;
+      --vermelho:     #C0392B;
+      --vermelho-cl:  #FDECEA;
+      --cinza-txt:    #1A2540;
+      --cinza-med:    #4A5568;
+      --cinza-aux:    #8896A8;
+      --cinza-bg:     #F5F7FB;
+      --borda:        #E0E6F0;
+      --branco:       #FFFFFF;
+      --font:         'Outfit', sans-serif;
+      --shadow:       0 2px 16px rgba(0,45,114,0.09), 0 0 0 1px var(--borda);
+      --shadow-hover: 0 8px 32px rgba(0,45,114,0.14), 0 0 0 1px var(--azul-borda);
+      --radius:       12px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--font); background: var(--cinza-bg); color: var(--cinza-txt); -webkit-font-smoothing: antialiased; }
+    a { text-decoration: none; color: inherit; }
+    ::selection { background: rgba(0,45,114,0.14); }
+    input, select, textarea { font-family: var(--font); }
+    button { font-family: var(--font); cursor: pointer; }
+
+    /* ══ TOPBAR ══ */
+    .topbar {
+      background: var(--azul); padding: 0.5rem 2rem;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .topbar-left { font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.55); font-weight: 500; }
+    .topbar-right { font-size: 0.68rem; font-weight: 600; color: var(--amarelo); letter-spacing: 0.05em; text-transform: uppercase; display: flex; align-items: center; gap: 0.5rem; }
+    .topbar-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amarelo); box-shadow: 0 0 8px var(--amarelo); animation: pulse 2s ease-in-out infinite; }
+
+    /* ══ HEADER ══ */
+    .site-header {
+      background: var(--branco); border-bottom: 2px solid var(--azul);
+      padding: 0.9rem 2rem; display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 200; box-shadow: 0 2px 20px rgba(0,45,114,0.08);
+    }
+    .header-brand { display: flex; align-items: center; gap: 0.9rem; }
+    .brand-escudo { width: 42px; height: 42px; border-radius: 6px; background: var(--azul); display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0; }
+    .brand-sup { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--cinza-aux); margin-bottom: 0.1rem; }
+    .brand-name { font-size: 1rem; font-weight: 800; color: var(--azul); letter-spacing: -0.01em; }
+    .brand-name span { color: var(--amarelo); }
+    .header-right { display: flex; align-items: center; gap: 1rem; }
+    .header-badge { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--azul); background: var(--azul-claro); border: 1.5px solid var(--azul-borda); padding: 0.35em 0.9em; border-radius: 100px; }
+    .header-obra-nome { font-size: 0.8rem; font-weight: 600; color: var(--cinza-med); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ══ TABS ══ */
+    .tabs-bar {
+      background: var(--branco); border-bottom: 1px solid var(--borda);
+      display: flex; align-items: center; gap: 0; overflow-x: auto; padding: 0 2rem;
+      box-shadow: 0 1px 0 var(--borda);
+    }
+    .tab-btn {
+      padding: 0.85rem 1.2rem; border: none; background: transparent;
+      font-size: 0.75rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--cinza-aux); border-bottom: 3px solid transparent;
+      transition: all 0.2s; white-space: nowrap; position: relative;
+    }
+    .tab-btn:hover { color: var(--azul); }
+    .tab-btn.active { color: var(--azul); border-bottom-color: var(--amarelo); }
+    .tab-badge { display: inline-block; margin-left: 6px; background: var(--amarelo-cl); color: var(--amarelo); border: 1px solid var(--amarelo-brd); border-radius: 100px; padding: 0 6px; font-size: 0.6rem; font-weight: 700; }
+    .tab-badge.verde { background: var(--verde-cl); color: var(--verde); border-color: var(--verde-brd); }
+
+    /* ══ CONTEÚDO ══ */
+    .main-content { max-width: 1440px; margin: 0 auto; padding: 1.5rem 2rem 3rem; }
+
+    /* ══ SECTION TITLE ══ */
+    .sec-title { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1.2rem; }
+    .sec-title-bar { width: 4px; height: 20px; background: var(--amarelo); border-radius: 2px; }
+    .sec-title h2 { font-size: 1rem; font-weight: 700; color: var(--azul); letter-spacing: 0.04em; text-transform: uppercase; }
+    .sec-title span { font-size: 0.7rem; color: var(--cinza-aux); font-weight: 500; }
+
+    /* ══ CARDS ══ */
+    .card { background: var(--branco); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+    .card-header { padding: 0.9rem 1.2rem; border-bottom: 1px solid var(--borda); display: flex; align-items: center; gap: 0.6rem; }
+    .card-header-icon { width: 28px; height: 28px; border-radius: 6px; background: var(--azul-claro); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; }
+    .card-header-title { font-size: 0.78rem; font-weight: 700; color: var(--azul); text-transform: uppercase; letter-spacing: 0.06em; }
+    .card-body { padding: 1.2rem; }
+
+    /* ══ FORM GRID ══ */
+    .form-grid { display: grid; gap: 1rem; }
+    .form-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+    .form-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+    .form-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+    .form-group { display: flex; flex-direction: column; gap: 0.35rem; }
+    .form-group label { font-size: 0.68rem; font-weight: 700; color: var(--cinza-aux); text-transform: uppercase; letter-spacing: 0.08em; }
+    .form-group input, .form-group select, .form-group textarea {
+      padding: 0.6rem 0.8rem; border: 1.5px solid var(--borda); border-radius: 8px;
+      font-size: 0.85rem; color: var(--cinza-txt); background: var(--branco);
+      transition: border-color 0.2s; width: 100%;
+    }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+      outline: none; border-color: var(--azul); box-shadow: 0 0 0 3px rgba(0,45,114,0.08);
+    }
+    .form-span-2 { grid-column: span 2; }
+    .form-span-3 { grid-column: span 3; }
+    .form-span-full { grid-column: 1 / -1; }
+
+    /* ══ PARAM CARDS ══ */
+    .param-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.8rem; }
+    .param-card { background: var(--cinza-bg); border-radius: 10px; padding: 0.9rem 1rem; border-left: 4px solid var(--azul); }
+    .param-card-type { font-size: 0.6rem; color: var(--cinza-aux); font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.3rem; }
+    .param-card-etapa { font-size: 0.82rem; font-weight: 600; color: var(--cinza-txt); margin-bottom: 0.4rem; }
+    .param-card-dias { font-size: 1.4rem; font-weight: 800; color: var(--azul); }
+    .param-card-dias span { font-size: 0.65rem; font-weight: 500; color: var(--cinza-aux); }
+
+    /* ══ BUTTONS ══ */
+    .btn { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.2rem; border: none; border-radius: 8px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; transition: all 0.2s; }
+    .btn-primary { background: var(--azul); color: var(--branco); }
+    .btn-primary:hover { background: var(--azul-hover); box-shadow: 0 4px 16px rgba(0,45,114,0.25); }
+    .btn-amarelo { background: var(--amarelo); color: var(--branco); }
+    .btn-amarelo:hover { background: #e09520; box-shadow: 0 4px 16px rgba(245,166,35,0.3); }
+    .btn-verde { background: var(--verde); color: var(--branco); }
+    .btn-verde:hover { background: #006830; }
+    .btn-outline { background: transparent; color: var(--azul); border: 1.5px solid var(--azul-borda); }
+    .btn-outline:hover { background: var(--azul-claro); }
+    .btn-danger { background: transparent; color: var(--vermelho); border: 1.5px solid rgba(192,57,43,0.3); padding: 0.35rem 0.7rem; font-size: 0.72rem; }
+    .btn-danger:hover { background: var(--vermelho-cl); }
+    .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.72rem; }
+    .btn-group { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+
+    /* ══ TABELA ══ */
+    .table-wrap { overflow-x: auto; border-radius: var(--radius); box-shadow: var(--shadow); }
+    table { width: 100%; border-collapse: collapse; background: var(--branco); font-size: 0.82rem; }
+    thead tr { background: var(--azul); }
+    thead th { padding: 0.75rem 0.8rem; text-align: left; font-size: 0.65rem; font-weight: 700; color: rgba(255,255,255,0.85); text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap; }
+    thead th.right { text-align: right; }
+    tbody tr:nth-child(even) { background: var(--cinza-bg); }
+    tbody tr:hover { background: var(--azul-claro); }
+    tbody td { padding: 0.65rem 0.8rem; color: var(--cinza-txt); border-bottom: 1px solid var(--borda); font-size: 0.82rem; white-space: nowrap; }
+    tbody td.right { text-align: right; font-variant-numeric: tabular-nums; }
+    tbody td.mono { font-variant-numeric: tabular-nums; }
+    tbody td.bold { font-weight: 700; }
+    .td-etapa { display: flex; align-items: center; gap: 8px; }
+    .etapa-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    tfoot tr { background: var(--azul); }
+    tfoot td { padding: 0.7rem 0.8rem; font-weight: 700; color: var(--branco); font-size: 0.82rem; border: none; }
+    tfoot td.right { text-align: right; }
+
+    /* ══ INPUT INLINE ══ */
+    .input-inline { padding: 0.35rem 0.5rem; border: 1.5px solid var(--borda); border-radius: 6px; font-size: 0.8rem; color: var(--cinza-txt); background: var(--branco); width: 100%; transition: border-color 0.2s; }
+    .input-inline:focus { outline: none; border-color: var(--azul); }
+    .input-inline.w40 { width: 48px; text-align: center; }
+    .input-inline.w60 { width: 70px; }
+    .input-inline.w80 { width: 90px; }
+
+    /* ══ KPIS ══ */
+    .kpi-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.8rem; margin-bottom: 1.2rem; }
+    .kpi { background: var(--branco); border-radius: var(--radius); padding: 1rem 1.1rem; box-shadow: var(--shadow); border-top: 3px solid var(--azul); }
+    .kpi-label { font-size: 0.62rem; font-weight: 700; color: var(--cinza-aux); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.4rem; }
+    .kpi-value { font-size: 1.6rem; font-weight: 800; color: var(--azul); line-height: 1; }
+    .kpi-value.amarelo { color: var(--amarelo); }
+    .kpi-value.verde { color: var(--verde); }
+    .kpi-unit { font-size: 0.65rem; color: var(--cinza-aux); font-weight: 500; margin-top: 0.2rem; }
+
+    /* ══ GANTT ══ */
+    #gantt-scroll { overflow-x: auto; background: var(--branco); border-radius: var(--radius); box-shadow: var(--shadow); }
+    #gantt-svg { display: block; }
+
+    /* ══ HISTOGRAMA ══ */
+    .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+    .chart-card { background: var(--branco); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.2rem; }
+    .chart-title { font-size: 0.75rem; font-weight: 700; color: var(--azul); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 1rem; }
+
+    /* ══ MEMORIAL ══ */
+    .memorial-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .memorial-row { display: flex; justify-content: space-between; padding: 0.6rem 0; border-bottom: 1px solid var(--borda); align-items: center; }
+    .memorial-label { font-size: 0.75rem; color: var(--cinza-aux); font-weight: 500; }
+    .memorial-value { font-size: 0.82rem; color: var(--cinza-txt); font-weight: 600; text-align: right; max-width: 60%; }
+    .memorial-value.accent { color: var(--azul); font-weight: 700; }
+
+    /* ══ GANTT LEGEND ══ */
+    .gantt-legend { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.8rem; }
+    .legend-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.7rem; color: var(--cinza-aux); }
+    .legend-dot { width: 10px; height: 10px; border-radius: 3px; }
+
+    /* ══ ALERT ══ */
+    .alert { padding: 1rem 1.2rem; border-radius: 8px; font-size: 0.82rem; display: flex; align-items: center; gap: 0.7rem; margin-bottom: 1rem; }
+    .alert-info { background: var(--azul-claro); color: var(--azul); border: 1px solid var(--azul-borda); }
+    .alert-warn { background: var(--amarelo-cl); color: #8a5a00; border: 1px solid var(--amarelo-brd); }
+    .alert-success { background: var(--verde-cl); color: var(--verde); border: 1px solid var(--verde-brd); }
+
+    /* ══ FORMULAS ══ */
+    .formulas { display: flex; flex-wrap: wrap; gap: 1rem; background: var(--cinza-bg); border-radius: 8px; padding: 0.8rem 1rem; margin-top: 1rem; }
+    .formula { font-size: 0.72rem; color: var(--cinza-med); font-family: 'Courier New', monospace; }
+    .formula strong { color: var(--azul); }
+
+    /* ══ FOOTER ══ */
+    .site-footer { background: var(--azul); color: rgba(255,255,255,0.6); padding: 1.5rem 2rem; margin-top: 3rem; }
+    .footer-inner { max-width: 1440px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
+    .footer-brand { display: flex; align-items: center; gap: 0.8rem; }
+    .footer-name { font-size: 1rem; font-weight: 800; color: var(--branco); }
+    .footer-name span { color: var(--amarelo); }
+    .footer-sub { font-size: 0.68rem; color: rgba(255,255,255,0.5); }
+    .footer-copy { font-size: 0.68rem; }
+
+    /* ══ ANIMAÇÕES ══ */
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    .tab-panel { animation: fadeIn 0.25s ease; }
+
+    /* ══ EMPTY STATE ══ */
+    .empty-state { text-align: center; padding: 3rem; color: var(--cinza-aux); }
+    .empty-state-icon { font-size: 2.5rem; margin-bottom: 0.8rem; }
+    .empty-state p { font-size: 0.9rem; }
+
+    /* ══ RESPONSIVE ══ */
+    @media (max-width: 900px) {
+      .form-grid.cols-2, .form-grid.cols-3, .form-grid.cols-4 { grid-template-columns: 1fr; }
+      .chart-grid { grid-template-columns: 1fr; }
+      .memorial-grid { grid-template-columns: 1fr; }
+      .main-content { padding: 1rem; }
+    }
+
+    /* ══ PRINT ══ */
+    @media print {
+      .topbar, .site-header, .tabs-bar, .btn-group, .btn, .site-footer { display: none !important; }
+      body { background: white; }
+      .card { box-shadow: none; border: 1px solid #ccc; }
+    }
+
+    /* select input full width fix */
+    select { appearance: auto; }
+
+    .color-mo  { color: #0277BD; }
+    .color-eqp { color: #2E7D32; }
+    .color-da  { color: var(--amarelo); }
+    .bg-mo { background: #E3F2FD; }
+    .bg-eqp { background: #E8F5E9; }
+    td.da { color: var(--amarelo); font-weight: 700; }
+    td.dp { color: #0277BD; }
+    td.mo { color: #2E7D32; }
+
+    /* ══ BOTÃO IMPRIMIR NA TABS BAR ══ */
+    .btn-imprimir {
+      font-family: var(--font); font-size: 0.75rem; font-weight: 700;
+      background: var(--azul); color: var(--branco);
+      border: none; border-radius: 8px; padding: 0.5em 1.1em;
+      cursor: pointer; display: flex; align-items: center; gap: 0.4rem;
+      transition: all 0.18s; letter-spacing: 0.03em; white-space: nowrap;
+    }
+    .btn-imprimir:hover { background: var(--amarelo); color: var(--azul); transform: translateY(-1px); box-shadow: 0 4px 14px rgba(245,166,35,0.35); }
+
+    /* ══ MODAL DE IMPRESSÃO ══ */
+    .print-overlay {
+      position: fixed; inset: 0; z-index: 1000;
+      background: rgba(0,20,60,0.55); backdrop-filter: blur(4px);
+      display: flex; align-items: flex-start; justify-content: center;
+      padding: 1.5rem 1rem 1rem; overflow-y: auto;
+      opacity: 0; pointer-events: none; transition: opacity 0.22s;
+    }
+    .print-overlay.open { opacity: 1; pointer-events: all; }
+    .print-modal {
+      background: var(--branco); border-radius: 16px; width: 100%; max-width: 1200px;
+      box-shadow: 0 24px 80px rgba(0,20,60,0.35), 0 0 0 1px rgba(0,45,114,0.12);
+      overflow: hidden; transform: translateY(16px); transition: transform 0.25s;
+      display: flex; flex-direction: column;
+    }
+    .print-overlay.open .print-modal { transform: translateY(0); }
+
+    /* Toolbar do modal */
+    .print-toolbar {
+      background: var(--azul); padding: 1rem 1.5rem;
+      display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+    }
+    .print-toolbar-left { display: flex; align-items: center; gap: 0.85rem; }
+    .print-toolbar-icon { font-size: 1.4rem; }
+    .print-toolbar-title { font-size: 1rem; font-weight: 800; color: var(--branco); }
+    .print-toolbar-sub { font-size: 0.72rem; color: rgba(255,255,255,0.6); margin-top: 0.1rem; }
+    .print-toolbar-actions { display: flex; gap: 0.5rem; align-items: center; }
+    .btn-pdf-action {
+      font-family: var(--font); font-size: 0.8rem; font-weight: 700;
+      background: var(--amarelo); color: var(--azul); border: none;
+      border-radius: 8px; padding: 0.55em 1.2em; cursor: pointer;
+      display: flex; align-items: center; gap: 0.4rem; transition: all 0.15s;
+    }
+    .btn-pdf-action:hover { background: #f0c060; transform: translateY(-1px); }
+    .btn-fechar-modal {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: rgba(255,255,255,0.12); border: none;
+      color: rgba(255,255,255,0.8); font-size: 1rem; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; transition: background 0.15s;
+    }
+    .btn-fechar-modal:hover { background: rgba(255,255,255,0.22); }
+
+    /* Seletor de seções */
+    .print-section-selector {
+      background: var(--cinza-bg); border-bottom: 1px solid var(--borda);
+      padding: 1rem 1.5rem; display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;
+    }
+    .print-selector-title { font-size: 0.72rem; font-weight: 700; color: var(--cinza-aux); text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap; }
+    .print-checkboxes { display: flex; gap: 0.6rem; flex-wrap: wrap; flex: 1; }
+    .print-check-item {
+      display: flex; align-items: center; gap: 0.5rem; cursor: pointer;
+      font-size: 0.78rem; font-weight: 500; color: var(--cinza-txt);
+      background: var(--branco); border: 1.5px solid var(--borda);
+      border-radius: 8px; padding: 0.4em 0.85em; transition: all 0.15s; user-select: none;
+    }
+    .print-check-item:has(input:checked) { border-color: var(--azul); background: var(--azul-claro); color: var(--azul); }
+    .print-check-item input { display: none; }
+    .pcheck-box {
+      width: 14px; height: 14px; border: 2px solid var(--borda); border-radius: 3px;
+      display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s;
+    }
+    .print-check-item:has(input:checked) .pcheck-box { background: var(--azul); border-color: var(--azul); }
+    .print-check-item:has(input:checked) .pcheck-box::after { content: '✓'; font-size: 9px; color: white; font-weight: 800; }
+    .print-tip { font-size: 0.7rem; color: var(--cinza-aux); width: 100%; margin-top: 0.3rem; }
+
+    /* Área de preview */
+    .print-preview-area {
+      padding: 1.5rem; overflow-y: auto; max-height: calc(100vh - 220px);
+      background: #e8ecf4;
+    }
+
+    /* Páginas do preview */
+    .print-page {
+      background: white; border-radius: 6px; margin-bottom: 1.5rem;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.12); overflow: hidden;
+      page-break-after: always;
+    }
+    .print-page:last-child { margin-bottom: 0; }
+    .print-page-capa {
+      background: var(--azul); padding: 2rem 2.5rem; position: relative; overflow: hidden;
+    }
+    .print-page-capa::before {
+      content:''; position:absolute; left:0; top:0; bottom:0; width:6px;
+      background: linear-gradient(to bottom, var(--amarelo), rgba(245,166,35,0.1));
+    }
+    .print-page-capa::after {
+      content:''; position:absolute; inset:0;
+      background: repeating-linear-gradient(-50deg, transparent, transparent 50px, rgba(255,255,255,0.015) 50px, rgba(255,255,255,0.015) 51px);
+    }
+    .print-capa-inner { position:relative; z-index:1; }
+    .print-capa-gov { font-size:0.65rem; font-weight:600; letter-spacing:0.12em; text-transform:uppercase; color:rgba(255,255,255,0.5); margin-bottom:0.4rem; }
+    .print-capa-title { font-size:1.6rem; font-weight:900; color:#fff; letter-spacing:-0.02em; margin-bottom:0.3rem; }
+    .print-capa-nome { font-size:1rem; font-weight:700; color:var(--amarelo); margin-bottom:1rem; }
+    .print-capa-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:0; border-top:1px solid rgba(255,255,255,0.12); }
+    .print-capa-item { padding:0.9rem 1rem; border-right:1px solid rgba(255,255,255,0.1); }
+    .print-capa-item:last-child { border-right:none; }
+    .print-capa-lbl { font-size:0.58rem; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:rgba(255,255,255,0.45); margin-bottom:0.3rem; }
+    .print-capa-val { font-size:0.9rem; font-weight:700; color:#fff; }
+
+    .print-section-title {
+      background: var(--azul-claro); border-left: 5px solid var(--azul);
+      padding: 0.6rem 1.2rem; display: flex; align-items: center; gap: 0.6rem;
+      font-size: 0.75rem; font-weight: 800; color: var(--azul); text-transform: uppercase; letter-spacing: 0.08em;
+    }
+    .print-section-body { padding: 1.2rem; }
+
+    /* Tabelas no preview */
+    .ptable { width:100%; border-collapse:collapse; font-size:0.72rem; font-family:var(--font); }
+    .ptable thead tr { background: var(--azul); }
+    .ptable thead th { padding:0.5rem 0.6rem; color:rgba(255,255,255,0.9); font-size:0.6rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; text-align:left; white-space:nowrap; }
+    .ptable thead th.r { text-align:right; }
+    .ptable tbody tr:nth-child(even) { background: var(--cinza-bg); }
+    .ptable tbody td { padding:0.45rem 0.6rem; border-bottom:1px solid #eee; color:var(--cinza-txt); white-space:nowrap; }
+    .ptable tbody td.r { text-align:right; font-variant-numeric:tabular-nums; }
+    .ptable tfoot tr { background: var(--azul); }
+    .ptable tfoot td { padding:0.5rem 0.6rem; color:white; font-weight:700; font-size:0.7rem; }
+    .ptable tfoot td.r { text-align:right; }
+
+    /* KPIs no preview */
+    .print-kpis { display:grid; grid-template-columns:repeat(5,1fr); gap:0.7rem; margin-bottom:0.8rem; }
+    .print-kpi { background:var(--cinza-bg); border-radius:8px; padding:0.7rem 0.9rem; border-top:3px solid var(--azul); }
+    .print-kpi-lbl { font-size:0.58rem; font-weight:700; color:var(--cinza-aux); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:0.2rem; }
+    .print-kpi-val { font-size:1.3rem; font-weight:800; color:var(--azul); line-height:1; }
+    .print-kpi-unit { font-size:0.58rem; color:var(--cinza-aux); }
+
+    /* Memorial no preview */
+    .print-memorial-grid { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+    .print-memorial-card { background:var(--cinza-bg); border-radius:8px; overflow:hidden; }
+    .print-memorial-card-hdr { background:var(--azul); padding:0.5rem 0.9rem; font-size:0.68rem; font-weight:700; color:rgba(255,255,255,0.9); text-transform:uppercase; letter-spacing:0.06em; }
+    .print-memorial-row { display:flex; justify-content:space-between; padding:0.45rem 0.9rem; border-bottom:1px solid var(--borda); }
+    .print-memorial-lbl { font-size:0.7rem; color:var(--cinza-aux); }
+    .print-memorial-val { font-size:0.75rem; font-weight:700; color:var(--azul); text-align:right; }
+
+    /* Gantt no preview - usa o SVG gerado */
+    .print-gantt-wrap { overflow-x:auto; }
+
+    /* ══ @MEDIA PRINT ══ */
+    @media print {
+      * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      body { background: white !important; margin: 0; padding: 0; }
+
+      /* Esconde tudo exceto o modal aberto */
+      .topbar, .site-header, .tabs-bar, .main-content, .site-footer { display: none !important; }
+
+      /* Abre o overlay para impressão */
+      .print-overlay {
+        position: static !important; display: block !important; padding: 0 !important;
+        background: none !important; backdrop-filter: none !important; overflow: visible !important;
+        opacity: 1 !important; pointer-events: none !important;
+      }
+      .print-modal {
+        max-width: 100% !important; border-radius: 0 !important; box-shadow: none !important;
+        transform: none !important;
+      }
+      .print-toolbar, .print-section-selector, .btn-pdf-action, .btn-fechar-modal { display: none !important; }
+      .print-preview-area {
+        max-height: none !important; overflow: visible !important; background: white !important;
+        padding: 0 !important;
+      }
+
+      /* Páginas */
+      .print-page { border-radius: 0 !important; box-shadow: none !important; margin: 0 !important; page-break-after: always; }
+
+      /* Capa azul forçada */
+      .print-page-capa { background: #002D72 !important; }
+      .print-capa-grid { background: #002D72 !important; border-color: rgba(255,255,255,0.12) !important; }
+      .print-capa-item { background: #002D72 !important; }
+      .print-capa-val { color: #ffffff !important; }
+      .print-capa-lbl { color: rgba(255,255,255,0.5) !important; }
+      .print-capa-nome { color: #F5A623 !important; }
+
+      /* Titles */
+      .print-section-title { background: #EBF0FA !important; border-color: #002D72 !important; color: #002D72 !important; }
+
+      /* Tabelas */
+      .ptable thead tr { background: #002D72 !important; }
+      .ptable thead th { color: rgba(255,255,255,0.9) !important; }
+      .ptable tfoot tr { background: #002D72 !important; }
+      .ptable tfoot td { color: white !important; }
+      .ptable tbody tr:nth-child(even) { background: #F5F7FB !important; }
+
+      /* KPIs */
+      .print-kpi { background: #F5F7FB !important; }
+      .print-kpi-val { color: #002D72 !important; }
+
+      /* Memorial */
+      .print-memorial-card-hdr { background: #002D72 !important; color: white !important; }
+      .print-memorial-val { color: #002D72 !important; }
+
+      @page { margin: 0.8cm; size: A3 landscape; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══ TOPBAR ══ -->
+<div class="topbar">
+  <div class="topbar-left">Governo do Estado do Amazonas · Secretaria de Estado de Infraestrutura</div>
+  <div class="topbar-right"><div class="topbar-dot"></div> SEINFRA/AM · DMOB · Planejamento</div>
+</div>
+
+<!-- ══ HEADER ══ -->
+<header class="site-header">
+  <div class="header-brand">
+    <div class="brand-escudo">🏗️</div>
+    <div>
+      <div class="brand-sup">SEINFRA / SEAPLANC · Amazonas</div>
+      <div class="brand-name">Plataforma de <span>Planejamento</span> de Obras</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="header-obra-nome" id="header-obra-nome">Obra não identificada</div>
+    <div class="header-badge">v2.0</div>
+  </div>
+</header>
+
+<!-- ══ TABS ══ -->
+<nav class="tabs-bar">
+  <button class="tab-btn active" data-tab="entrada">📋 Identificação</button>
+  <button class="tab-btn" data-tab="servicos">🔩 Serviços <span class="tab-badge" id="badge-servicos">0</span></button>
+  <button class="tab-btn" data-tab="eap">📊 EAP <span class="tab-badge verde" id="badge-eap">0</span></button>
+  <button class="tab-btn" data-tab="gantt">📅 Cronograma</button>
+  <button class="tab-btn" data-tab="histogramas">📈 Histogramas</button>
+  <button class="tab-btn" data-tab="memorial">📄 Memorial</button>
+  <div style="margin-left:auto;display:flex;align-items:center;padding:0 0.5rem;">
+    <button class="btn-imprimir" onclick="abrirModalImpressao()">🖨️ Imprimir / PDF</button>
+  </div>
+</nav>
+
+<!-- ══ MODAL DE IMPRESSÃO ══ -->
+<div class="print-overlay" id="printOverlay" onclick="fecharPrintFora(event)">
+  <div class="print-modal" id="printModal">
+    <!-- Toolbar do modal -->
+    <div class="print-toolbar">
+      <div class="print-toolbar-left">
+        <div class="print-toolbar-icon">🖨️</div>
+        <div>
+          <div class="print-toolbar-title">Exportar / Imprimir</div>
+          <div class="print-toolbar-sub" id="print-obra-sub">Plataforma de Planejamento de Obras</div>
+        </div>
+      </div>
+      <div class="print-toolbar-actions">
+        <button class="btn-pdf-action" onclick="executarImpressao()">🖨️ Gerar PDF</button>
+        <button class="btn-fechar-modal" onclick="fecharPrintModal()" title="Fechar">✕</button>
+      </div>
+    </div>
+
+    <!-- Seletor de seções -->
+    <div class="print-section-selector">
+      <div class="print-selector-title">Selecionar seções para impressão:</div>
+      <div class="print-checkboxes">
+        <label class="print-check-item">
+          <input type="checkbox" id="pcheck-identificacao" checked/>
+          <span class="pcheck-box"></span>
+          <span>📋 Identificação da Obra</span>
+        </label>
+        <label class="print-check-item">
+          <input type="checkbox" id="pcheck-eap" checked/>
+          <span class="pcheck-box"></span>
+          <span>📊 EAP — Estrutura Analítica</span>
+        </label>
+        <label class="print-check-item">
+          <input type="checkbox" id="pcheck-gantt" checked/>
+          <span class="pcheck-box"></span>
+          <span>📅 Cronograma de Gantt</span>
+        </label>
+        <label class="print-check-item">
+          <input type="checkbox" id="pcheck-histogramas" checked/>
+          <span class="pcheck-box"></span>
+          <span>📈 Histogramas de Recursos</span>
+        </label>
+        <label class="print-check-item">
+          <input type="checkbox" id="pcheck-memorial" checked/>
+          <span class="pcheck-box"></span>
+          <span>📄 Memorial de Execução</span>
+        </label>
+      </div>
+      <div class="print-tip">💡 O documento será gerado na orientação <strong>paisagem (A3)</strong> para melhor visualização das tabelas e do Gantt.</div>
+    </div>
+
+    <!-- Preview do documento -->
+    <div class="print-preview-area" id="printPreviewArea">
+      <!-- Conteúdo gerado dinamicamente -->
+    </div>
+  </div>
+</div>
+
+<!-- CONTEÚDO DE IMPRESSÃO (renderizado fora da tela, clonado no modal) -->
+<div id="print-document" style="display:none"></div>
+
+<!-- ══ MAIN ══ -->
+<main class="main-content">
+
+  <!-- ─── ABA ENTRADA ─── -->
+  <div id="tab-entrada" class="tab-panel">
+    <div class="sec-title"><div class="sec-title-bar"></div><h2>Identificação e Parâmetros da Obra</h2></div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.2rem;">
+
+      <div class="card">
+        <div class="card-header"><div class="card-header-icon">📋</div><div class="card-header-title">1. Identificação da Obra</div></div>
+        <div class="card-body">
+          <div class="form-grid cols-2">
+            <div class="form-group form-span-2">
+              <label>Nome / Denominação da Obra</label>
+              <input type="text" id="obra-nome" placeholder="Ex.: Pavimentação da Estrada do Tarumã-Açu" oninput="syncObra()"/>
+            </div>
+            <div class="form-group">
+              <label>Tipo de Modal</label>
+              <select id="obra-tipo" onchange="syncObra();renderParamCards()">
+                <option>RAMAL / VICINAL</option>
+                <option>RODOVIA ESTADUAL</option>
+                <option>VIÁRIO URBANO</option>
+                <option>MANUTENÇÃO RODOVIÁRIA</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Nº Orçamento (e-Obras)</label>
+              <input type="text" id="obra-orcamento" placeholder="Ex.: 2025.001.0042"/>
+            </div>
+            <div class="form-group">
+              <label>Localização (Município/UF)</label>
+              <input type="text" id="obra-local" placeholder="Ex.: Manaus / AM"/>
+            </div>
+            <div class="form-group">
+              <label>Rodovia / KM de Referência</label>
+              <input type="text" id="obra-rodovia" placeholder="Ex.: AM-070 / km 12"/>
+            </div>
+            <div class="form-group">
+              <label>Extensão Total (km)</label>
+              <input type="number" id="obra-extensao" value="2" min="0.1" step="0.1" oninput="syncObra()"/>
+            </div>
+            <div class="form-group">
+              <label>Número de Frentes</label>
+              <input type="number" id="obra-frentes" value="2" min="1" step="1" oninput="syncObra()"/>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:1.2rem;">
+        <div class="card">
+          <div class="card-header"><div class="card-header-icon">📅</div><div class="card-header-title">2. Parâmetros de Planejamento</div></div>
+          <div class="card-body">
+            <div class="form-grid cols-2">
+              <div class="form-group">
+                <label>Data de Início Prevista</label>
+                <input type="date" id="obra-inicio" oninput="syncObra()"/>
+              </div>
+              <div class="form-group">
+                <label>Jornada de Trabalho (h/dia)</label>
+                <input type="number" id="obra-jornada" value="8" min="4" max="12" step="0.5"/>
+              </div>
+              <div class="form-group">
+                <label>Defasagem entre Frentes (dias)</label>
+                <input type="number" id="obra-defasagem" value="7" min="1"/>
+              </div>
+              <div class="form-group">
+                <label>Valor do Contrato (R$)</label>
+                <input type="text" id="obra-valor" placeholder="0,00"/>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-header-icon">👷</div><div class="card-header-title">3. Responsável Técnico</div></div>
+          <div class="card-body">
+            <div class="form-grid cols-2">
+              <div class="form-group form-span-2">
+                <label>Nome do Responsável Técnico</label>
+                <input type="text" id="obra-responsavel" placeholder="Nome completo"/>
+              </div>
+              <div class="form-group">
+                <label>CREA-AM</label>
+                <input type="text" id="obra-crea" placeholder="Ex.: 123456-D/AM"/>
+              </div>
+              <div class="form-group">
+                <label>Cargo / Função</label>
+                <input type="text" id="obra-cargo" value="Engenheiro de Planejamento"/>
+              </div>
+              <div class="form-group form-span-2">
+                <label>E-mail</label>
+                <input type="email" id="obra-email" placeholder="email@seinfra.am.gov.br"/>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Parâmetros do tipo de obra -->
+    <div class="card">
+      <div class="card-header"><div class="card-header-icon">⚙️</div><div class="card-header-title">Parâmetros de Prazo — Tipo Selecionado</div></div>
+      <div class="card-body">
+        <div class="param-cards" id="param-cards"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── ABA SERVIÇOS ─── -->
+  <div id="tab-servicos" class="tab-panel" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.8rem;">
+      <div class="sec-title" style="margin-bottom:0"><div class="sec-title-bar"></div><h2>Serviços e Quantitativos</h2></div>
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="addServico()">+ Adicionar Serviço</button>
+        <button class="btn btn-outline btn-sm" onclick="calcularTudo()">🔄 Recalcular</button>
+      </div>
+    </div>
+
+    <div class="table-wrap" style="margin-bottom:1rem;">
+      <table id="tabela-servicos">
+        <thead>
+          <tr>
+            <th>KM</th>
+            <th>Etapa</th>
+            <th style="min-width:300px">Composição (DNIT/SICRO2)</th>
+            <th>Unid.</th>
+            <th class="right">Qtde</th>
+            <th class="right">QE</th>
+            <th class="right" style="background:rgba(2,119,189,0.5)">MO Total (h)</th>
+            <th class="right" style="background:rgba(2,119,189,0.5)">DP (dias)</th>
+            <th class="right" style="background:rgba(245,166,35,0.5)">DA (dias)</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tbody-servicos"></tbody>
+        <tfoot id="tfoot-servicos"></tfoot>
+      </table>
+    </div>
+
+    <div class="kpi-row" id="kpis-servicos"></div>
+    <div class="formulas">
+      <div class="formula"><strong>DP</strong> = ROUNDUP(MO_Total / Jornada, 0)</div>
+      <div class="formula"><strong>DA</strong> = ROUNDUP(DP / QE, 0) &nbsp;&nbsp;|&nbsp;&nbsp; QE = Quantidade de Equipes/Frentes</div>
+      <div class="formula"><strong>QMO</strong> = ROUNDUP(Qtde × taxa_MO / (DA × Jornada), 0)</div>
+      <div class="formula"><strong>QEQ</strong> = ROUNDUP(Qtde × taxa_EQP / (DA × Jornada), 0)</div>
+    </div>
+  </div>
+
+  <!-- ─── ABA EAP ─── -->
+  <div id="tab-eap" class="tab-panel" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.8rem;">
+      <div class="sec-title" style="margin-bottom:0"><div class="sec-title-bar"></div><h2>EAP — Estrutura Analítica do Projeto</h2></div>
+      <div class="btn-group">
+        <button class="btn btn-verde btn-sm" onclick="exportarPDF()">⬇ Exportar PDF</button>
+        <button class="btn btn-outline btn-sm" onclick="exportarCSV()">⬇ Exportar CSV</button>
+      </div>
+    </div>
+
+    <div class="kpi-row" id="kpis-eap"></div>
+    <div class="table-wrap"><table id="tabela-eap">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Etapa</th>
+          <th style="min-width:240px">Serviço</th>
+          <th>KM</th>
+          <th>Unid.</th>
+          <th class="right">Qtde</th>
+          <th class="right">Produt.</th>
+          <th class="right" style="background:rgba(2,119,189,0.4)">MO Total(h)</th>
+          <th class="right" style="background:rgba(2,119,189,0.4)">DP(d)</th>
+          <th class="right" style="background:rgba(100,100,100,0.3)">QE</th>
+          <th class="right" style="background:rgba(245,166,35,0.4)">DA(d)</th>
+          <th class="right" style="background:rgba(2,119,189,0.25)">Serv.</th>
+          <th class="right" style="background:rgba(2,119,189,0.25)">Ped.</th>
+          <th class="right" style="background:rgba(2,119,189,0.25)">Oper.</th>
+          <th class="right" style="background:rgba(2,119,189,0.25)">Carp.</th>
+          <th class="right" style="background:rgba(46,125,50,0.25)">Escav.</th>
+          <th class="right" style="background:rgba(46,125,50,0.25)">Rolo</th>
+          <th class="right" style="background:rgba(46,125,50,0.25)">Cam.</th>
+          <th class="right" style="background:rgba(46,125,50,0.25)">Moto.</th>
+        </tr>
+        <tr style="background:#001d50">
+          <th colspan="11"></th>
+          <th colspan="4" style="text-align:center;font-size:0.62rem;background:rgba(2,119,189,0.35)">QMO</th>
+          <th colspan="4" style="text-align:center;font-size:0.62rem;background:rgba(46,125,50,0.3)">QEQ</th>
+        </tr>
+      </thead>
+      <tbody id="tbody-eap"></tbody>
+      <tfoot id="tfoot-eap"></tfoot>
+    </table></div>
+    <div class="formulas" style="margin-top:1rem">
+      <div class="formula"><strong>Fonte:</strong> DNIT-313 / SICRO2 / CPU / e-Obras — 38 composições</div>
+      <div class="formula"><strong>DP</strong> = ROUNDUP(MO_Total / Jornada, 0)</div>
+      <div class="formula"><strong>DA</strong> = ROUNDUP(DP / QE, 0)</div>
+      <div class="formula"><strong>QMO_cat</strong> = ROUNDUP(Qtde × taxa / (DA × Jornada), 0)</div>
+    </div>
+  </div>
+
+  <!-- ─── ABA GANTT ─── -->
+  <div id="tab-gantt" class="tab-panel" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.8rem;">
+      <div class="sec-title" style="margin-bottom:0"><div class="sec-title-bar"></div><h2>Cronograma Físico — Gráfico de Gantt</h2></div>
+      <div id="gantt-meta" style="font-size:0.75rem;color:var(--cinza-aux);"></div>
+    </div>
+    <div id="gantt-scroll">
+      <svg id="gantt-svg"></svg>
+    </div>
+    <div class="gantt-legend" id="gantt-legend"></div>
+  </div>
+
+  <!-- ─── ABA HISTOGRAMAS ─── -->
+  <div id="tab-histogramas" class="tab-panel" style="display:none">
+    <div class="sec-title"><div class="sec-title-bar"></div><h2>Histogramas — Distribuição Mensal de Recursos</h2></div>
+    <div class="chart-grid" style="margin-bottom:1.2rem">
+      <div class="chart-card">
+        <div class="chart-title">📊 Histograma de Mão de Obra (QMO/Mês)</div>
+        <canvas id="chart-mo" height="260"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">🚜 Histograma de Equipamentos (QEQ/Mês)</div>
+        <canvas id="chart-eqp" height="260"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-header-icon">📋</div><div class="card-header-title">Tabela de Distribuição Mensal</div></div>
+      <div class="card-body" style="padding:0">
+        <div class="table-wrap"><table id="tabela-hist">
+          <thead><tr>
+            <th>Mês</th>
+            <th class="right" style="background:rgba(2,119,189,0.4)">Serv.</th>
+            <th class="right" style="background:rgba(2,119,189,0.4)">Ped.</th>
+            <th class="right" style="background:rgba(2,119,189,0.4)">Oper.</th>
+            <th class="right" style="background:rgba(2,119,189,0.4)">Carp.</th>
+            <th class="right" style="background:rgba(2,119,189,0.6)">Total MO</th>
+            <th class="right" style="background:rgba(46,125,50,0.4)">Escav.</th>
+            <th class="right" style="background:rgba(46,125,50,0.4)">Rolo</th>
+            <th class="right" style="background:rgba(46,125,50,0.4)">Cam.</th>
+            <th class="right" style="background:rgba(46,125,50,0.4)">Moto</th>
+            <th class="right" style="background:rgba(46,125,50,0.6)">Total EQP</th>
+          </tr></thead>
+          <tbody id="tbody-hist"></tbody>
+        </table></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── ABA MEMORIAL ─── -->
+  <div id="tab-memorial" class="tab-panel" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.8rem;">
+      <div class="sec-title" style="margin-bottom:0"><div class="sec-title-bar"></div><h2>Memorial de Execução</h2></div>
+      <div class="btn-group">
+        <button class="btn btn-verde" onclick="exportarMemorialPDF()">⬇ Exportar Memorial PDF</button>
+      </div>
+    </div>
+    <div class="memorial-grid" id="memorial-content"></div>
+  </div>
+
+</main>
+
+<!-- ══ FOOTER ══ -->
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div class="footer-brand">
+      <div style="font-size:1.4rem">🏛️</div>
+      <div>
+        <div class="footer-name">SEINFRA<span>/AM</span></div>
+        <div class="footer-sub">Secretaria de Estado de Infraestrutura — Amazonas</div>
+      </div>
+    </div>
+    <div class="footer-copy">Plataforma de Planejamento de Obras · DMOB · Manaus, AM · 2025</div>
+  </div>
+</footer>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- LÓGICA DE NEGÓCIO                                            -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<script>
+"use strict";
+
+// ═══════════════════════════════════════════════════════
+// BANCO DE COMPOSIÇÕES — DNIT-313 / SICRO2 / CPU / e-Obras
+// produt  = h·homem / unidade de serviço
+// mo.*    = h·categoria / unidade
+// eqp.*   = h·equipamento / unidade
+// ═══════════════════════════════════════════════════════
+const COMPOSICOES = [
+  { cod:"1.1.1", desc:"ADMINISTRAÇÃO LOCAL",                        unid:"mês",   produt:176,   mo:{servente:176,  pedreiro:0,   operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"2.1.1", desc:"LIMPEZA MECÂNICA C/ TRATOR ESTEIRA",         unid:"m²",    produt:0.015, mo:{servente:0,    pedreiro:0,   operador:0.015,carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"2.2.1", desc:"ESCAVAÇÃO MANUAL SOLO 1ª CAT",               unid:"m³",    produt:1.2,   mo:{servente:1.2,  pedreiro:0,   operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"2.2.2", desc:"ESCAVAÇÃO MECÂNICA (ESCAVADEIRA 0,8m³)",     unid:"m³",    produt:0.1,   mo:{servente:0.05, pedreiro:0,   operador:0.1,  carpinteiro:0   }, eqp:{escavadeira:0.1,  rolo:0,   caminhao:0.05,moto:0    }},
+  { cod:"2.3.1", desc:"CARGA MANUAL DE ENTULHO",                    unid:"m³",    produt:2.5,   mo:{servente:2.5,  pedreiro:0,   operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"2.3.2", desc:"CARGA MECÂNICA (CARREGADEIRA)",              unid:"m³",    produt:0.08,  mo:{servente:0,    pedreiro:0,   operador:0.08, carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"2.4.1", desc:"TRANSPORTE LOCAL DMT 1km",                   unid:"m³.km", produt:0.05,  mo:{servente:0,    pedreiro:0,   operador:0.05, carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0.05,moto:0    }},
+  { cod:"3.1.1", desc:"REGULARIZAÇÃO DO SUBLEITO",                  unid:"m²",    produt:0.015, mo:{servente:0.005,pedreiro:0,   operador:0.01, carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0.01 }},
+  { cod:"3.2.1", desc:"COMPACTAÇÃO DE ATERRO 95% PROCTOR",          unid:"m³",    produt:0.2,   mo:{servente:0.1,  pedreiro:0,   operador:0.1,  carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0.15,caminhao:0.05,moto:0    }},
+  { cod:"4.1.1", desc:"BASE DE BRITA GRADUADA (esp 20cm)",          unid:"m³",    produt:1.5,   mo:{servente:0.5,  pedreiro:0,   operador:0.5,  carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0.3, caminhao:0.2, moto:0.3  }},
+  { cod:"4.2.1", desc:"IMPRIMAÇÃO",                                 unid:"m²",    produt:0.02,  mo:{servente:0.01, pedreiro:0,   operador:0.01, carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0.005}},
+  { cod:"4.3.1", desc:"PINTURA DE LIGAÇÃO",                         unid:"m²",    produt:0.015, mo:{servente:0.005,pedreiro:0,   operador:0.01, carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0.005}},
+  { cod:"4.4.1", desc:"CBUQ (USINA + ESPALHAMENTO)",                unid:"t",     produt:1.8,   mo:{servente:0.3,  pedreiro:0,   operador:0.8,  carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0.2, caminhao:0.3, moto:0    }},
+  { cod:"5.1.1", desc:"CONCRETO MAGRO (LANÇAMENTO MANUAL)",         unid:"m³",    produt:3.5,   mo:{servente:2,    pedreiro:1,   operador:0.5,  carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"5.1.2", desc:"CONCRETO ESTRUTURAL (BOMBEADO)",             unid:"m³",    produt:4,     mo:{servente:1.5,  pedreiro:1.5, operador:0.5,  carpinteiro:0.5 }, eqp:{escavadeira:0,    rolo:0,   caminhao:0.1, moto:0    }},
+  { cod:"5.2.1", desc:"ARMAÇÃO CA-50 (CORTE/DOBRA)",                unid:"kg",    produt:0.12,  mo:{servente:0.06, pedreiro:0.06,operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"5.3.1", desc:"FÔRMA DE MADEIRA (CHAPA COMPENSADA)",        unid:"m²",    produt:1.8,   mo:{servente:0.8,  pedreiro:0,   operador:0,    carpinteiro:1   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"5.4.1", desc:"CURA DE CONCRETO",                           unid:"m²",    produt:0.05,  mo:{servente:0.05, pedreiro:0,   operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"6.1.1", desc:"ALVENARIA DE BLOCOS (vedação)",              unid:"m²",    produt:1.2,   mo:{servente:0.7,  pedreiro:0.5, operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"6.2.1", desc:"CHAPISCO (argamassa traço 1:3)",             unid:"m²",    produt:0.15,  mo:{servente:0.1,  pedreiro:0.05,operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"6.3.1", desc:"EMBOÇO (argamassa traço 1:2:8)",             unid:"m²",    produt:0.8,   mo:{servente:0.4,  pedreiro:0.4, operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"7.1.1", desc:"SARJETA DE CONCRETO (moldada in loco)",      unid:"m",     produt:1.5,   mo:{servente:0.8,  pedreiro:0.7, operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"7.2.1", desc:"MEIO-FIO PRÉ-MOLDADO (assentamento)",        unid:"m",     produt:0.4,   mo:{servente:0.25, pedreiro:0.15,operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"7.3.1", desc:"BUEIRO TUBULAR (fornecimento + ass.)",       unid:"m",     produt:2.5,   mo:{servente:1,    pedreiro:1,   operador:0.5,  carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0.3, caminhao:0.2, moto:0    }},
+  { cod:"8.1.1", desc:"SINALIZAÇÃO HORIZONTAL (faixa)",             unid:"m²",    produt:0.25,  mo:{servente:0.15, pedreiro:0,   operador:0.1,  carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"8.2.1", desc:"PLACA DE SINALIZAÇÃO (instalação)",          unid:"un",    produt:0.8,   mo:{servente:0.3,  pedreiro:0.2, operador:0,    carpinteiro:0.3 }, eqp:{escavadeira:0,    rolo:0,   caminhao:0.1, moto:0    }},
+  { cod:"9.1.1", desc:"DRENAGEM PROFUNDA (dreno)",                  unid:"m",     produt:1.2,   mo:{servente:0.7,  pedreiro:0.3, operador:0.2,  carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"9.2.1", desc:"GEOTÊXTIL (instalação)",                     unid:"m²",    produt:0.05,  mo:{servente:0.05, pedreiro:0,   operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"10.1.1",desc:"LIMPEZA FINAL DA OBRA",                      unid:"m²",    produt:0.03,  mo:{servente:0.03, pedreiro:0,   operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"S.01.1",desc:"DESMAT. DEST. LIMPEZA (arv.diam.≤0,15m)",   unid:"m²",    produt:0.012, mo:{servente:0,    pedreiro:0,   operador:0.012,carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
+  { cod:"S.01.2",desc:"ESC. CARGA TRANSP. MAT. 1ª CAT DMT 1km",    unid:"m³",    produt:0.085, mo:{servente:0.03, pedreiro:0,   operador:0.055,carpinteiro:0   }, eqp:{escavadeira:0.055,rolo:0,   caminhao:0.055,moto:0   }},
+  { cod:"S.01.3",desc:"ESC. CARGA TRANSP. MAT. 2ª CAT DMT 1km",    unid:"m³",    produt:0.12,  mo:{servente:0.04, pedreiro:0,   operador:0.08, carpinteiro:0   }, eqp:{escavadeira:0.08, rolo:0,   caminhao:0.08,moto:0    }},
+  { cod:"S.02.1",desc:"REGULARIZAÇÃO SUBLEITO c/FRESADORA",         unid:"m²",    produt:0.01,  mo:{servente:0.003,pedreiro:0,   operador:0.007,carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0.007}},
+  { cod:"S.02.2",desc:"BASE BRITA GRADUADA c/DIST. AGREGADO",       unid:"m³",    produt:1.4,   mo:{servente:0.4,  pedreiro:0,   operador:0.45, carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0.3, caminhao:0.2, moto:0.25 }},
+  { cod:"S.02.3",desc:"REVESTIMENTO ASFÁLTICO CBUQ (usina)",        unid:"t",     produt:1.75,  mo:{servente:0.25, pedreiro:0,   operador:0.75, carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0.2, caminhao:0.3, moto:0    }},
+  { cod:"S.03.1",desc:"RECICLAGEM SIMPLES (revestimento+base)",     unid:"m³",    produt:0.11,  mo:{servente:0.04, pedreiro:0,   operador:0.07, carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0.07 }},
+  { cod:"S.03.2",desc:"SUB-BASE SOLO ESTAB. GRANUL. s/mistura",     unid:"m³",    produt:0.18,  mo:{servente:0.06, pedreiro:0,   operador:0.12, carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0.1, caminhao:0.04,moto:0.08 }},
+];
+
+// ═══════════════════════════════════════════════════════
+// PARÂMETROS DE PRAZO POR TIPO DE OBRA
+// ═══════════════════════════════════════════════════════
+const PARAMETROS = {
+  "RAMAL / VICINAL": [
+    { etapa:"Canteiro de Obras",       prazo:10, porKm:false },
+    { etapa:"Limpeza de Faixa",        prazo:5,  porKm:true  },
+    { etapa:"Terraplenagem",           prazo:16, porKm:true  },
+    { etapa:"Drenagem",                prazo:18, porKm:true  },
+    { etapa:"Pavimentação",            prazo:6,  porKm:true  },
+    { etapa:"Sinalização Viária",      prazo:1,  porKm:true  },
+  ],
+  "RODOVIA ESTADUAL": [
+    { etapa:"Canteiro de Obras",       prazo:20, porKm:false },
+    { etapa:"Limpeza de Faixa",        prazo:7,  porKm:true  },
+    { etapa:"Terraplenagem",           prazo:20, porKm:true  },
+    { etapa:"Drenagem",                prazo:22, porKm:true  },
+    { etapa:"Sub-Base e Base",         prazo:8,  porKm:true  },
+    { etapa:"Pavimentação Asfáltica",  prazo:5,  porKm:true  },
+    { etapa:"Sinalização Viária",      prazo:2,  porKm:true  },
+  ],
+  "VIÁRIO URBANO": [
+    { etapa:"Canteiro de Obras",          prazo:10, porKm:false },
+    { etapa:"Terraplenagem / Regularização", prazo:8, porKm:true },
+    { etapa:"Drenagem Pluvial",           prazo:15, porKm:true  },
+    { etapa:"Meio-fio e Sarjeta",         prazo:10, porKm:true  },
+    { etapa:"Sub-Base e Base",            prazo:7,  porKm:true  },
+    { etapa:"Pavimentação",               prazo:5,  porKm:true  },
+    { etapa:"Sinalização",                prazo:3,  porKm:true  },
+  ],
+  "MANUTENÇÃO RODOVIÁRIA": [
+    { etapa:"Canteiro / Sinalização de Obra", prazo:10, porKm:false },
+    { etapa:"Roçada e Limpeza",           prazo:250, porKm:false },
+    { etapa:"Recuperação de Drenagem",    prazo:190, porKm:false },
+    { etapa:"Guarda-corpo e Defensas",    prazo:195, porKm:false },
+    { etapa:"Recomposição de Pavimento",  prazo:120, porKm:false },
+    { etapa:"Sinalização",                prazo:230, porKm:false },
+  ],
+};
+
+// Cores por etapa
+const ETAPA_CORES = {
+  "CANTEIRO":    "#002D72",
+  "LIMPEZA":     "#2E7D32",
+  "TERRAPLAN":   "#E8A045",
+  "DRENAGEM":    "#0277BD",
+  "SUB-BASE":    "#6A1B9A",
+  "BASE":        "#6A1B9A",
+  "PAVIMENT":    "#C62828",
+  "SINALIZ":     "#F9A825",
+  "MEIO-FIO":    "#00838F",
+  "SARJETA":     "#00838F",
+  "ROÇADA":      "#558B2F",
+  "RECUPER":     "#1565C0",
+  "GUARDA":      "#4527A0",
+  "RECOMP":      "#BF360C",
+};
+
+function etapaCor(etapa) {
+  const u = etapa.toUpperCase();
+  const k = Object.keys(ETAPA_CORES).find(k => u.includes(k));
+  return ETAPA_CORES[k] || "#607D8B";
+}
+
+// ═══════════════════════════════════════════════════════
+// ESTADO GLOBAL
+// ═══════════════════════════════════════════════════════
+let _idCounter = 100;
+const mkId = () => ++_idCounter;
+
+let SERVICOS = [
+  { id:1,  km:"1", etapa:"Limpeza de Faixa",   codigo:"2.1.1",  qtde:10000, qe:1 },
+  { id:2,  km:"1", etapa:"Terraplenagem",       codigo:"S.01.2", qtde:5000,  qe:1 },
+  { id:3,  km:"1", etapa:"Drenagem",            codigo:"7.1.1",  qtde:200,   qe:1 },
+  { id:4,  km:"1", etapa:"Drenagem",            codigo:"7.3.1",  qtde:80,    qe:1 },
+  { id:5,  km:"1", etapa:"Pavimentação",        codigo:"3.1.1",  qtde:7000,  qe:1 },
+  { id:6,  km:"1", etapa:"Pavimentação",        codigo:"S.02.2", qtde:1400,  qe:1 },
+  { id:7,  km:"1", etapa:"Pavimentação",        codigo:"S.02.3", qtde:980,   qe:1 },
+  { id:8,  km:"1", etapa:"Sinalização Viária",  codigo:"8.1.1",  qtde:280,   qe:1 },
+  { id:9,  km:"2", etapa:"Limpeza de Faixa",    codigo:"2.1.1",  qtde:10000, qe:1 },
+  { id:10, km:"2", etapa:"Terraplenagem",       codigo:"S.01.2", qtde:4500,  qe:1 },
+  { id:11, km:"2", etapa:"Drenagem",            codigo:"7.1.1",  qtde:180,   qe:1 },
+  { id:12, km:"2", etapa:"Pavimentação",        codigo:"3.1.1",  qtde:7000,  qe:1 },
+  { id:13, km:"2", etapa:"Pavimentação",        codigo:"S.02.3", qtde:900,   qe:1 },
+  { id:14, km:"2", etapa:"Sinalização Viária",  codigo:"8.1.1",  qtde:280,   qe:1 },
+];
+
+let EAP_CALC = [];   // Resultados calculados
+let GANTT_DATA = [];
+let HIST_DATA = [];
+let chartMO = null, chartEQP = null;
+
+// ═══════════════════════════════════════════════════════
+// MOTOR DE CÁLCULO EAP
+// DP  = ROUNDUP( MO_total / jornada )
+// DA  = ROUNDUP( DP / QE )
+// QMO = ROUNDUP( qtde * mo_cat / (DA * jornada) )
+// QEQ = ROUNDUP( qtde * eqp_cat / (DA * jornada) )
+// ═══════════════════════════════════════════════════════
+function calcularServico(s, jornada) {
+  const comp = COMPOSICOES.find(c => c.cod === s.codigo);
+  if (!comp) return null;
+  const qtde   = parseFloat(s.qtde) || 0;
+  const qe     = Math.max(1, parseInt(s.qe) || 1);
+  const moTotal = qtde * comp.produt;
+  const dp     = moTotal > 0 ? Math.ceil(moTotal / jornada) : 0;
+  const da     = dp > 0      ? Math.ceil(dp / qe)           : 0;
+  const sd = (taxa) => (da > 0 && taxa > 0) ? Math.ceil((qtde * taxa) / (da * jornada)) : 0;
+  return {
+    ...s, comp, moTotal, dp, da,
+    qmo:{ servente:sd(comp.mo.servente), pedreiro:sd(comp.mo.pedreiro), operador:sd(comp.mo.operador), carpinteiro:sd(comp.mo.carpinteiro) },
+    eqp:{ escavadeira:sd(comp.eqp.escavadeira), rolo:sd(comp.eqp.rolo), caminhao:sd(comp.eqp.caminhao), moto:sd(comp.eqp.moto) },
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+// GERADOR DE CRONOGRAMA — sequenciamento por KM/frente
+// ═══════════════════════════════════════════════════════
+function gerarCronograma() {
+  const tipo     = getV("obra-tipo");
+  const nKm      = Math.max(1, parseInt(getV("obra-frentes")) || 1);
+  const def      = Math.max(1, parseInt(getV("obra-defasagem")) || 7);
+  const jornada  = parseInt(getV("obra-jornada")) || 8;
+  const params   = PARAMETROS[tipo] || PARAMETROS["RAMAL / VICINAL"];
+  const canteiro = params.find(p => !p.porKm) || { etapa:"Canteiro de Obras", prazo:10 };
+  const seq      = params.filter(p => p.porKm);
+  const acts     = [];
+  const iniMap   = {}, fimMap = {};
+
+  const durEtapa = (etapa, km) => {
+    const svcs = EAP_CALC.filter(s => s.etapa === etapa && String(s.km) === String(km));
+    if (svcs.length > 0) {
+      const maxDA = Math.max(...svcs.map(s => s.da || 0));
+      if (maxDA > 0) return maxDA;
+    }
+    return seq.find(e => e.etapa === etapa)?.prazo || 5;
+  };
+
+  // Canteiro global
+  acts.push({ id:"C", etapa:"CANTEIRO DE OBRAS", etapaFull:canteiro.etapa,
+    atividade:canteiro.etapa, km:"GERAL", duracao:canteiro.prazo, inicio:1, termino:canteiro.prazo });
+  fimMap["GERAL"] = canteiro.prazo;
+
+  for (let km = 1; km <= nKm; km++) {
+    seq.forEach((ep, i) => {
+      const dur = durEtapa(ep.etapa, km);
+      let inicio;
+      if (km === 1) {
+        inicio = i === 0
+          ? (fimMap["GERAL"] || 0) + 1
+          : (fimMap[`1_${seq[i-1].etapa}`] || 0) + 1;
+      } else {
+        const prevIni = iniMap[`${km-1}_${ep.etapa}`] || 1;
+        inicio = prevIni + def;
+        if (i > 0) {
+          const prevFim = fimMap[`${km}_${seq[i-1].etapa}`] || 0;
+          if (prevFim >= inicio) inicio = prevFim + 1;
+        }
+      }
+      const termino = inicio + dur - 1;
+      iniMap[`${km}_${ep.etapa}`] = inicio;
+      fimMap[`${km}_${ep.etapa}`] = termino;
+      acts.push({
+        id:`${i+2}.${km}`, etapa:ep.etapa.toUpperCase(), etapaFull:ep.etapa,
+        atividade:ep.etapa, km:`KM ${km}`, duracao:dur, inicio, termino,
+      });
+    });
+  }
+  return acts;
+}
+
+// ═══════════════════════════════════════════════════════
+// HISTOGRAMAS
+// ═══════════════════════════════════════════════════════
+function gerarHistogramas() {
+  const MESES = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"];
+  const dataIni = getV("obra-inicio");
+  const startDate = dataIni ? new Date(dataIni + "T00:00:00") : new Date();
+  const data = Array.from({length:12}, (_, m) => ({
+    mes: MESES[m],
+    servente:0, pedreiro:0, operador:0, carpinteiro:0,
+    escavadeira:0, rolo:0, caminhao:0, moto:0,
+  }));
+
+  GANTT_DATA.forEach(act => {
+    const kmNum = act.km === "GERAL" ? null : parseInt(act.km.replace("KM ",""));
+    const svcs  = EAP_CALC.filter(s => {
+      const sk = s.km ? parseInt(s.km) : null;
+      return sk === kmNum && s.etapa === act.etapaFull;
+    });
+    if (!svcs.length) return;
+
+    const sumQmo = { servente:0, pedreiro:0, operador:0, carpinteiro:0 };
+    const sumEqp = { escavadeira:0, rolo:0, caminhao:0, moto:0 };
+    svcs.forEach(s => {
+      Object.keys(sumQmo).forEach(k => { sumQmo[k] += s.qmo[k] || 0; });
+      Object.keys(sumEqp).forEach(k => { sumEqp[k] += s.eqp[k] || 0; });
+    });
+
+    const actStart = new Date(startDate.getTime() + (act.inicio-1)*86400000);
+    const actEnd   = new Date(startDate.getTime() + (act.termino-1)*86400000);
+
+    for (let m = 0; m < 12; m++) {
+      const mStart = new Date(startDate.getFullYear(), startDate.getMonth()+m, 1);
+      const mEnd   = new Date(startDate.getFullYear(), startDate.getMonth()+m+1, 0);
+      if (actStart <= mEnd && actEnd >= mStart) {
+        Object.keys(sumQmo).forEach(k => { data[m][k] += sumQmo[k]; });
+        Object.keys(sumEqp).forEach(k => { data[m][k] += sumEqp[k]; });
+      }
+    }
+  });
+  return data;
+}
+
+// ═══════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════
+const getV = id => document.getElementById(id)?.value || "";
+const numBR = (n, d=0) => {
+  if (!n && n!==0) return "—";
+  const v = parseFloat(n);
+  if (isNaN(v) || v===0) return "0";
+  return v.toLocaleString("pt-BR", {minimumFractionDigits:d, maximumFractionDigits:d});
+};
+const setEl = (id, html) => { const el = document.getElementById(id); if(el) el.innerHTML = html; };
+
+function etapasDoTipo(tipo) {
+  const p = PARAMETROS[tipo] || [];
+  return p.map(x => x.etapa);
+}
+
+function compOpts(selected) {
+  return COMPOSICOES.map(c =>
+    `<option value="${c.cod}" ${c.cod===selected?"selected":""}>${c.cod} — ${c.desc} (${c.unid})</option>`
+  ).join("");
+}
+
+// ═══════════════════════════════════════════════════════
+// RENDERIZAÇÃO — TABS
+// ═══════════════════════════════════════════════════════
+function switchTab(name) {
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab===name));
+  document.querySelectorAll(".tab-panel").forEach(p => {
+    const show = p.id === "tab-"+name;
+    p.style.display = show ? "" : "none";
+  });
+  if (name==="eap") renderEAP();
+  if (name==="gantt") renderGantt();
+  if (name==="histogramas") renderHistogramas();
+  if (name==="memorial") renderMemorial();
+}
+
+document.querySelectorAll(".tab-btn").forEach(b =>
+  b.addEventListener("click", () => switchTab(b.dataset.tab))
+);
+
+// ═══════════════════════════════════════════════════════
+// ENTRADA — parâmetros do tipo
+// ═══════════════════════════════════════════════════════
+function renderParamCards() {
+  const tipo = getV("obra-tipo");
+  const params = PARAMETROS[tipo] || [];
+  setEl("param-cards", params.map(p => `
+    <div class="param-card" style="border-left-color:${etapaCor(p.etapa)}">
+      <div class="param-card-type">${p.porKm ? "Por KM" : "Global"}</div>
+      <div class="param-card-etapa">${p.etapa}</div>
+      <div class="param-card-dias">${p.prazo} <span>dias</span></div>
+    </div>
+  `).join(""));
+}
+
+function syncObra() {
+  const nome = getV("obra-nome");
+  document.getElementById("header-obra-nome").textContent = nome || "Obra não identificada";
+}
+
+// ═══════════════════════════════════════════════════════
+// SERVIÇOS
+// ═══════════════════════════════════════════════════════
+function addServico() {
+  const tipo = getV("obra-tipo");
+  const etapas = etapasDoTipo(tipo).filter(e => !PARAMETROS[tipo].find(p=>p.etapa===e&&!p.porKm));
+  SERVICOS.push({ id:mkId(), km:"1", etapa:etapas[0]||"Terraplenagem", codigo:"2.2.2", qtde:0, qe:1 });
+  calcularTudo();
+}
+
+function removeServico(id) {
+  SERVICOS = SERVICOS.filter(s => s.id !== id);
+  calcularTudo();
+}
+
+function updateServico(id, field, val) {
+  const s = SERVICOS.find(s => s.id===id);
+  if (!s) return;
+  if (field==="qtde" || field==="qe") s[field] = parseFloat(val)||0;
+  else s[field] = val;
+  calcularTudo();
+}
+
+function renderServicos() {
+  const jornada = parseInt(getV("obra-jornada")) || 8;
+  const tipo = getV("obra-tipo");
+  const etapas = etapasDoTipo(tipo);
+
+  const tbody = document.getElementById("tbody-servicos");
+  tbody.innerHTML = SERVICOS.map((s, i) => {
+    const calc = EAP_CALC.find(c => c.id===s.id);
+    const cor = etapaCor(s.etapa);
+    const etapasOpts = etapas.map(e =>
+      `<option value="${e}" ${e===s.etapa?"selected":""}>${e}</option>`
+    ).join("");
+    return `<tr>
+      <td><input class="input-inline w40" value="${s.km}" onchange="updateServico(${s.id},'km',this.value)"/></td>
+      <td>
+        <div class="td-etapa">
+          <div class="etapa-dot" style="background:${cor}"></div>
+          <select class="input-inline" style="min-width:160px" onchange="updateServico(${s.id},'etapa',this.value)">${etapasOpts}</select>
+        </div>
+      </td>
+      <td><select class="input-inline" style="min-width:290px" onchange="updateServico(${s.id},'codigo',this.value)">${compOpts(s.codigo)}</select></td>
+      <td style="color:var(--cinza-aux)">${COMPOSICOES.find(c=>c.cod===s.codigo)?.unid||"—"}</td>
+      <td class="right"><input class="input-inline w80" type="number" value="${s.qtde}" onchange="updateServico(${s.id},'qtde',this.value)"/></td>
+      <td class="right"><input class="input-inline w40" type="number" min="1" value="${s.qe}" onchange="updateServico(${s.id},'qe',this.value)"/></td>
+      <td class="right dp">${calc ? numBR(calc.moTotal,1) : "—"}</td>
+      <td class="right dp">${calc ? numBR(calc.dp) : "—"}</td>
+      <td class="right da">${calc ? numBR(calc.da) : "—"}</td>
+      <td><button class="btn btn-danger" onclick="removeServico(${s.id})">✕</button></td>
+    </tr>`;
+  }).join("");
+
+  // Totais rodapé
+  const totMO = EAP_CALC.reduce((s,c)=>s+c.moTotal,0);
+  const maxDP  = EAP_CALC.length ? Math.max(...EAP_CALC.map(c=>c.dp)) : 0;
+  document.getElementById("tfoot-servicos").innerHTML = `
+    <tr>
+      <td colspan="6" style="text-align:right;letter-spacing:0.05em;font-size:0.7rem">TOTAIS</td>
+      <td class="right">${numBR(totMO,1)}</td>
+      <td class="right">${numBR(maxDP)}</td>
+      <td></td><td></td>
+    </tr>`;
+
+  // KPIs
+  const totQMO = EAP_CALC.reduce((s,c)=>s+(c.qmo.servente+c.qmo.operador),0);
+  document.getElementById("kpis-servicos").innerHTML = [
+    {label:"MO Total (h)", v:numBR(totMO), unit:"horas", cor:"var(--azul)"},
+    {label:"DP Máx.", v:numBR(maxDP), unit:"dias", cor:"#0277BD"},
+    {label:"Serviços", v:SERVICOS.length, unit:"cadastrados", cor:"var(--cinza-med)"},
+    {label:"QMO Total", v:totQMO, unit:"trabalhadores (pico)", cor:"var(--amarelo)"},
+  ].map(k=>`
+    <div class="kpi" style="border-top-color:${k.cor}">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-value" style="color:${k.cor}">${k.v}</div>
+      <div class="kpi-unit">${k.unit}</div>
+    </div>
+  `).join("");
+
+  // Badges
+  document.getElementById("badge-servicos").textContent = SERVICOS.length;
+  document.getElementById("badge-eap").textContent = EAP_CALC.length;
+}
+
+// ═══════════════════════════════════════════════════════
+// EAP
+// ═══════════════════════════════════════════════════════
+function renderEAP() {
+  const jornada = parseInt(getV("obra-jornada")) || 8;
+  if (!EAP_CALC.length) {
+    setEl("tbody-eap","<tr><td colspan='19'><div class='empty-state'><div class='empty-state-icon'>📋</div><p>Nenhum serviço cadastrado. Acesse a aba <strong>Serviços</strong>.</p></div></td></tr>");
+    setEl("tfoot-eap","");
+    setEl("kpis-eap","");
+    return;
+  }
+
+  const tbody = EAP_CALC.map((c, i) => {
+    const cor = etapaCor(c.etapa);
+    const td = (v, cls="") => `<td class="right ${cls}">${v||v===0?numBR(v):"—"}</td>`;
+    return `<tr>
+      <td style="color:var(--cinza-aux);text-align:right">${i+1}</td>
+      <td><div class="td-etapa"><div class="etapa-dot" style="background:${cor}"></div><span style="font-size:0.75rem">${c.etapa}</span></div></td>
+      <td style="font-size:0.78rem"><span style="color:var(--cinza-aux);margin-right:4px">${c.codigo}</span>${c.comp?.desc||""}</td>
+      <td style="color:var(--cinza-aux)">${c.km?"KM "+c.km:"—"}</td>
+      <td style="color:var(--cinza-aux)">${c.comp?.unid||""}</td>
+      <td class="right">${numBR(c.qtde)}</td>
+      <td class="right" style="color:var(--cinza-aux)">${c.comp?.produt}</td>
+      <td class="right" style="color:#0277BD;font-weight:700">${numBR(c.moTotal,1)}</td>
+      <td class="right" style="color:#0277BD">${numBR(c.dp)}</td>
+      <td class="right" style="color:var(--cinza-med)">${numBR(c.qe)}</td>
+      <td class="right" style="color:var(--amarelo);font-weight:700">${numBR(c.da)}</td>
+      ${[c.qmo.servente,c.qmo.pedreiro,c.qmo.operador,c.qmo.carpinteiro].map(v=>`<td class="right" style="color:${v>0?"#0277BD":"var(--cinza-aux)"};${v>0?"font-weight:600":""}">${v||"—"}</td>`).join("")}
+      ${[c.eqp.escavadeira,c.eqp.rolo,c.eqp.caminhao,c.eqp.moto].map(v=>`<td class="right" style="color:${v>0?"#2E7D32":"var(--cinza-aux)"};${v>0?"font-weight:600":""}">${v||"—"}</td>`).join("")}
+    </tr>`;
+  }).join("");
+  setEl("tbody-eap", tbody);
+
+  // Totais
+  const totMO  = EAP_CALC.reduce((s,c)=>s+c.moTotal,0);
+  const totQMO = {servente:0,pedreiro:0,operador:0,carpinteiro:0};
+  const totEQP = {escavadeira:0,rolo:0,caminhao:0,moto:0};
+  EAP_CALC.forEach(c=>{
+    Object.keys(totQMO).forEach(k=>{totQMO[k]+=c.qmo[k]||0;});
+    Object.keys(totEQP).forEach(k=>{totEQP[k]+=c.eqp[k]||0;});
+  });
+  setEl("tfoot-eap", `<tr>
+    <td colspan="7" style="text-align:right;font-size:0.65rem;letter-spacing:0.08em">TOTAIS</td>
+    <td class="right">${numBR(totMO,1)}</td>
+    <td></td><td></td><td></td>
+    ${Object.values(totQMO).map(v=>`<td class="right">${numBR(v)}</td>`).join("")}
+    ${Object.values(totEQP).map(v=>`<td class="right">${numBR(v)}</td>`).join("")}
+  </tr>`);
+
+  // KPIs EAP
+  setEl("kpis-eap", [
+    {label:"MO Total", v:numBR(totMO,0), unit:"horas·homem", cor:"var(--azul)"},
+    {label:"Serv. (pico)", v:totQMO.servente, unit:"serventes", cor:"#0277BD"},
+    {label:"Oper. (pico)", v:totQMO.operador, unit:"operadores", cor:"#0277BD"},
+    {label:"Escav. (pico)", v:totEQP.escavadeira, unit:"escavadeiras", cor:"#2E7D32"},
+    {label:"Caminhões (pico)", v:totEQP.caminhao, unit:"caminhões", cor:"#2E7D32"},
+  ].map(k=>`
+    <div class="kpi" style="border-top-color:${k.cor}">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-value" style="color:${k.cor}">${k.v}</div>
+      <div class="kpi-unit">${k.unit}</div>
+    </div>
+  `).join(""));
+}
+
+// ═══════════════════════════════════════════════════════
+// GANTT SVG
+// ═══════════════════════════════════════════════════════
+function renderGantt() {
+  const acts = GANTT_DATA;
+  if (!acts.length) {
+    setEl("gantt-scroll","<div class='empty-state'><div class='empty-state-icon'>📅</div><p>Configure a obra e adicione serviços.</p></div>");
+    return;
+  }
+
+  const maxDay  = acts.reduce((m,a)=>Math.max(m,a.termino),0);
+  const durM    = Math.ceil(maxDay/30);
+  const nKm     = parseInt(getV("obra-frentes"))||1;
+  document.getElementById("gantt-meta").innerHTML =
+    `Duração: <strong style="color:var(--azul)">${maxDay} dias (${durM} meses)</strong> &nbsp;·&nbsp; Extensão: <strong style="color:var(--azul)">${getV("obra-extensao")} km</strong> &nbsp;·&nbsp; Defasagem: <strong style="color:var(--amarelo)">${getV("obra-defasagem")} dias/frente</strong>`;
+
+  const PPD    = 3.5;
+  const ROW_H  = 30;
+  const HDR_H  = 56;
+  const LBLW   = 300;
+  const nWeeks = Math.ceil(maxDay/7)+3;
+  const TLW    = nWeeks*7*PPD;
+  const SVG_W  = LBLW + TLW;
+  const SVG_H  = HDR_H + acts.length*ROW_H + 4;
+
+  const startDate = getV("obra-inicio") ? new Date(getV("obra-inicio")+"T00:00:00") : new Date();
+  const monthLabels = [];
+  let d = 0;
+  while (d < maxDay+32) {
+    const dt = new Date(startDate.getTime()+d*86400000);
+    const label = dt.toLocaleDateString("pt-BR",{month:"short",year:"2-digit"}).replace(".","").toUpperCase();
+    monthLabels.push({day:d,label});
+    const next = new Date(dt.getFullYear(), dt.getMonth()+1, 1);
+    d = Math.round((next-startDate)/86400000);
+    if (d > maxDay+35) break;
+  }
+
+  let svg = `<svg id="gantt-svg" width="${SVG_W}" height="${SVG_H}" style="display:block;font-family:'Outfit',sans-serif">`;
+  svg += `<rect width="${SVG_W}" height="${SVG_H}" fill="white"/>`;
+  svg += `<rect width="${SVG_W}" height="${HDR_H}" fill="#002D72"/>`;
+
+  // Faixas alternadas
+  for (let w=0;w<nWeeks;w++) {
+    svg += `<rect x="${LBLW+w*7*PPD}" y="${HDR_H}" width="${7*PPD}" height="${SVG_H-HDR_H}" fill="${w%2===0?"#F5F7FB":"white"}" opacity="0.8"/>`;
+  }
+  // Linhas mensais
+  monthLabels.forEach(ml=>{
+    svg += `<line x1="${LBLW+ml.day*PPD}" y1="${HDR_H}" x2="${LBLW+ml.day*PPD}" y2="${SVG_H}" stroke="#C4D0E8" stroke-width="1" stroke-dasharray="3,3"/>`;
+    svg += `<text x="${LBLW+ml.day*PPD+4}" y="18" font-size="9" fill="#F5A623" font-weight="700">${ml.label}</text>`;
+  });
+  // Semanas
+  for (let w=0;w<nWeeks;w++) {
+    svg += `<text x="${LBLW+w*7*PPD+2}" y="${HDR_H-7}" font-size="7" fill="rgba(255,255,255,0.5)">S${String(w+1).padStart(2,"0")}</text>`;
+  }
+  // Cabeçalhos fixos
+  svg += `<rect x="0" y="0" width="${LBLW}" height="${HDR_H}" fill="#002D72"/>`;
+  svg += `<text x="8" y="${HDR_H/2+4}" font-size="9" fill="rgba(255,255,255,0.7)" font-weight="700">KM</text>`;
+  svg += `<text x="52" y="${HDR_H/2+4}" font-size="9" fill="rgba(255,255,255,0.7)" font-weight="700">ATIVIDADE</text>`;
+  svg += `<text x="248" y="${HDR_H/2+4}" font-size="8" fill="rgba(245,166,35,0.9)" font-weight="700" text-anchor="middle">INI</text>`;
+  svg += `<text x="278" y="${HDR_H/2+4}" font-size="8" fill="rgba(245,166,35,0.9)" font-weight="700" text-anchor="middle">DUR</text>`;
+  svg += `<line x1="${LBLW}" y1="0" x2="${LBLW}" y2="${SVG_H}" stroke="#C4D0E8" stroke-width="1"/>`;
+  svg += `<line x1="285" y1="${HDR_H}" x2="285" y2="${SVG_H}" stroke="#E0E6F0" stroke-width="0.5"/>`;
+
+  // Linhas de atividades
+  acts.forEach((act,i)=>{
+    const y   = HDR_H+i*ROW_H;
+    const cor = etapaCor(act.etapa);
+    const barX = LBLW+(act.inicio-1)*PPD;
+    const barW = Math.max(act.duracao*PPD,4);
+    const bg   = i%2===0?"#F5F7FB":"#ffffff";
+    svg += `<rect x="0" y="${y}" width="${LBLW}" height="${ROW_H}" fill="${bg}"/>`;
+    svg += `<line x1="0" y1="${y+ROW_H}" x2="${SVG_W}" y2="${y+ROW_H}" stroke="#E0E6F0" stroke-width="0.5"/>`;
+    svg += `<text x="8" y="${y+ROW_H/2+4}" font-size="8" fill="#8896A8">${act.km}</text>`;
+    const label = act.atividade.length>30?act.atividade.substring(0,28)+"…":act.atividade;
+    svg += `<text x="52" y="${y+ROW_H/2+4}" font-size="8.5" fill="#1A2540">${label}</text>`;
+    svg += `<text x="248" y="${y+ROW_H/2+4}" font-size="8" fill="#4A5568" text-anchor="middle">${act.inicio}</text>`;
+    svg += `<text x="278" y="${y+ROW_H/2+4}" font-size="8" fill="${cor}" text-anchor="middle" font-weight="700">${act.duracao}d</text>`;
+    // Barra
+    svg += `<rect x="${barX}" y="${y+5}" width="${barW}" height="${ROW_H-10}" fill="${cor}" rx="4" opacity="0.85"/>`;
+    if (barW>30) {
+      const bl = act.atividade.split(" ")[0].substring(0,8);
+      svg += `<text x="${barX+6}" y="${y+ROW_H/2+4}" font-size="7.5" fill="white" font-weight="700">${bl}</text>`;
+    }
+  });
+
+  svg += "</svg>";
+  document.getElementById("gantt-scroll").innerHTML = svg;
+
+  // Legenda
+  const etapasU = [...new Set(GANTT_DATA.map(a=>a.etapa))];
+  setEl("gantt-legend", etapasU.map(e=>`
+    <div class="legend-item">
+      <div class="legend-dot" style="background:${etapaCor(e)}"></div>${e}
+    </div>
+  `).join(""));
+}
+
+// ═══════════════════════════════════════════════════════
+// HISTOGRAMAS
+// ═══════════════════════════════════════════════════════
+function renderHistogramas() {
+  const data = HIST_DATA;
+  const labels = data.map(d=>d.mes);
+
+  // Destrói charts anteriores
+  if (chartMO)  { chartMO.destroy();  chartMO=null; }
+  if (chartEQP) { chartEQP.destroy(); chartEQP=null; }
+
+  const hasMO  = data.some(d=>d.servente+d.pedreiro+d.operador+d.carpinteiro>0);
+  const hasEQP = data.some(d=>d.escavadeira+d.rolo+d.caminhao+d.moto>0);
+
+  const CHART_CFG = {
+    type:'bar',
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ labels:{ font:{family:"Outfit",size:11}, color:"#4A5568" } } },
+      scales:{
+        x:{ stacked:true, grid:{display:false}, ticks:{font:{family:"Outfit",size:10},color:"#8896A8"} },
+        y:{ stacked:true, grid:{color:"#F0F0F0"}, ticks:{font:{family:"Outfit",size:10},color:"#8896A8"} }
+      }
+    }
+  };
+
+  if (hasMO) {
+    chartMO = new Chart(document.getElementById("chart-mo"), {
+      ...CHART_CFG,
+      data:{
+        labels,
+        datasets:[
+          {label:"Serventes",    data:data.map(d=>d.servente),    backgroundColor:"#1565C0", borderRadius:2},
+          {label:"Pedreiros",    data:data.map(d=>d.pedreiro),    backgroundColor:"#0288D1", borderRadius:2},
+          {label:"Operadores",   data:data.map(d=>d.operador),    backgroundColor:"#0097A7", borderRadius:2},
+          {label:"Carpinteiros", data:data.map(d=>d.carpinteiro), backgroundColor:"#80DEEA", borderRadius:2},
+        ]
+      }
+    });
+  }
+
+  if (hasEQP) {
+    chartEQP = new Chart(document.getElementById("chart-eqp"), {
+      ...CHART_CFG,
+      data:{
+        labels,
+        datasets:[
+          {label:"Escavadeiras", data:data.map(d=>d.escavadeira), backgroundColor:"#2E7D32", borderRadius:2},
+          {label:"Rolos",        data:data.map(d=>d.rolo),        backgroundColor:"#558B2F", borderRadius:2},
+          {label:"Caminhões",    data:data.map(d=>d.caminhao),    backgroundColor:"#9E9D24", borderRadius:2},
+          {label:"Motonivelad.", data:data.map(d=>d.moto),        backgroundColor:"#F9A825", borderRadius:2},
+        ]
+      }
+    });
+  }
+
+  // Tabela histogramas
+  const tbody = data.map((m,i)=>{
+    const totMO  = m.servente+m.pedreiro+m.operador+m.carpinteiro;
+    const totEQP = m.escavadeira+m.rolo+m.caminhao+m.moto;
+    if (!totMO && !totEQP) return "";
+    const td = (v,cor) => `<td class="right" style="color:${v>0?cor:"var(--cinza-aux)"};${v>0?"font-weight:600":""}">${v||"—"}</td>`;
+    return `<tr>
+      <td><strong>${m.mes}</strong></td>
+      ${td(m.servente,"#0277BD")}${td(m.pedreiro,"#0277BD")}${td(m.operador,"#0277BD")}${td(m.carpinteiro,"#0277BD")}
+      <td class="right" style="color:${totMO>0?"#002D72":"var(--cinza-aux)"};font-weight:700">${totMO||"—"}</td>
+      ${td(m.escavadeira,"#2E7D32")}${td(m.rolo,"#2E7D32")}${td(m.caminhao,"#2E7D32")}${td(m.moto,"#2E7D32")}
+      <td class="right" style="color:${totEQP>0?"#1B5E20":"var(--cinza-aux)"};font-weight:700">${totEQP||"—"}</td>
+    </tr>`;
+  }).join("");
+  setEl("tbody-hist", tbody || "<tr><td colspan='11'><div class='empty-state'><p>Sem dados calculados.</p></div></td></tr>");
+}
+
+// ═══════════════════════════════════════════════════════
+// MEMORIAL
+// ═══════════════════════════════════════════════════════
+function renderMemorial() {
+  const maxDia = GANTT_DATA.reduce((m,a)=>Math.max(m,a.termino),0);
+  const dataIni = getV("obra-inicio");
+  const dataFim = dataIni && maxDia
+    ? new Date(new Date(dataIni+"T00:00:00").getTime()+maxDia*86400000).toLocaleDateString("pt-BR")
+    : "—";
+  const durMeses = Math.ceil(maxDia/30);
+  const moTotal  = EAP_CALC.reduce((s,c)=>s+c.moTotal,0);
+  const maxQMO   = q => EAP_CALC.length ? Math.max(...EAP_CALC.map(c=>c.qmo[q]||0)) : 0;
+  const maxEQP   = q => EAP_CALC.length ? Math.max(...EAP_CALC.map(c=>c.eqp[q]||0)) : 0;
+
+  const card = (icon, title, rows) => `
+    <div class="card">
+      <div class="card-header"><div class="card-header-icon">${icon}</div><div class="card-header-title">${title}</div></div>
+      <div class="card-body">${rows.map(([l,v,acc])=>`
+        <div class="memorial-row">
+          <div class="memorial-label">${l}</div>
+          <div class="memorial-value ${acc?"accent":""}">${v||"—"}</div>
+        </div>`).join("")}
+      </div>
+    </div>`;
+
+  setEl("memorial-content", [
+    card("👷","1. Responsabilidade Técnica",[
+      ["Responsável Técnico",  getV("obra-responsavel")],
+      ["CREA-AM",              getV("obra-crea")],
+      ["Cargo / Função",       getV("obra-cargo")],
+      ["E-mail",               getV("obra-email")],
+    ]),
+    card("📋","2. Identificação da Obra",[
+      ["Nome da Obra",     getV("obra-nome"),       true],
+      ["Nº Orçamento",     getV("obra-orcamento")],
+      ["Tipo de Modal",    getV("obra-tipo"),        true],
+      ["Localização",      getV("obra-local")],
+      ["Rodovia / KM Ref.",getV("obra-rodovia")],
+      ["Extensão Total",   getV("obra-extensao")+" km", true],
+    ]),
+    card("📅","3. Planejamento Temporal",[
+      ["Data de Início",          dataIni ? new Date(dataIni+"T00:00:00").toLocaleDateString("pt-BR") : "—"],
+      ["Data de Término (prev.)", dataFim, true],
+      ["Duração Total",           `${maxDia} dias corridos (${durMeses} meses)`, true],
+      ["Jornada de Trabalho",     getV("obra-jornada")+"h/dia"],
+      ["Nº de Frentes",           getV("obra-frentes")],
+      ["Defasagem entre Frentes", getV("obra-defasagem")+" dias"],
+    ]),
+    card("👷‍♂️","4. Dimensionamento de Recursos",[
+      ["MO Total (horas)",     numBR(moTotal), true],
+      ["Serviços cadastrados", EAP_CALC.length],
+      ["Serventes (pico)",     maxQMO("servente")],
+      ["Operadores (pico)",    maxQMO("operador")],
+      ["Escavadeiras (pico)",  maxEQP("escavadeira")],
+      ["Caminhões (pico)",     maxEQP("caminhao")],
+    ]),
+  ].join(""));
+
+  // Tabela de resumo do cronograma
+  const memCrono = document.getElementById("memorial-content");
+  const div = document.createElement("div");
+  div.style.cssText = "grid-column:1/-1";
+  div.innerHTML = `
+    <div class="card">
+      <div class="card-header"><div class="card-header-icon">📅</div><div class="card-header-title">5. Resumo do Cronograma</div></div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0.8rem">
+          ${GANTT_DATA.slice(0,18).map(act=>`
+            <div style="background:var(--cinza-bg);border-radius:8px;padding:0.85rem;border-left:4px solid ${etapaCor(act.etapa)}">
+              <div style="font-size:0.65rem;color:var(--cinza-aux);margin-bottom:0.2rem">${act.km} · dias ${act.inicio}–${act.termino}</div>
+              <div style="font-size:0.85rem;font-weight:600;color:var(--cinza-txt);margin-bottom:0.3rem">${act.atividade}</div>
+              <div style="font-size:1.2rem;font-weight:800;color:var(--azul)">${act.duracao} <span style="font-size:0.65rem;font-weight:500;color:var(--cinza-aux)">dias</span></div>
+            </div>`).join("")}
+          ${GANTT_DATA.length>18?`<div style="background:var(--cinza-bg);border-radius:8px;padding:0.85rem;display:flex;align-items:center;justify-content:center;color:var(--cinza-aux);font-size:0.85rem">+${GANTT_DATA.length-18} atividades</div>`:""}
+        </div>
+      </div>
+    </div>`;
+  memCrono.appendChild(div);
+}
+
+// ═══════════════════════════════════════════════════════
+// CÁLCULO GLOBAL
+// ═══════════════════════════════════════════════════════
+function calcularTudo() {
+  const jornada = parseInt(getV("obra-jornada")) || 8;
+  EAP_CALC  = SERVICOS.map(s => calcularServico(s, jornada)).filter(Boolean);
+  GANTT_DATA = gerarCronograma();
+  HIST_DATA  = gerarHistogramas();
+  renderServicos();
+}
+
+// ═══════════════════════════════════════════════════════
+// EXPORTAR CSV
+// ═══════════════════════════════════════════════════════
+function exportarCSV() {
+  if (!EAP_CALC.length) { alert("Nenhum dado para exportar."); return; }
+  const header = ["#","Etapa","Serviço","KM","Unid","Qtde","Produt","MO_Total_h","DP_d","QE","DA_d","Serventes","Pedreiros","Operadores","Carpinteiros","Escavadeiras","Rolos","Caminhoes","Motonivelad"];
+  const rows = EAP_CALC.map((c,i)=>[
+    i+1, c.etapa, `"${c.comp?.desc}"`, c.km||"", c.comp?.unid, c.qtde, c.comp?.produt,
+    c.moTotal.toFixed(1), c.dp, c.qe, c.da,
+    c.qmo.servente, c.qmo.pedreiro, c.qmo.operador, c.qmo.carpinteiro,
+    c.eqp.escavadeira, c.eqp.rolo, c.eqp.caminhao, c.eqp.moto
+  ].join(","));
+  const csv = [header.join(","), ...rows].join("\n");
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `EAP_${getV("obra-nome")||"obra"}_${new Date().toISOString().split("T")[0]}.csv`;
+  a.click();
+}
+
+// ═══════════════════════════════════════════════════════
+// EXPORTAR PDF (EAP)
+// ═══════════════════════════════════════════════════════
+function exportarPDF() {
+  if (!window.jspdf) { alert("Biblioteca jsPDF não carregou. Verifique sua conexão."); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:"landscape", unit:"mm", format:"a3" });
+
+  doc.setFontSize(14);
+  doc.setTextColor(0,45,114);
+  doc.text("SEINFRA/AM — EAP — Estrutura Analítica do Projeto", 14, 14);
+  doc.setFontSize(9);
+  doc.setTextColor(100);
+  doc.text(`Obra: ${getV("obra-nome")||"—"}   |   Tipo: ${getV("obra-tipo")}   |   Extensão: ${getV("obra-extensao")} km`, 14, 20);
+
+  const head = [["#","Etapa","Serviço","KM","Unid","Qtde","Produt","MO(h)","DP","QE","DA","Serv","Ped","Oper","Carp","Escav","Rolo","Cam","Moto"]];
+  const body = EAP_CALC.map((c,i)=>[
+    i+1, c.etapa, c.comp?.desc, c.km||"—", c.comp?.unid,
+    numBR(c.qtde), c.comp?.produt, numBR(c.moTotal,1), c.dp, c.qe, c.da,
+    c.qmo.servente, c.qmo.pedreiro, c.qmo.operador, c.qmo.carpinteiro,
+    c.eqp.escavadeira, c.eqp.rolo, c.eqp.caminhao, c.eqp.moto
+  ]);
+
+  doc.autoTable({ head, body, startY:25, styles:{fontSize:7, fontFamily:"helvetica"},
+    headStyles:{fillColor:[0,45,114]}, alternateRowStyles:{fillColor:[245,247,251]},
+    columnStyles:{ 2:{cellWidth:50}, 7:{halign:"right"}, 10:{halign:"right", textColor:[245,166,35], fontStyle:"bold"} }
+  });
+  doc.save(`EAP_${getV("obra-nome")||"obra"}.pdf`);
+}
+
+// ═══════════════════════════════════════════════════════
+// EXPORTAR MEMORIAL PDF
+// ═══════════════════════════════════════════════════════
+function exportarMemorialPDF() {
+  if (!window.jspdf) { alert("Biblioteca jsPDF não carregou."); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:"portrait", unit:"mm", format:"a4" });
+  const maxDia  = GANTT_DATA.reduce((m,a)=>Math.max(m,a.termino),0);
+  const dataIni = getV("obra-inicio");
+  const dataFim = dataIni && maxDia
+    ? new Date(new Date(dataIni+"T00:00:00").getTime()+maxDia*86400000).toLocaleDateString("pt-BR")
+    : "—";
+  const moTotal = EAP_CALC.reduce((s,c)=>s+c.moTotal,0);
+
+  // Cabeçalho
+  doc.setFillColor(0,45,114); doc.rect(0,0,210,28,"F");
+  doc.setFontSize(7); doc.setTextColor(200,200,200);
+  doc.text("GOVERNO DO ESTADO DO AMAZONAS · SEINFRA/AM · DMOB", 14, 8);
+  doc.setFontSize(14); doc.setTextColor(255,255,255);
+  doc.text("MEMORIAL DE EXECUÇÃO DE OBRA", 14, 17);
+  doc.setFontSize(8); doc.setTextColor(245,166,35);
+  doc.text("Plataforma de Planejamento de Obras v2.0", 14, 24);
+
+  let y = 36;
+  const section = (title) => {
+    doc.setFillColor(235,240,250); doc.rect(10, y-4, 190, 7, "F");
+    doc.setFontSize(9); doc.setTextColor(0,45,114); doc.setFont("helvetica","bold");
+    doc.text(title, 14, y); y += 6;
+    doc.setFont("helvetica","normal");
+  };
+  const row = (l, v) => {
+    doc.setFontSize(8); doc.setTextColor(80);
+    doc.text(l, 14, y);
+    doc.setTextColor(0,45,114); doc.setFont("helvetica","bold");
+    doc.text(String(v||"—"), 90, y);
+    doc.setFont("helvetica","normal");
+    y += 6;
+  };
+
+  section("1. IDENTIFICAÇÃO DA OBRA");
+  row("Nome da Obra", getV("obra-nome"));
+  row("Nº do Orçamento", getV("obra-orcamento"));
+  row("Tipo de Modal", getV("obra-tipo"));
+  row("Localização", getV("obra-local"));
+  row("Rodovia / KM Referência", getV("obra-rodovia"));
+  row("Extensão Total", getV("obra-extensao")+" km");
+  y += 4;
+
+  section("2. RESPONSABILIDADE TÉCNICA");
+  row("Responsável Técnico", getV("obra-responsavel"));
+  row("CREA-AM", getV("obra-crea"));
+  row("Cargo / Função", getV("obra-cargo"));
+  row("E-mail", getV("obra-email"));
+  y += 4;
+
+  section("3. PLANEJAMENTO TEMPORAL");
+  row("Data de Início", dataIni ? new Date(dataIni+"T00:00:00").toLocaleDateString("pt-BR") : "—");
+  row("Data de Término (prevista)", dataFim);
+  row("Duração Total", `${maxDia} dias (${Math.ceil(maxDia/30)} meses)`);
+  row("Jornada de Trabalho", getV("obra-jornada")+"h/dia");
+  row("Número de Frentes", getV("obra-frentes"));
+  row("Defasagem entre Frentes", getV("obra-defasagem")+" dias");
+  y += 4;
+
+  section("4. DIMENSIONAMENTO DE RECURSOS");
+  row("MO Total (horas·homem)", numBR(moTotal));
+  row("Serviços Cadastrados", EAP_CALC.length);
+  const maxQMO = q => EAP_CALC.length ? Math.max(...EAP_CALC.map(c=>c.qmo[q]||0)) : 0;
+  const maxEQP = q => EAP_CALC.length ? Math.max(...EAP_CALC.map(c=>c.eqp[q]||0)) : 0;
+  row("Serventes (pico)", maxQMO("servente"));
+  row("Operadores (pico)", maxQMO("operador"));
+  row("Escavadeiras (pico)", maxEQP("escavadeira"));
+  row("Caminhões (pico)", maxEQP("caminhao"));
+  y += 4;
+
+  // Cronograma resumo
+  section("5. RESUMO DO CRONOGRAMA");
+  const crHead = [["KM","Atividade","Início","Duração","Término"]];
+  const crBody = GANTT_DATA.map(a=>[a.km, a.atividade, `Dia ${a.inicio}`, `${a.duracao}d`, `Dia ${a.termino}`]);
+  doc.autoTable({ head:crHead, body:crBody, startY:y+2, margin:{left:14,right:14},
+    styles:{fontSize:8}, headStyles:{fillColor:[0,45,114]}, alternateRowStyles:{fillColor:[245,247,251]} });
+  y = doc.lastAutoTable.finalY + 6;
+
+  // EAP resumo
+  doc.addPage();
+  doc.setFillColor(0,45,114); doc.rect(0,0,210,14,"F");
+  doc.setFontSize(10); doc.setTextColor(255,255,255);
+  doc.text("EAP — Dimensionamento de Mão de Obra e Equipamentos", 14, 9);
+  const eHead = [["Etapa","Serviço","KM","MO(h)","DP","DA","Serv","Oper","Escav","Cam"]];
+  const eBody = EAP_CALC.map(c=>[c.etapa,c.comp?.desc,c.km||"—",numBR(c.moTotal,1),c.dp,c.da,c.qmo.servente,c.qmo.operador,c.eqp.escavadeira,c.eqp.caminhao]);
+  doc.autoTable({ head:eHead, body:eBody, startY:18, margin:{left:14,right:14},
+    styles:{fontSize:7.5}, headStyles:{fillColor:[0,45,114]}, alternateRowStyles:{fillColor:[245,247,251]} });
+
+  // Rodapé
+  const pg = doc.internal.getNumberOfPages();
+  for (let i=1;i<=pg;i++) {
+    doc.setPage(i);
+    doc.setFontSize(7); doc.setTextColor(150);
+    doc.text(`SEINFRA/AM · DMOB · Plataforma de Planejamento de Obras v2.0 · Página ${i}/${pg}`, 14, 290);
+  }
+
+  doc.save(`Memorial_${getV("obra-nome")||"obra"}_${new Date().toISOString().split("T")[0]}.pdf`);
+}
+
+// ═══════════════════════════════════════════════════════
+// MODAL DE IMPRESSÃO / PDF
+// ═══════════════════════════════════════════════════════
+
+function abrirModalImpressao() {
+  // Garante que os dados estão atualizados
+  calcularTudo();
+  // Atualiza subtítulo da toolbar
+  const nome = getV("obra-nome") || "Obra não identificada";
+  document.getElementById("print-obra-sub").textContent = nome + " · " + getV("obra-tipo");
+  // Renderiza o preview
+  gerarPreviewImpressao();
+  // Abre o modal
+  const overlay = document.getElementById("printOverlay");
+  overlay.classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+
+function fecharPrintModal() {
+  document.getElementById("printOverlay").classList.remove("open");
+  document.body.style.overflow = "";
+}
+
+function fecharPrintFora(e) {
+  if (e.target === document.getElementById("printOverlay")) fecharPrintModal();
+}
+
+document.addEventListener("keydown", e => { if (e.key === "Escape") fecharPrintModal(); });
+
+function executarImpressao() {
+  // Força re-render dos histogramas em canvas para capturar imagens
+  window.print();
+}
+
+// ─── GERADOR DE CONTEÚDO DO PREVIEW ───────────────────
+function gerarPreviewImpressao() {
+  const area = document.getElementById("printPreviewArea");
+  const checks = {
+    identificacao: document.getElementById("pcheck-identificacao").checked,
+    eap:           document.getElementById("pcheck-eap").checked,
+    gantt:         document.getElementById("pcheck-gantt").checked,
+    histogramas:   document.getElementById("pcheck-histogramas").checked,
+    memorial:      document.getElementById("pcheck-memorial").checked,
+  };
+
+  // Listeners nos checkboxes para re-render live
+  ["identificacao","eap","gantt","histogramas","memorial"].forEach(id => {
+    const el = document.getElementById("pcheck-"+id);
+    el.onchange = gerarPreviewImpressao;
+  });
+
+  let html = "";
+
+  // ── PÁGINA 1: CAPA + IDENTIFICAÇÃO ──
+  if (checks.identificacao) {
+    const dataIni  = getV("obra-inicio");
+    const maxDia   = GANTT_DATA.reduce((m,a)=>Math.max(m,a.termino),0);
+    const dataFim  = dataIni && maxDia
+      ? new Date(new Date(dataIni+"T00:00:00").getTime()+maxDia*86400000).toLocaleDateString("pt-BR")
+      : "—";
+    const durMeses = Math.ceil(maxDia/30);
+
+    html += `<div class="print-page">
+      <div class="print-page-capa">
+        <div class="print-capa-inner">
+          <div class="print-capa-gov">GOVERNO DO ESTADO DO AMAZONAS · SEINFRA/AM · DMOB</div>
+          <div class="print-capa-title">Plataforma de Planejamento de Obras</div>
+          <div class="print-capa-nome">${getV("obra-nome")||"Obra não identificada"}</div>
+          <div class="print-capa-grid">
+            <div class="print-capa-item"><div class="print-capa-lbl">Tipo de Modal</div><div class="print-capa-val">${getV("obra-tipo")}</div></div>
+            <div class="print-capa-item"><div class="print-capa-lbl">Nº Orçamento</div><div class="print-capa-val">${getV("obra-orcamento")||"—"}</div></div>
+            <div class="print-capa-item"><div class="print-capa-lbl">Extensão Total</div><div class="print-capa-val">${getV("obra-extensao")} km</div></div>
+            <div class="print-capa-item"><div class="print-capa-lbl">Duração Prevista</div><div class="print-capa-val">${maxDia} dias (${durMeses} meses)</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="print-section-title">📋 Identificação e Parâmetros da Obra</div>
+      <div class="print-section-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1rem;">
+          ${[
+            ["Localização",     getV("obra-local")],
+            ["Rodovia / KM",    getV("obra-rodovia")],
+            ["Data de Início",  dataIni ? new Date(dataIni+"T00:00:00").toLocaleDateString("pt-BR") : "—"],
+            ["Data de Término", dataFim],
+            ["Jornada",         getV("obra-jornada")+"h/dia"],
+            ["Defasagem",       getV("obra-defasagem")+" dias/frente"],
+            ["Responsável",     getV("obra-responsavel")],
+            ["CREA-AM",         getV("obra-crea")],
+            ["E-mail",          getV("obra-email")],
+          ].map(([l,v])=>`<div style="background:var(--cinza-bg);border-radius:6px;padding:0.65rem 0.9rem">
+            <div style="font-size:0.6rem;font-weight:700;color:var(--cinza-aux);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.2rem">${l}</div>
+            <div style="font-size:0.82rem;font-weight:600;color:var(--azul)">${v||"—"}</div>
+          </div>`).join("")}
+        </div>
+        <div style="margin-top:0.5rem">
+          <div style="font-size:0.65rem;font-weight:700;color:var(--cinza-aux);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.6rem">Parâmetros por Etapa — ${getV("obra-tipo")}</div>
+          <div style="display:flex;gap:0.6rem;flex-wrap:wrap;">
+            ${(PARAMETROS[getV("obra-tipo")]||[]).map(p=>`
+              <div style="background:var(--cinza-bg);border-radius:6px;padding:0.55rem 0.9rem;border-left:3px solid ${etapaCor(p.etapa)}">
+                <div style="font-size:0.55rem;color:var(--cinza-aux);font-weight:600">${p.porKm?"Por KM":"Global"}</div>
+                <div style="font-size:0.75rem;font-weight:600;color:var(--cinza-txt)">${p.etapa}</div>
+                <div style="font-size:1.1rem;font-weight:800;color:var(--azul)">${p.prazo} <span style="font-size:0.6rem;font-weight:400;color:var(--cinza-aux)">dias</span></div>
+              </div>`).join("")}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── PÁGINA 2: EAP ──
+  if (checks.eap && EAP_CALC.length > 0) {
+    const jornada = parseInt(getV("obra-jornada"))||8;
+    const totMO   = EAP_CALC.reduce((s,c)=>s+c.moTotal,0);
+    const totQMO  = {servente:0,pedreiro:0,operador:0,carpinteiro:0};
+    const totEQP  = {escavadeira:0,rolo:0,caminhao:0,moto:0};
+    EAP_CALC.forEach(c=>{
+      Object.keys(totQMO).forEach(k=>{totQMO[k]+=c.qmo[k]||0;});
+      Object.keys(totEQP).forEach(k=>{totEQP[k]+=c.eqp[k]||0;});
+    });
+
+    html += `<div class="print-page">
+      <div class="print-section-title">📊 EAP — Estrutura Analítica do Projeto</div>
+      <div class="print-section-body">
+        <div class="print-kpis">
+          ${[
+            {l:"MO Total",v:numBR(totMO,0),u:"horas·homem"},
+            {l:"Serventes",v:totQMO.servente,u:"pico simultâneo"},
+            {l:"Operadores",v:totQMO.operador,u:"pico simultâneo"},
+            {l:"Escavadeiras",v:totEQP.escavadeira,u:"pico simultâneo"},
+            {l:"Caminhões",v:totEQP.caminhao,u:"pico simultâneo"},
+          ].map(k=>`<div class="print-kpi"><div class="print-kpi-lbl">${k.l}</div><div class="print-kpi-val">${k.v}</div><div class="print-kpi-unit">${k.u}</div></div>`).join("")}
+        </div>
+        <table class="ptable">
+          <thead><tr>
+            <th>#</th><th>Etapa</th><th style="min-width:180px">Serviço</th>
+            <th>KM</th><th>Unid</th><th class="r">Qtde</th>
+            <th class="r" style="background:rgba(2,119,189,0.5)">MO(h)</th>
+            <th class="r" style="background:rgba(2,119,189,0.5)">DP</th>
+            <th class="r">QE</th>
+            <th class="r" style="background:rgba(245,166,35,0.5)">DA</th>
+            <th class="r" style="background:rgba(2,119,189,0.3)">Serv</th>
+            <th class="r" style="background:rgba(2,119,189,0.3)">Oper</th>
+            <th class="r" style="background:rgba(2,119,189,0.3)">Carp</th>
+            <th class="r" style="background:rgba(46,125,50,0.3)">Escav</th>
+            <th class="r" style="background:rgba(46,125,50,0.3)">Rolo</th>
+            <th class="r" style="background:rgba(46,125,50,0.3)">Cam</th>
+            <th class="r" style="background:rgba(46,125,50,0.3)">Moto</th>
+          </tr></thead>
+          <tbody>
+            ${EAP_CALC.map((c,i)=>`<tr>
+              <td style="text-align:right;color:var(--cinza-aux)">${i+1}</td>
+              <td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${etapaCor(c.etapa)};margin-right:4px;"></span>${c.etapa}</td>
+              <td style="font-size:0.68rem"><span style="color:var(--cinza-aux)">${c.codigo} </span>${c.comp?.desc||""}</td>
+              <td style="color:var(--cinza-aux)">${c.km?"KM "+c.km:"—"}</td>
+              <td style="color:var(--cinza-aux)">${c.comp?.unid||""}</td>
+              <td class="r">${numBR(c.qtde)}</td>
+              <td class="r" style="color:#0277BD;font-weight:700">${numBR(c.moTotal,1)}</td>
+              <td class="r" style="color:#0277BD">${c.dp}</td>
+              <td class="r">${c.qe}</td>
+              <td class="r" style="color:var(--amarelo);font-weight:700">${c.da}</td>
+              <td class="r" style="color:${c.qmo.servente>0?"#0277BD":"var(--cinza-aux)"}">${c.qmo.servente||"—"}</td>
+              <td class="r" style="color:${c.qmo.operador>0?"#0277BD":"var(--cinza-aux)"}">${c.qmo.operador||"—"}</td>
+              <td class="r" style="color:${c.qmo.carpinteiro>0?"#0277BD":"var(--cinza-aux)"}">${c.qmo.carpinteiro||"—"}</td>
+              <td class="r" style="color:${c.eqp.escavadeira>0?"#2E7D32":"var(--cinza-aux)"}">${c.eqp.escavadeira||"—"}</td>
+              <td class="r" style="color:${c.eqp.rolo>0?"#2E7D32":"var(--cinza-aux)"}">${c.eqp.rolo||"—"}</td>
+              <td class="r" style="color:${c.eqp.caminhao>0?"#2E7D32":"var(--cinza-aux)"}">${c.eqp.caminhao||"—"}</td>
+              <td class="r" style="color:${c.eqp.moto>0?"#2E7D32":"var(--cinza-aux)"}">${c.eqp.moto||"—"}</td>
+            </tr>`).join("")}
+          </tbody>
+          <tfoot><tr>
+            <td colspan="6" style="text-align:right;font-size:0.6rem;letter-spacing:0.08em">TOTAIS</td>
+            <td class="r">${numBR(totMO,1)}</td>
+            <td></td><td></td><td></td>
+            <td class="r">${totQMO.servente}</td>
+            <td class="r">${totQMO.operador}</td>
+            <td class="r">${totQMO.carpinteiro}</td>
+            <td class="r">${totEQP.escavadeira}</td>
+            <td class="r">${totEQP.rolo}</td>
+            <td class="r">${totEQP.caminhao}</td>
+            <td class="r">${totEQP.moto}</td>
+          </tr></tfoot>
+        </table>
+        <div style="margin-top:0.8rem;display:flex;flex-wrap:wrap;gap:1rem;font-size:0.65rem;color:var(--cinza-aux);background:var(--cinza-bg);border-radius:6px;padding:0.6rem 1rem">
+          <span><strong style="color:var(--azul)">DP</strong> = ROUNDUP(MO_Total / ${getV("obra-jornada")}h, 0)</span>
+          <span><strong style="color:var(--azul)">DA</strong> = ROUNDUP(DP / QE, 0)</span>
+          <span><strong style="color:var(--azul)">QMO</strong> = ROUNDUP(Qtde × taxa / (DA × Jornada), 0)</span>
+          <span>Fonte: DNIT-313 / SICRO2 / CPU / e-Obras</span>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── PÁGINA 3: GANTT ──
+  if (checks.gantt && GANTT_DATA.length > 0) {
+    // Captura o SVG gerado
+    const ganttSVG = document.getElementById("gantt-svg");
+    let ganttContent = "";
+    if (ganttSVG && ganttSVG.outerHTML && ganttSVG.getAttribute("width")) {
+      ganttContent = `<div class="print-gantt-wrap" style="overflow-x:auto">${ganttSVG.outerHTML}</div>`;
+    } else {
+      // Re-gera o gantt para captura
+      renderGantt();
+      const g2 = document.getElementById("gantt-svg");
+      ganttContent = g2 && g2.getAttribute("width")
+        ? `<div class="print-gantt-wrap" style="overflow-x:auto">${g2.outerHTML}</div>`
+        : "<p style='color:var(--cinza-aux);padding:1rem'>Acesse a aba Cronograma antes de imprimir para gerar o Gantt.</p>";
+    }
+
+    const maxDia = GANTT_DATA.reduce((m,a)=>Math.max(m,a.termino),0);
+    html += `<div class="print-page">
+      <div class="print-section-title">📅 Cronograma Físico — Gráfico de Gantt</div>
+      <div class="print-section-body">
+        <div style="display:flex;gap:2rem;margin-bottom:0.8rem;font-size:0.75rem;">
+          <span>Duração total: <strong style="color:var(--azul)">${maxDia} dias (${Math.ceil(maxDia/30)} meses)</strong></span>
+          <span>Extensão: <strong style="color:var(--azul)">${getV("obra-extensao")} km</strong></span>
+          <span>Frentes: <strong style="color:var(--azul)">${getV("obra-frentes")}</strong></span>
+          <span>Defasagem: <strong style="color:var(--amarelo)">${getV("obra-defasagem")} dias/frente</strong></span>
+        </div>
+        ${ganttContent}
+        <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:0.8rem;">
+          ${[...new Set(GANTT_DATA.map(a=>a.etapa))].map(e=>`
+            <div style="display:flex;align-items:center;gap:5px;font-size:0.68rem;color:var(--cinza-aux)">
+              <div style="width:10px;height:10px;border-radius:2px;background:${etapaCor(e)}"></div>${e}
+            </div>`).join("")}
+        </div>
+        <div style="margin-top:1rem">
+          <table class="ptable">
+            <thead><tr><th>KM</th><th>Atividade</th><th class="r">Início (dia)</th><th class="r">Duração</th><th class="r">Término (dia)</th></tr></thead>
+            <tbody>${GANTT_DATA.map(a=>`<tr>
+              <td style="color:var(--cinza-aux)">${a.km}</td>
+              <td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${etapaCor(a.etapa)};margin-right:5px"></span>${a.atividade}</td>
+              <td class="r">${a.inicio}</td>
+              <td class="r" style="color:var(--amarelo);font-weight:700">${a.duracao}d</td>
+              <td class="r">${a.termino}</td>
+            </tr>`).join("")}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── PÁGINA 4: HISTOGRAMAS ──
+  if (checks.histogramas) {
+    // Captura imagens dos canvas Chart.js
+    const canvasMO  = document.getElementById("chart-mo");
+    const canvasEQP = document.getElementById("chart-eqp");
+    let imgMO = "", imgEQP = "";
+    try { imgMO  = canvasMO?.toDataURL("image/png")  || ""; } catch(e){}
+    try { imgEQP = canvasEQP?.toDataURL("image/png") || ""; } catch(e){}
+
+    const hasMO  = HIST_DATA.some(d=>d.servente+d.pedreiro+d.operador+d.carpinteiro>0);
+    const hasEQP = HIST_DATA.some(d=>d.escavadeira+d.rolo+d.caminhao+d.moto>0);
+
+    html += `<div class="print-page">
+      <div class="print-section-title">📈 Histogramas — Distribuição Mensal de Recursos</div>
+      <div class="print-section-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.2rem">
+          <div style="background:var(--cinza-bg);border-radius:8px;padding:1rem">
+            <div style="font-size:0.7rem;font-weight:700;color:var(--azul);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.7rem">Histograma de Mão de Obra</div>
+            ${imgMO ? `<img src="${imgMO}" style="width:100%;border-radius:4px" alt="Histograma MO"/>` : "<p style='color:var(--cinza-aux);font-size:0.8rem'>Acesse a aba Histogramas antes de imprimir.</p>"}
+          </div>
+          <div style="background:var(--cinza-bg);border-radius:8px;padding:1rem">
+            <div style="font-size:0.7rem;font-weight:700;color:var(--azul);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.7rem">Histograma de Equipamentos</div>
+            ${imgEQP ? `<img src="${imgEQP}" style="width:100%;border-radius:4px" alt="Histograma EQP"/>` : "<p style='color:var(--cinza-aux);font-size:0.8rem'>Acesse a aba Histogramas antes de imprimir.</p>"}
+          </div>
+        </div>
+        <table class="ptable">
+          <thead><tr>
+            <th>Mês</th>
+            <th class="r" style="background:rgba(2,119,189,0.4)">Serv.</th>
+            <th class="r" style="background:rgba(2,119,189,0.4)">Ped.</th>
+            <th class="r" style="background:rgba(2,119,189,0.4)">Oper.</th>
+            <th class="r" style="background:rgba(2,119,189,0.4)">Carp.</th>
+            <th class="r" style="background:rgba(2,119,189,0.6)">Total MO</th>
+            <th class="r" style="background:rgba(46,125,50,0.4)">Escav.</th>
+            <th class="r" style="background:rgba(46,125,50,0.4)">Rolo</th>
+            <th class="r" style="background:rgba(46,125,50,0.4)">Cam.</th>
+            <th class="r" style="background:rgba(46,125,50,0.4)">Moto</th>
+            <th class="r" style="background:rgba(46,125,50,0.6)">Total EQP</th>
+          </tr></thead>
+          <tbody>${HIST_DATA.map(m=>{
+            const tMO  = m.servente+m.pedreiro+m.operador+m.carpinteiro;
+            const tEQP = m.escavadeira+m.rolo+m.caminhao+m.moto;
+            if (!tMO && !tEQP) return "";
+            const c = (v, cor) => `<td class="r" style="color:${v>0?cor:"var(--cinza-aux)"};${v>0?"font-weight:600":""}">${v||"—"}</td>`;
+            return `<tr>
+              <td><strong>${m.mes}</strong></td>
+              ${c(m.servente,"#0277BD")}${c(m.pedreiro,"#0277BD")}${c(m.operador,"#0277BD")}${c(m.carpinteiro,"#0277BD")}
+              <td class="r" style="color:${tMO>0?"#002D72":"var(--cinza-aux)"};font-weight:700">${tMO||"—"}</td>
+              ${c(m.escavadeira,"#2E7D32")}${c(m.rolo,"#2E7D32")}${c(m.caminhao,"#2E7D32")}${c(m.moto,"#2E7D32")}
+              <td class="r" style="color:${tEQP>0?"#1B5E20":"var(--cinza-aux)"};font-weight:700">${tEQP||"—"}</td>
+            </tr>`;
+          }).join("")}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }
+
+  // ── PÁGINA 5: MEMORIAL ──
+  if (checks.memorial) {
+    const dataIni  = getV("obra-inicio");
+    const maxDia   = GANTT_DATA.reduce((m,a)=>Math.max(m,a.termino),0);
+    const dataFim  = dataIni && maxDia
+      ? new Date(new Date(dataIni+"T00:00:00").getTime()+maxDia*86400000).toLocaleDateString("pt-BR")
+      : "—";
+    const moTotal  = EAP_CALC.reduce((s,c)=>s+c.moTotal,0);
+    const maxQMO   = q => EAP_CALC.length ? Math.max(...EAP_CALC.map(c=>c.qmo[q]||0)) : 0;
+    const maxEQP   = q => EAP_CALC.length ? Math.max(...EAP_CALC.map(c=>c.eqp[q]||0)) : 0;
+
+    const mCard = (title, rows) => `
+      <div class="print-memorial-card">
+        <div class="print-memorial-card-hdr">${title}</div>
+        ${rows.map(([l,v])=>`<div class="print-memorial-row">
+          <div class="print-memorial-lbl">${l}</div>
+          <div class="print-memorial-val">${v||"—"}</div>
+        </div>`).join("")}
+      </div>`;
+
+    html += `<div class="print-page">
+      <div class="print-section-title">📄 Memorial de Execução</div>
+      <div class="print-section-body">
+        <div class="print-memorial-grid">
+          ${mCard("👷 Responsabilidade Técnica",[
+            ["Responsável",  getV("obra-responsavel")],
+            ["CREA-AM",      getV("obra-crea")],
+            ["Cargo",        getV("obra-cargo")],
+            ["E-mail",       getV("obra-email")],
+          ])}
+          ${mCard("📋 Identificação da Obra",[
+            ["Nome da Obra",  getV("obra-nome")],
+            ["Nº Orçamento",  getV("obra-orcamento")],
+            ["Tipo de Modal", getV("obra-tipo")],
+            ["Localização",   getV("obra-local")],
+            ["Rodovia / KM",  getV("obra-rodovia")],
+            ["Extensão",      getV("obra-extensao")+" km"],
+          ])}
+          ${mCard("📅 Planejamento Temporal",[
+            ["Data de Início",    dataIni ? new Date(dataIni+"T00:00:00").toLocaleDateString("pt-BR") : "—"],
+            ["Data de Término",   dataFim],
+            ["Duração Total",     `${maxDia} dias (${Math.ceil(maxDia/30)} meses)`],
+            ["Jornada",           getV("obra-jornada")+"h/dia"],
+            ["Nº de Frentes",     getV("obra-frentes")],
+            ["Defasagem",         getV("obra-defasagem")+" dias"],
+          ])}
+          ${mCard("👷‍♂️ Dimensionamento de Recursos",[
+            ["MO Total (h·h)",   numBR(moTotal)],
+            ["Serviços",         EAP_CALC.length],
+            ["Serventes (pico)", maxQMO("servente")],
+            ["Operadores (pico)",maxQMO("operador")],
+            ["Escavadeiras",     maxEQP("escavadeira")],
+            ["Caminhões",        maxEQP("caminhao")],
+          ])}
+        </div>
+        <div style="margin-top:1rem">
+          <div style="font-size:0.65rem;font-weight:700;color:var(--cinza-aux);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.6rem">Resumo do Cronograma</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:0.6rem">
+            ${GANTT_DATA.map(act=>`
+              <div style="background:var(--cinza-bg);border-radius:6px;padding:0.6rem 0.8rem;border-left:3px solid ${etapaCor(act.etapa)}">
+                <div style="font-size:0.58rem;color:var(--cinza-aux);margin-bottom:0.15rem">${act.km} · Dias ${act.inicio}–${act.termino}</div>
+                <div style="font-size:0.78rem;font-weight:600;color:var(--cinza-txt)">${act.atividade}</div>
+                <div style="font-size:1rem;font-weight:800;color:var(--azul)">${act.duracao}d</div>
+              </div>`).join("")}
+          </div>
+        </div>
+        <!-- Rodapé do documento -->
+        <div style="margin-top:1.5rem;padding-top:0.8rem;border-top:1px solid var(--borda);display:flex;justify-content:space-between;align-items:flex-end;font-size:0.62rem;color:var(--cinza-aux)">
+          <div>
+            <div style="font-weight:700;color:var(--azul);font-size:0.75rem">SEINFRA/AM</div>
+            <div>Secretaria de Estado de Infraestrutura · Amazonas</div>
+            <div>Plataforma de Planejamento de Obras v2.0 · DMOB</div>
+          </div>
+          <div style="text-align:right">
+            <div>Emitido em: ${new Date().toLocaleDateString("pt-BR", {day:"2-digit",month:"long",year:"numeric"})}</div>
+            <div>Responsável: ${getV("obra-responsavel")||"—"} · ${getV("obra-crea")||"—"}</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  if (!html) {
+    html = `<div style="text-align:center;padding:3rem;color:var(--cinza-aux)">
+      <div style="font-size:2rem;margin-bottom:0.8rem">📋</div>
+      <p>Selecione ao menos uma seção para visualizar o preview.</p>
+    </div>`;
+  }
+
+  area.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════
+// INICIALIZAÇÃO
+// ═══════════════════════════════════════════════════════
+(function init() {
+  // Data padrão: hoje
+  const today = new Date().toISOString().split("T")[0];
+  document.getElementById("obra-inicio").value = today;
+
+  renderParamCards();
+  calcularTudo();
+
+  // Monitorar mudanças nos campos de parâmetros
+  ["obra-jornada","obra-defasagem","obra-inicio"].forEach(id => {
+    document.getElementById(id)?.addEventListener("input", calcularTudo);
+  });
+})();
+</script>
+</body>
+</html>
