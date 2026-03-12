@@ -469,7 +469,21 @@
       .print-memorial-card-hdr { background: #002D72 !important; color: white !important; }
       .print-memorial-val { color: #002D72 !important; }
 
-      @page { margin: 0.8cm; size: A3 landscape; }
+      @page {
+        margin: 1cm 0.8cm;
+        size: A3 landscape;
+      }
+      html, body {
+        width: 420mm !important;
+        height: auto !important;
+      }
+      .print-overlay { width: 420mm !important; }
+      .print-modal { width: 100% !important; max-width: 420mm !important; }
+      .print-preview-area { width: 100% !important; }
+      .print-page { width: 100% !important; box-sizing: border-box !important; }
+      /* Força tabelas a não transbordarem */
+      .ptable { font-size: 0.55rem !important; }
+      .ptable thead th, .ptable tbody td, .ptable tfoot td { padding: 0.3rem 0.35rem !important; white-space: normal !important; }
     }
   </style>
 </head>
@@ -523,6 +537,10 @@
         </div>
       </div>
       <div class="print-toolbar-actions">
+        <div style="font-size:0.62rem;color:#E65100;background:#FFF3E0;border:1px solid #FFB74D;border-radius:6px;padding:0.3rem 0.7rem;max-width:220px;line-height:1.4">
+          ⚠️ <strong>Imprimir em A3 paisagem</strong><br>
+          No diálogo do navegador: selecione <em>A3</em> e <em>Paisagem / Landscape</em>
+        </div>
         <button class="btn-pdf-action" onclick="executarImpressao()">🖨️ Gerar PDF</button>
         <button class="btn-fechar-modal" onclick="fecharPrintModal()" title="Fechar">✕</button>
       </div>
@@ -1076,12 +1094,23 @@ function gerarCronograma() {
     return seq.find(e => e.etapa === etapa)?.prazo || 5;
   };
 
+  // ── Sequência de KMs a partir do canteiro ──────────────
+  // Se canteiro=6 e nKm=16: executa 6,7,8..16, depois 5,4,3,2,1
+  const canteiroKm = Math.round(canteiro); // referência inteira do km
+  const buildKmSeq = (ini, fim) => {
+    const all = Array.from({length: fim - ini + 1}, (_, i) => ini + i);
+    if (canteiroKm <= 0 || canteiroKm < ini || canteiroKm > fim) return all;
+    // Parte da frente: do canteiro até o fim, depois do canteiro-1 até o início
+    const forward  = all.filter(k => k >= canteiroKm);
+    const backward = all.filter(k => k < canteiroKm).reverse();
+    return [...forward, ...backward];
+  };
+
   // Canteiro global (KM 0)
+  const canteiroLabel = canteiroKm > 0 ? `${canteiroParam.etapa} (📍 KM ${canteiroKm})` : canteiroParam.etapa;
   acts.push({
     id:"C", etapa:"CANTEIRO DE OBRAS", etapaFull:canteiroParam.etapa,
-    atividade: canteiro > 0
-      ? `${canteiroParam.etapa} (KM ${canteiro})`
-      : canteiroParam.etapa,
+    atividade: canteiroLabel,
     km:"KM 0", duracao:canteiroParam.prazo, inicio:1, termino:canteiroParam.prazo,
     frente: null, frenteCor: "#8896A8",
   });
@@ -1119,17 +1148,20 @@ function gerarCronograma() {
 
     const iniMap = {}, fimMap = {};
     let fimFrenteDia = inicioFrente;
+    const kmSeq = buildKmSeq(kmIni, kmFim); // sequência reordenada pelo canteiro
 
-    for (let km = kmIni; km <= kmFim; km++) {
+    kmSeq.forEach((km, kmIdx) => {
       seq.forEach((ep, i) => {
         const dur = durEtapa(ep.etapa, km);
         let inicio;
-        if (km === kmIni) {
+        if (kmIdx === 0) {
+          // Primeiro KM da frente (parte do canteiro)
           inicio = i === 0
             ? inicioFrente
-            : (fimMap[`${kmIni}_${seq[i-1].etapa}`] || inicioFrente - 1) + 1;
+            : (fimMap[`${km}_${seq[i-1].etapa}`] || inicioFrente - 1) + 1;
         } else {
-          const prevIni = iniMap[`${km-1}_${ep.etapa}`] || inicioFrente;
+          const prevKm = kmSeq[kmIdx - 1];
+          const prevIni = iniMap[`${prevKm}_${ep.etapa}`] || inicioFrente;
           inicio = prevIni + def;
           if (i > 0) {
             const prevFim = fimMap[`${km}_${seq[i-1].etapa}`] || 0;
@@ -1146,7 +1178,7 @@ function gerarCronograma() {
           frente:frenteNome, frenteCor,
         });
       });
-    }
+    }); // end kmSeq.forEach
 
     if (!frente.paralelo) fimUltimaFrenteSequencial = fimFrenteDia;
   });
@@ -1747,6 +1779,7 @@ function renderEAP() {
 // ═══════════════════════════════════════════════════════
 function renderGantt() {
   const acts = GANTT_DATA;
+  const canteiroKm = Math.round(parseFloat(getV("obra-canteiro")) || 0);
   if (!acts.length) {
     setEl("gantt-scroll","<div class='empty-state'><div class='empty-state-icon'>📅</div><p>Configure a obra e adicione serviços.</p></div>");
     return;
@@ -1773,7 +1806,8 @@ function renderGantt() {
   let d = 0;
   while (d < maxDay+32) {
     const dt = new Date(startDate.getTime()+d*86400000);
-    const label = dt.toLocaleDateString("pt-BR",{month:"short",year:"2-digit"}).replace(".","").toUpperCase();
+    const MNAMES = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"];
+    const label = MNAMES[dt.getMonth()]+" '"+String(dt.getFullYear()).slice(2);
     monthLabels.push({day:d,label});
     const next = new Date(dt.getFullYear(), dt.getMonth()+1, 1);
     d = Math.round((next-startDate)/86400000);
@@ -1830,7 +1864,9 @@ function renderGantt() {
     if (act.frenteCor) {
       svg += `<rect x="0" y="${y}" width="3" height="${ROW_H}" fill="${act.frenteCor}" opacity="0.5"/>`;
     }
-    svg += `<text x="10" y="${y+ROW_H/2+4}" font-size="8" fill="#8896A8">${act.km}</text>`;
+    const isCanteiroKm = canteiroKm > 0 && act.km === `KM ${canteiroKm}`;
+    const kmLabel = isCanteiroKm ? `📍 ${act.km}` : act.km;
+    svg += `<text x="10" y="${y+ROW_H/2+4}" font-size="8" fill="${isCanteiroKm?'#F5A623':'#8896A8'}" font-weight="${isCanteiroKm?'800':'400'}">${kmLabel}</text>`;
     const label = act.atividade.length>30?act.atividade.substring(0,28)+"...":act.atividade;
     svg += `<text x="52" y="${y+ROW_H/2+4}" font-size="8.5" fill="#1A2540">${label}</text>`;
     svg += `<text x="248" y="${y+ROW_H/2+4}" font-size="8" fill="#4A5568" text-anchor="middle">${act.inicio}</text>`;
@@ -2241,7 +2277,8 @@ function fecharPrintFora(e) {
 document.addEventListener("keydown", e => { if (e.key === "Escape") fecharPrintModal(); });
 
 function executarImpressao() {
-  // Força re-render dos histogramas em canvas para capturar imagens
+  // Avisa o usuário para garantir que o navegador está em modo paisagem A3/A4
+  // O @page CSS tenta forçar A3 landscape, mas nem todos os browsers respeitam
   window.print();
 }
 
