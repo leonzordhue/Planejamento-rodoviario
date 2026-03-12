@@ -614,6 +614,13 @@
               <input type="number" id="obra-extensao" value="2" min="0.1" step="0.1" oninput="syncObra()"/>
             </div>
             <div class="form-group">
+              <label>📍 KM do Canteiro de Obras</label>
+              <input type="number" id="obra-canteiro" value="0" min="0" step="0.1" oninput="syncObra()"
+                placeholder="Ex.: 9.5"
+                title="KM onde está instalado o canteiro. A obra parte deste ponto."/>
+              <div style="font-size:0.65rem;color:var(--cinza-aux);margin-top:3px">Ponto de partida das frentes de serviço</div>
+            </div>
+            <div class="form-group">
               <label>Nº de KMs (automático)</label>
               <input type="number" id="obra-frentes" value="2" min="1" step="1" readonly
                 style="background:var(--cinza-bg);color:var(--cinza-med);cursor:not-allowed;"
@@ -723,6 +730,30 @@
       <div class="formula"><strong>DA</strong> = ROUNDUP(DP / QE, 0) &nbsp;&nbsp;|&nbsp;&nbsp; QE = Quantidade de Equipes/Frentes</div>
       <div class="formula"><strong>QMO</strong> = ROUNDUP(Qtde × taxa_MO / (DA × Jornada), 0)</div>
       <div class="formula"><strong>QEQ</strong> = ROUNDUP(Qtde × taxa_EQP / (DA × Jornada), 0)</div>
+    </div>
+
+    <!-- PAINEL DE FRENTES DE SERVIÇO -->
+    <div class="card" style="margin-top:1.5rem;">
+      <div class="card-header" style="cursor:pointer;user-select:none" onclick="toggleFrentesPanel()">
+        <div class="card-header-icon">🚧</div>
+        <div class="card-header-title">Frentes de Serviço
+          <span id="frentes-badge" style="background:var(--amarelo);color:var(--azul);font-size:0.6rem;font-weight:800;padding:0.1rem 0.5rem;border-radius:100px;margin-left:0.5rem;vertical-align:middle">0</span>
+        </div>
+        <div style="margin-left:auto;font-size:0.7rem;color:var(--cinza-aux)">Clique para expandir ▼</div>
+      </div>
+      <div class="card-body" id="frentes-panel" style="display:none">
+        <div style="font-size:0.72rem;color:var(--cinza-aux);margin-bottom:1rem;background:var(--cinza-bg);border-radius:8px;padding:0.8rem 1rem;border-left:3px solid var(--azul)">
+          <strong style="color:var(--azul)">O que são frentes?</strong> Cada frente agrupa um range de KMs executados em sequência por uma equipe.
+          Frentes <span style="background:#2E7D32;color:white;padding:0 5px;border-radius:4px;font-size:0.65rem">PARALELAS</span> iniciam ao mesmo tempo (equipes diferentes).
+          Frentes <span style="background:var(--azul);color:white;padding:0 5px;border-radius:4px;font-size:0.65rem">SEQUENCIAIS</span> começam após a frente anterior terminar.
+        </div>
+        <div id="frentes-lista" style="display:flex;flex-direction:column;gap:0.6rem;margin-bottom:1rem"></div>
+        <div style="display:flex;gap:0.6rem;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="addFrente()">+ Nova Frente</button>
+          <button class="btn btn-outline btn-sm" onclick="autoFrentes()" style="color:var(--azul);border-color:var(--azul-borda)">⚡ Auto-dividir pela extensão</button>
+          <button class="btn btn-outline btn-sm" onclick="limparFrentes()" style="color:#c00;border-color:#c00">✕ Limpar Frentes</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -994,6 +1025,9 @@ let SERVICOS = [
 let EAP_CALC = [];   // Resultados calculados
 let GANTT_DATA = [];
 let HIST_DATA = [];
+// Frentes de serviço — cada frente agrupa KMs e pode ser paralela a outra
+// { id, nome, cor, kmInicio, kmFim, paralelo: false|true }
+let FRENTES = [];
 let chartMO = null, chartEQP = null;
 
 // ═══════════════════════════════════════════════════════
@@ -1027,11 +1061,11 @@ function gerarCronograma() {
   const nKm      = Math.max(1, parseInt(getV("obra-frentes")) || 1);
   const def      = Math.max(1, parseInt(getV("obra-defasagem")) || 7);
   const jornada  = parseInt(getV("obra-jornada")) || 8;
+  const canteiro = parseFloat(getV("obra-canteiro")) || 0;
   const params   = PARAMETROS[tipo] || PARAMETROS["RAMAL / VICINAL"];
-  const canteiro = params.find(p => !p.porKm) || { etapa:"Canteiro de Obras", prazo:10 };
+  const canteiroParam = params.find(p => !p.porKm) || { etapa:"Canteiro de Obras", prazo:10 };
   const seq      = params.filter(p => p.porKm);
   const acts     = [];
-  const iniMap   = {}, fimMap = {};
 
   const durEtapa = (etapa, km) => {
     const svcs = EAP_CALC.filter(s => s.etapa === etapa && String(s.km) === String(km));
@@ -1042,36 +1076,81 @@ function gerarCronograma() {
     return seq.find(e => e.etapa === etapa)?.prazo || 5;
   };
 
-  // Canteiro global
-  acts.push({ id:"C", etapa:"CANTEIRO DE OBRAS", etapaFull:canteiro.etapa,
-    atividade:canteiro.etapa, km:"GERAL", duracao:canteiro.prazo, inicio:1, termino:canteiro.prazo });
-  fimMap["GERAL"] = canteiro.prazo;
+  // Canteiro global (KM 0)
+  acts.push({
+    id:"C", etapa:"CANTEIRO DE OBRAS", etapaFull:canteiroParam.etapa,
+    atividade: canteiro > 0
+      ? `${canteiroParam.etapa} (KM ${canteiro})`
+      : canteiroParam.etapa,
+    km:"KM 0", duracao:canteiroParam.prazo, inicio:1, termino:canteiroParam.prazo,
+    frente: null, frenteCor: "#8896A8",
+  });
+  const fimCanteiro = canteiroParam.prazo;
 
-  for (let km = 1; km <= nKm; km++) {
-    seq.forEach((ep, i) => {
-      const dur = durEtapa(ep.etapa, km);
-      let inicio;
-      if (km === 1) {
-        inicio = i === 0
-          ? (fimMap["GERAL"] || 0) + 1
-          : (fimMap[`1_${seq[i-1].etapa}`] || 0) + 1;
-      } else {
-        const prevIni = iniMap[`${km-1}_${ep.etapa}`] || 1;
-        inicio = prevIni + def;
-        if (i > 0) {
-          const prevFim = fimMap[`${km}_${seq[i-1].etapa}`] || 0;
-          if (prevFim >= inicio) inicio = prevFim + 1;
-        }
-      }
-      const termino = inicio + dur - 1;
-      iniMap[`${km}_${ep.etapa}`] = inicio;
-      fimMap[`${km}_${ep.etapa}`] = termino;
+  // Se não há frentes configuradas → sequenciamento simples por KM
+  const usarFrentes = FRENTES.length > 0;
+  const grupos = usarFrentes
+    ? FRENTES
+    : [{ id:0, nome:null, cor:null, kmInicio:1, kmFim:nKm, paralelo:false }];
+
+  let fimUltimaFrenteSequencial = fimCanteiro;
+
+  grupos.forEach((frente, fi) => {
+    const frenteCor  = frente.cor || null;
+    const frenteNome = frente.nome || null;
+    const kmIni = Math.max(1, frente.kmInicio);
+    const kmFim = Math.min(nKm, frente.kmFim);
+
+    // Dia em que esta frente começa
+    const inicioFrente = frente.paralelo
+      ? fimCanteiro + 1                   // paralela: começa junto com o canteiro terminado
+      : fimUltimaFrenteSequencial + 1;    // sequencial: após última frente sequencial
+
+    // Header de frente no Gantt
+    if (usarFrentes) {
       acts.push({
-        id:`${i+2}.${km}`, etapa:ep.etapa.toUpperCase(), etapaFull:ep.etapa,
-        atividade:ep.etapa, km:`KM ${km}`, duracao:dur, inicio, termino,
+        id:`F${fi}`, etapa:"FRENTE", etapaFull:"Frente",
+        atividade: frenteNome,
+        km:`KM ${kmIni}–${kmFim}`,
+        duracao:0, inicio:inicioFrente, termino:inicioFrente,
+        frente:frenteNome, frenteCor, isHeader:true,
       });
-    });
-  }
+    }
+
+    const iniMap = {}, fimMap = {};
+    let fimFrenteDia = inicioFrente;
+
+    for (let km = kmIni; km <= kmFim; km++) {
+      seq.forEach((ep, i) => {
+        const dur = durEtapa(ep.etapa, km);
+        let inicio;
+        if (km === kmIni) {
+          inicio = i === 0
+            ? inicioFrente
+            : (fimMap[`${kmIni}_${seq[i-1].etapa}`] || inicioFrente - 1) + 1;
+        } else {
+          const prevIni = iniMap[`${km-1}_${ep.etapa}`] || inicioFrente;
+          inicio = prevIni + def;
+          if (i > 0) {
+            const prevFim = fimMap[`${km}_${seq[i-1].etapa}`] || 0;
+            if (prevFim >= inicio) inicio = prevFim + 1;
+          }
+        }
+        const termino = inicio + dur - 1;
+        iniMap[`${km}_${ep.etapa}`] = inicio;
+        fimMap[`${km}_${ep.etapa}`] = termino;
+        if (termino > fimFrenteDia) fimFrenteDia = termino;
+        acts.push({
+          id:`${fi+1}.${i+1}.${km}`, etapa:ep.etapa.toUpperCase(), etapaFull:ep.etapa,
+          atividade:ep.etapa, km:`KM ${km}`, duracao:dur, inicio, termino,
+          frente:frenteNome, frenteCor,
+        });
+      });
+    }
+
+    if (!frente.paralelo) fimUltimaFrenteSequencial = fimFrenteDia;
+  });
+
   return acts;
 }
 
@@ -1332,6 +1411,129 @@ function dragEnd(e) {
   _dragId=null;
 }
 
+// ═══════════════════════════════════════════════════════
+// FRENTES DE SERVIÇO
+// ═══════════════════════════════════════════════════════
+const FRENTE_CORES = ["#1565C0","#2E7D32","#7B1FA2","#C62828","#E65100","#00695C","#4527A0","#283593"];
+let _frenteIdCtr = 1;
+function mkFrenteId() { return _frenteIdCtr++; }
+
+function toggleFrentesPanel() {
+  const p = document.getElementById("frentes-panel");
+  p.style.display = p.style.display === "none" ? "block" : "none";
+}
+
+function addFrente(kmIni, kmFim, paralelo) {
+  const nKm = parseInt(getV("obra-frentes")) || 1;
+  const id  = mkFrenteId();
+  const idx = FRENTES.length;
+  FRENTES.push({
+    id,
+    nome: `Frente ${idx + 1}`,
+    cor: FRENTE_CORES[idx % FRENTE_CORES.length],
+    kmInicio: kmIni != null ? kmIni : 1,
+    kmFim:    kmFim != null ? kmFim : nKm,
+    paralelo: paralelo || false,
+  });
+  renderFrentes();
+  calcularTudo();
+}
+
+function removeFrente(id) {
+  FRENTES = FRENTES.filter(f => f.id !== id);
+  // Renomear automaticamente
+  FRENTES.forEach((f, i) => { if (f.nome.startsWith("Frente ")) f.nome = `Frente ${i + 1}`; });
+  renderFrentes();
+  calcularTudo();
+}
+
+function updateFrente(id, field, val) {
+  const f = FRENTES.find(f => f.id === id);
+  if (!f) return;
+  if (field === "kmInicio" || field === "kmFim") f[field] = parseInt(val) || 1;
+  else if (field === "paralelo") f[field] = val;
+  else f[field] = val;
+  renderFrentes();
+  calcularTudo();
+}
+
+function autoFrentes() {
+  const nKm = parseInt(getV("obra-frentes")) || 1;
+  if (nKm <= 0) return;
+  if (FRENTES.length > 0 && !confirm("Substituir frentes existentes pela divisão automática?")) return;
+  FRENTES = [];
+  _frenteIdCtr = 1;
+  // Divide em grupos de até 5 KMs, sequenciais
+  const tamanho = Math.min(5, Math.ceil(nKm / 2));
+  let km = 1;
+  let idx = 0;
+  while (km <= nKm) {
+    const fim = Math.min(km + tamanho - 1, nKm);
+    FRENTES.push({
+      id: mkFrenteId(),
+      nome: `Frente ${idx + 1}`,
+      cor: FRENTE_CORES[idx % FRENTE_CORES.length],
+      kmInicio: km,
+      kmFim: fim,
+      paralelo: false,
+    });
+    km = fim + 1;
+    idx++;
+  }
+  renderFrentes();
+  calcularTudo();
+}
+
+function limparFrentes() {
+  if (!FRENTES.length) return;
+  if (!confirm("Remover todas as frentes? O cronograma voltará ao modo sequencial simples.")) return;
+  FRENTES = [];
+  renderFrentes();
+  calcularTudo();
+}
+
+function renderFrentes() {
+  const lista = document.getElementById("frentes-lista");
+  const badge = document.getElementById("frentes-badge");
+  if (!lista) return;
+  badge.textContent = FRENTES.length;
+
+  if (!FRENTES.length) {
+    lista.innerHTML = `<div style="text-align:center;padding:1.2rem;color:var(--cinza-aux);font-size:0.8rem">
+      Nenhuma frente configurada. O cronograma usa sequenciamento simples por KM.<br>
+      Clique em <strong>+ Nova Frente</strong> ou <strong>⚡ Auto-dividir</strong> para organizar em frentes.
+    </div>`;
+    return;
+  }
+
+  const nKm = parseInt(getV("obra-frentes")) || 1;
+  lista.innerHTML = FRENTES.map((f, i) => `
+    <div style="background:var(--cinza-bg);border-radius:8px;padding:0.8rem 1rem;border-left:4px solid ${f.cor};display:grid;grid-template-columns:auto 1fr 1fr 1fr auto auto;gap:0.6rem;align-items:center">
+      <div style="width:14px;height:14px;border-radius:50%;background:${f.cor};flex-shrink:0"></div>
+      <input class="input-inline" value="${f.nome}"
+        onchange="updateFrente(${f.id},'nome',this.value)"
+        style="font-weight:700;min-width:90px"/>
+      <div style="display:flex;gap:4px;align-items:center;font-size:0.72rem;color:var(--cinza-aux)">
+        KM <input class="input-inline w40" type="number" value="${f.kmInicio}" min="1" max="${nKm}"
+          onchange="updateFrente(${f.id},'kmInicio',this.value)" style="width:50px;text-align:center"/> até
+        <input class="input-inline w40" type="number" value="${f.kmFim}" min="1" max="${nKm}"
+          onchange="updateFrente(${f.id},'kmFim',this.value)" style="width:50px;text-align:center"/>
+      </div>
+      <div style="font-size:0.7rem">
+        ${i === 0 ? `<span style="color:var(--cinza-aux)">— inicia no canteiro</span>` :
+        `<label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.72rem">
+          <input type="checkbox" ${f.paralelo ? "checked" : ""} onchange="updateFrente(${f.id},'paralelo',this.checked)"/>
+          <span style="padding:0.1rem 0.4rem;border-radius:4px;font-weight:700;background:${f.paralelo?'#2E7D32':'var(--azul)'};color:white;font-size:0.6rem">
+            ${f.paralelo ? "PARALELA" : "SEQUENCIAL"}
+          </span>
+        </label>`}
+      </div>
+      <div style="font-size:0.68rem;color:var(--cinza-aux)">${f.kmFim - f.kmInicio + 1} KM${f.kmFim-f.kmInicio>0?"s":""}</div>
+      <button class="btn btn-danger btn-sm" style="padding:0.15rem 0.5rem;font-size:0.65rem" onclick="removeFrente(${f.id})">✕</button>
+    </div>
+  `).join("");
+}
+
 function addServico() {
   const tipo = getV("obra-tipo");
   const etapas = etapasDoTipo(tipo).filter(e => !PARAMETROS[tipo].find(p=>p.etapa===e&&!p.porKm));
@@ -1454,12 +1656,13 @@ function renderServicos() {
     </tr>`;
 
   // KPIs
-  const totQMO = EAP_CALC.reduce((s,c)=>s+(c.qmo.servente+c.qmo.operador),0);
+  const pico = calcPicoRecursos();
+  const totQMO = (pico.servente + pico.pedreiro + pico.operador + pico.carpinteiro);
   document.getElementById("kpis-servicos").innerHTML = [
     {label:"MO Total (h)", v:numBR(totMO), unit:"horas", cor:"var(--azul)"},
     {label:"DP Máx.", v:numBR(maxDP), unit:"dias", cor:"#0277BD"},
     {label:"Serviços", v:SERVICOS.length, unit:"cadastrados", cor:"var(--cinza-med)"},
-    {label:"QMO Total", v:totQMO, unit:"trabalhadores (pico)", cor:"var(--amarelo)"},
+    {label:"QMO Pico/KM", v:totQMO, unit:"trabalhadores simultâneos", cor:"var(--amarelo)"},
   ].map(k=>`
     <div class="kpi" style="border-top-color:${k.cor}">
       <div class="kpi-label">${k.label}</div>
@@ -1506,7 +1709,7 @@ function renderEAP() {
   }).join("");
   setEl("tbody-eap", tbody);
 
-  // Totais
+  // Totais acumulados (para referência orçamentária no rodapé da tabela)
   const totMO  = EAP_CALC.reduce((s,c)=>s+c.moTotal,0);
   const totQMO = {servente:0,pedreiro:0,operador:0,carpinteiro:0};
   const totEQP = {escavadeira:0,rolo:0,caminhao:0,moto:0};
@@ -1515,20 +1718,21 @@ function renderEAP() {
     Object.keys(totEQP).forEach(k=>{totEQP[k]+=c.eqp[k]||0;});
   });
   setEl("tfoot-eap", `<tr>
-    <td colspan="7" style="text-align:right;font-size:0.65rem;letter-spacing:0.08em">TOTAIS</td>
+    <td colspan="7" style="text-align:right;font-size:0.65rem;letter-spacing:0.08em">TOTAIS ACUM.</td>
     <td class="right">${numBR(totMO,1)}</td>
     <td></td><td></td><td></td>
-    ${Object.values(totQMO).map(v=>`<td class="right">${numBR(v)}</td>`).join("")}
-    ${Object.values(totEQP).map(v=>`<td class="right">${numBR(v)}</td>`).join("")}
+    ${Object.values(totQMO).map(v=>`<td class="right" style="color:var(--cinza-aux)">${numBR(v)}</td>`).join("")}
+    ${Object.values(totEQP).map(v=>`<td class="right" style="color:var(--cinza-aux)">${numBR(v)}</td>`).join("")}
   </tr>`);
 
-  // KPIs EAP
+  // KPIs EAP — usa pico real (máximo simultâneo por KM)
+  const pico = calcPicoRecursos();
   setEl("kpis-eap", [
-    {label:"MO Total", v:numBR(totMO,0), unit:"horas·homem", cor:"var(--azul)"},
-    {label:"Serv. (pico)", v:totQMO.servente, unit:"serventes", cor:"#0277BD"},
-    {label:"Oper. (pico)", v:totQMO.operador, unit:"operadores", cor:"#0277BD"},
-    {label:"Escav. (pico)", v:totEQP.escavadeira, unit:"escavadeiras", cor:"#2E7D32"},
-    {label:"Caminhões (pico)", v:totEQP.caminhao, unit:"caminhões", cor:"#2E7D32"},
+    {label:"MO Total",        v:numBR(totMO,0),       unit:"horas·homem",   cor:"var(--azul)"},
+    {label:"Serv. (pico/KM)", v:pico.servente,         unit:"serventes",     cor:"#0277BD"},
+    {label:"Oper. (pico/KM)", v:pico.operador,         unit:"operadores",    cor:"#0277BD"},
+    {label:"Escav. (pico/KM)",v:pico.escavadeira,      unit:"escavadeiras",  cor:"#2E7D32"},
+    {label:"Cam. (pico/KM)",  v:pico.caminhao,         unit:"caminhões",     cor:"#2E7D32"},
   ].map(k=>`
     <div class="kpi" style="border-top-color:${k.cor}">
       <div class="kpi-label">${k.label}</div>
@@ -1605,18 +1809,32 @@ function renderGantt() {
   // Linhas de atividades
   acts.forEach((act,i)=>{
     const y   = HDR_H+i*ROW_H;
-    const cor = etapaCor(act.etapa);
+    const cor = act.frenteCor || etapaCor(act.etapa);
+
+    // Header de frente — linha de separação especial
+    if (act.isHeader) {
+      svg += `<rect x="0" y="${y}" width="${SVG_W}" height="${ROW_H}" fill="${act.frenteCor}22"/>`;
+      svg += `<rect x="0" y="${y}" width="4" height="${ROW_H}" fill="${act.frenteCor}"/>`;
+      svg += `<line x1="0" y1="${y+ROW_H}" x2="${SVG_W}" y2="${y+ROW_H}" stroke="${act.frenteCor}" stroke-width="1"/>`;
+      svg += `<text x="12" y="${y+ROW_H/2+4}" font-size="9" fill="${act.frenteCor}" font-weight="800">&#x1F6A7; ${act.atividade}</text>`;
+      svg += `<text x="248" y="${y+ROW_H/2+4}" font-size="8" fill="${act.frenteCor}" text-anchor="middle">${act.inicio}</text>`;
+      svg += `<line x1="${LBLW+(act.inicio-1)*PPD}" y1="${y}" x2="${LBLW+(act.inicio-1)*PPD}" y2="${SVG_H}" stroke="${act.frenteCor}" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.5"/>`;
+      return;
+    }
+
     const barX = LBLW+(act.inicio-1)*PPD;
     const barW = Math.max(act.duracao*PPD,4);
     const bg   = i%2===0?"#F5F7FB":"#ffffff";
     svg += `<rect x="0" y="${y}" width="${LBLW}" height="${ROW_H}" fill="${bg}"/>`;
     svg += `<line x1="0" y1="${y+ROW_H}" x2="${SVG_W}" y2="${y+ROW_H}" stroke="#E0E6F0" stroke-width="0.5"/>`;
-    svg += `<text x="8" y="${y+ROW_H/2+4}" font-size="8" fill="#8896A8">${act.km}</text>`;
-    const label = act.atividade.length>30?act.atividade.substring(0,28)+"…":act.atividade;
+    if (act.frenteCor) {
+      svg += `<rect x="0" y="${y}" width="3" height="${ROW_H}" fill="${act.frenteCor}" opacity="0.5"/>`;
+    }
+    svg += `<text x="10" y="${y+ROW_H/2+4}" font-size="8" fill="#8896A8">${act.km}</text>`;
+    const label = act.atividade.length>30?act.atividade.substring(0,28)+"...":act.atividade;
     svg += `<text x="52" y="${y+ROW_H/2+4}" font-size="8.5" fill="#1A2540">${label}</text>`;
     svg += `<text x="248" y="${y+ROW_H/2+4}" font-size="8" fill="#4A5568" text-anchor="middle">${act.inicio}</text>`;
     svg += `<text x="278" y="${y+ROW_H/2+4}" font-size="8" fill="${cor}" text-anchor="middle" font-weight="700">${act.duracao}d</text>`;
-    // Barra
     svg += `<rect x="${barX}" y="${y+5}" width="${barW}" height="${ROW_H-10}" fill="${cor}" rx="4" opacity="0.85"/>`;
     if (barW>30) {
       const bl = act.atividade.split(" ")[0].substring(0,8);
@@ -1628,12 +1846,13 @@ function renderGantt() {
   document.getElementById("gantt-scroll").innerHTML = svg;
 
   // Legenda
-  const etapasU = [...new Set(GANTT_DATA.map(a=>a.etapa))];
-  setEl("gantt-legend", etapasU.map(e=>`
-    <div class="legend-item">
-      <div class="legend-dot" style="background:${etapaCor(e)}"></div>${e}
-    </div>
-  `).join(""));
+  const etapasU = [...new Set(GANTT_DATA.filter(a=>!a.isHeader).map(a=>a.etapa))];
+  const frentesU = FRENTES.length > 0 ? FRENTES : [];
+  setEl("gantt-legend", [
+    ...etapasU.map(e=>`<div class="legend-item"><div class="legend-dot" style="background:${etapaCor(e)}"></div>${e}</div>`),
+    ...(frentesU.length ? ['<span style="color:var(--cinza-aux);font-size:0.65rem;margin:0 8px">|</span>'] : []),
+    ...frentesU.map(f=>`<div class="legend-item"><div class="legend-dot" style="background:${f.cor};border-radius:3px"></div><strong>${f.nome}</strong>&nbsp;KM${f.kmInicio}-${f.kmFim}${f.paralelo?' <span style="background:#2E7D32;color:#fff;padding:0 4px;border-radius:3px;font-size:0.6rem">PAR</span>':''}</div>`),
+  ].join(""));
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1725,8 +1944,9 @@ function renderMemorial() {
     : "—";
   const durMeses = Math.ceil(maxDia/30);
   const moTotal  = EAP_CALC.reduce((s,c)=>s+c.moTotal,0);
-  const maxQMO   = q => EAP_CALC.length ? Math.max(...EAP_CALC.map(c=>c.qmo[q]||0)) : 0;
-  const maxEQP   = q => EAP_CALC.length ? Math.max(...EAP_CALC.map(c=>c.eqp[q]||0)) : 0;
+  const pico     = calcPicoRecursos();
+  const maxQMO   = q => pico[q] || 0;
+  const maxEQP   = q => pico[q] || 0;
 
   const card = (icon, title, rows) => `
     <div class="card">
@@ -1753,6 +1973,7 @@ function renderMemorial() {
       ["Localização",      getV("obra-local")],
       ["Rodovia / KM Ref.",getV("obra-rodovia")],
       ["Extensão Total",   getV("obra-extensao")+" km", true],
+      ["📍 KM do Canteiro", parseFloat(getV("obra-canteiro"))>0 ? "KM "+getV("obra-canteiro") : "KM 0 (início da obra)"],
     ]),
     card("📅","3. Planejamento Temporal",[
       ["Data de Início",          dataIni ? new Date(dataIni+"T00:00:00").toLocaleDateString("pt-BR") : "—"],
@@ -1797,12 +2018,41 @@ function renderMemorial() {
 // ═══════════════════════════════════════════════════════
 // CÁLCULO GLOBAL
 // ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// PICO REAL DE RECURSOS
+// Agrupa EAP_CALC por KM → soma dentro de cada KM → retorna o máximo entre KMs
+// KMs são SEQUENCIAIS: só 1 KM ativo por vez → pico = KM mais pesado
+// ═══════════════════════════════════════════════════════
+function calcPicoRecursos() {
+  if (!EAP_CALC.length) return {servente:0,pedreiro:0,operador:0,carpinteiro:0,escavadeira:0,rolo:0,caminhao:0,moto:0};
+  const grupos = {};
+  EAP_CALC.forEach(c => {
+    const km = String(c.km || '0');
+    if (!grupos[km]) grupos[km] = {servente:0,pedreiro:0,operador:0,carpinteiro:0,escavadeira:0,rolo:0,caminhao:0,moto:0};
+    const g = grupos[km];
+    g.servente    += c.qmo.servente    || 0;
+    g.pedreiro    += c.qmo.pedreiro    || 0;
+    g.operador    += c.qmo.operador    || 0;
+    g.carpinteiro += c.qmo.carpinteiro || 0;
+    g.escavadeira += c.eqp.escavadeira || 0;
+    g.rolo        += c.eqp.rolo        || 0;
+    g.caminhao    += c.eqp.caminhao    || 0;
+    g.moto        += c.eqp.moto        || 0;
+  });
+  const pico = {servente:0,pedreiro:0,operador:0,carpinteiro:0,escavadeira:0,rolo:0,caminhao:0,moto:0};
+  Object.values(grupos).forEach(g => {
+    Object.keys(pico).forEach(k => { pico[k] = Math.max(pico[k], g[k]); });
+  });
+  return pico;
+}
+
 function calcularTudo() {
   const jornada = parseInt(getV("obra-jornada")) || 8;
   EAP_CALC  = SERVICOS.map(s => calcularServico(s, jornada)).filter(Boolean);
   GANTT_DATA = gerarCronograma();
   HIST_DATA  = gerarHistogramas();
   renderServicos();
+  renderFrentes();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1901,6 +2151,7 @@ function exportarMemorialPDF() {
   row("Localização", getV("obra-local"));
   row("Rodovia / KM Referência", getV("obra-rodovia"));
   row("Extensão Total", getV("obra-extensao")+" km");
+  row("KM do Canteiro", parseFloat(getV("obra-canteiro"))>0 ? "KM "+getV("obra-canteiro") : "KM 0");
   y += 4;
 
   section("2. RESPONSABILIDADE TÉCNICA");
@@ -1922,8 +2173,9 @@ function exportarMemorialPDF() {
   section("4. DIMENSIONAMENTO DE RECURSOS");
   row("MO Total (horas·homem)", numBR(moTotal));
   row("Serviços Cadastrados", EAP_CALC.length);
-  const maxQMO = q => EAP_CALC.length ? Math.max(...EAP_CALC.map(c=>c.qmo[q]||0)) : 0;
-  const maxEQP = q => EAP_CALC.length ? Math.max(...EAP_CALC.map(c=>c.eqp[q]||0)) : 0;
+  const pico2  = calcPicoRecursos();
+  const maxQMO = q => pico2[q] || 0;
+  const maxEQP = q => pico2[q] || 0;
   row("Serventes (pico)", maxQMO("servente"));
   row("Operadores (pico)", maxQMO("operador"));
   row("Escavadeiras (pico)", maxEQP("escavadeira"));
@@ -2031,6 +2283,7 @@ function gerarPreviewImpressao() {
             <div class="print-capa-item"><div class="print-capa-lbl">Tipo de Modal</div><div class="print-capa-val">${getV("obra-tipo")}</div></div>
             <div class="print-capa-item"><div class="print-capa-lbl">Nº Orçamento</div><div class="print-capa-val">${getV("obra-orcamento")||"—"}</div></div>
             <div class="print-capa-item"><div class="print-capa-lbl">Extensão Total</div><div class="print-capa-val">${getV("obra-extensao")} km</div></div>
+            <div class="print-capa-item"><div class="print-capa-lbl">📍 Canteiro</div><div class="print-capa-val">${parseFloat(getV("obra-canteiro"))>0?"KM "+getV("obra-canteiro"):"KM 0"}</div></div>
             <div class="print-capa-item"><div class="print-capa-lbl">Duração Prevista</div><div class="print-capa-val">${maxDia} dias (${durMeses} meses)</div></div>
           </div>
         </div>
@@ -2078,6 +2331,7 @@ function gerarPreviewImpressao() {
       Object.keys(totQMO).forEach(k=>{totQMO[k]+=c.qmo[k]||0;});
       Object.keys(totEQP).forEach(k=>{totEQP[k]+=c.eqp[k]||0;});
     });
+    const pico = calcPicoRecursos();
 
     html += `<div class="print-page">
       <div class="print-section-title">📊 EAP — Estrutura Analítica do Projeto</div>
@@ -2085,10 +2339,10 @@ function gerarPreviewImpressao() {
         <div class="print-kpis">
           ${[
             {l:"MO Total",v:numBR(totMO,0),u:"horas·homem"},
-            {l:"Serventes",v:totQMO.servente,u:"pico simultâneo"},
-            {l:"Operadores",v:totQMO.operador,u:"pico simultâneo"},
-            {l:"Escavadeiras",v:totEQP.escavadeira,u:"pico simultâneo"},
-            {l:"Caminhões",v:totEQP.caminhao,u:"pico simultâneo"},
+            {l:"Serventes",v:pico.servente,u:"pico/KM simultâneo"},
+            {l:"Operadores",v:pico.operador,u:"pico/KM simultâneo"},
+            {l:"Escavadeiras",v:pico.escavadeira,u:"pico/KM simultâneo"},
+            {l:"Caminhões",v:pico.caminhao,u:"pico/KM simultâneo"},
           ].map(k=>`<div class="print-kpi"><div class="print-kpi-lbl">${k.l}</div><div class="print-kpi-val">${k.v}</div><div class="print-kpi-unit">${k.u}</div></div>`).join("")}
         </div>
         <table class="ptable">
@@ -2275,8 +2529,9 @@ function gerarPreviewImpressao() {
       ? new Date(new Date(dataIni+"T00:00:00").getTime()+maxDia*86400000).toLocaleDateString("pt-BR")
       : "—";
     const moTotal  = EAP_CALC.reduce((s,c)=>s+c.moTotal,0);
-    const maxQMO   = q => EAP_CALC.length ? Math.max(...EAP_CALC.map(c=>c.qmo[q]||0)) : 0;
-    const maxEQP   = q => EAP_CALC.length ? Math.max(...EAP_CALC.map(c=>c.eqp[q]||0)) : 0;
+    const pico3    = calcPicoRecursos();
+    const maxQMO   = q => pico3[q] || 0;
+    const maxEQP   = q => pico3[q] || 0;
 
     const mCard = (title, rows) => `
       <div class="print-memorial-card">
@@ -2304,6 +2559,7 @@ function gerarPreviewImpressao() {
             ["Localização",   getV("obra-local")],
             ["Rodovia / KM",  getV("obra-rodovia")],
             ["Extensão",      getV("obra-extensao")+" km"],
+            ["📍 Canteiro", parseFloat(getV("obra-canteiro"))>0?"KM "+getV("obra-canteiro"):"KM 0"],
           ])}
           ${mCard("📅 Planejamento Temporal",[
             ["Data de Início",    dataIni ? new Date(dataIni+"T00:00:00").toLocaleDateString("pt-BR") : "—"],
