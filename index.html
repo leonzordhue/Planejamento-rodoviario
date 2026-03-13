@@ -415,17 +415,37 @@
     .print-memorial-val { font-size:0.75rem; font-weight:700; color:var(--azul); text-align:right; }
 
     /* Gantt no preview - usa o SVG gerado */
-    .print-gantt-wrap { overflow-x:auto; }
-    @media print {
-      .print-gantt-wrap { overflow: visible !important; width: 100% !important; }
-      .print-gantt-wrap > div { width: 100% !important; overflow: visible !important; }
-      .print-gantt-wrap svg { max-width: 100% !important; width: 100% !important; height: auto !important; }
+    .print-gantt-wrap { overflow-x: auto; }
+
+    /* ── Timbrado: absoluto dentro de cada página (preview e impressão) ── */
+    .print-timbrado-hdr,
+    .print-timbrado-ftr {
+      position: absolute; left: 0; width: 100%; line-height: 0; margin: 0; padding: 0; z-index: 2;
+      pointer-events: none;
     }
+    .print-timbrado-hdr { top: 0; }
+    .print-timbrado-ftr { bottom: 0; }
+    .print-timbrado-hdr img,
+    .print-timbrado-ftr img { width: 100%; height: auto; display: block; }
+
+    /* Área de preview: cada página simula A4 com timbrado */
+    .print-preview-area .print-page {
+      position: relative;
+      width: 210mm;
+      min-height: 297mm;
+      /* Reserva espaço para timbrado: HDR≈46.2mm FTR≈48.4mm, margens laterais */
+      padding: 50mm 22.5mm 52mm 30mm;
+      box-sizing: border-box;
+      overflow: hidden;
+      margin: 0 auto 1.5rem;
+    }
+    /* Conteúdo dentro da página fica acima do timbrado */
+    .print-page-inner { position: relative; z-index: 3; }
 
     /* ══ @MEDIA PRINT ══ */
     @media print {
       * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-      body { background: white !important; margin: 0; padding: 0; }
+      body { background: white !important; margin: 0 !important; padding: 0 !important; }
 
       /* Esconde tudo exceto o modal aberto */
       .topbar, .site-header, .tabs-bar, .main-content, .site-footer { display: none !important; }
@@ -442,18 +462,43 @@
       }
       .print-toolbar, .print-section-selector, .btn-pdf-action, .btn-fechar-modal { display: none !important; }
       .print-preview-area {
-        max-height: none !important; overflow: visible !important; background: white !important;
+        max-height: none !important; overflow: visible !important; background: none !important;
         padding: 0 !important;
       }
 
-      /* Páginas */
-      .print-page { border-radius: 0 !important; box-shadow: none !important; margin: 0 !important; page-break-after: always; }
-      /* SVG do Gantt: não cortar no meio */
-      .print-gantt-wrap { overflow: visible !important; page-break-inside: avoid; }
-      .print-gantt-wrap > div { width: 100% !important; overflow: visible !important; }
-      .print-gantt-wrap svg { max-width: 100% !important; width: 100% !important; height: auto !important; display: block; }
-      /* Tabela de cronograma: pode quebrar entre linhas mas não em cabeçalho */
-      .print-gantt-wrap + div { page-break-inside: auto; }
+      /* ── @page: margem zero — timbrado ocupa as margens dentro do .print-page ── */
+      @page { margin: 0; size: A4 portrait; }
+
+      /* Cada .print-page = exatamente 1 página A4 */
+      .print-page {
+        border-radius: 0 !important; box-shadow: none !important;
+        margin: 0 !important; page-break-after: always !important; page-break-inside: avoid !important;
+        position: relative !important;
+        width: 210mm !important; min-height: 297mm !important;
+        /* padding = área reservada ao timbrado (HDR 46.2mm + folga; FTR 48.4mm + folga) + margens laterais */
+        padding: 50mm 22.5mm 52mm 30mm !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+        background: white !important;
+      }
+
+      /* Timbrado: absoluto dentro da página — repete em CADA página impressa */
+      .print-timbrado-hdr {
+        display: block !important; position: absolute !important;
+        top: 0 !important; left: 0 !important; width: 100% !important; z-index: 2 !important;
+      }
+      .print-timbrado-ftr {
+        display: block !important; position: absolute !important;
+        bottom: 0 !important; left: 0 !important; width: 100% !important; z-index: 2 !important;
+      }
+      .print-timbrado-hdr img, .print-timbrado-ftr img { width: 100% !important; display: block !important; }
+
+      /* Conteúdo acima do timbrado */
+      .print-page-inner { position: relative !important; z-index: 3 !important; }
+
+      /* SVG do Gantt */
+      .print-gantt-wrap { overflow: visible !important; }
+      .print-gantt-wrap svg { max-width: 100% !important; width: 100% !important; height: auto !important; display: block !important; }
 
       /* Capa azul forçada */
       .print-page-capa { background: #002D72 !important; }
@@ -472,6 +517,8 @@
       .ptable tfoot tr { background: #002D72 !important; }
       .ptable tfoot td { color: white !important; }
       .ptable tbody tr:nth-child(even) { background: #F5F7FB !important; }
+      .ptable { font-size: 0.6rem !important; }
+      .ptable thead th, .ptable tbody td, .ptable tfoot td { padding: 0.3rem 0.38rem !important; white-space: normal !important; }
 
       /* KPIs */
       .print-kpi { background: #F5F7FB !important; }
@@ -480,35 +527,6 @@
       /* Memorial */
       .print-memorial-card-hdr { background: #002D72 !important; color: white !important; }
       .print-memorial-val { color: #002D72 !important; }
-
-      /* ── Timbrado fixo em cada página impressa ── */
-      .print-timbrado-hdr {
-        position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important;
-        display: block !important; z-index: 9999; line-height: 0; margin: 0; padding: 0;
-      }
-      .print-timbrado-ftr {
-        position: fixed !important; bottom: 0 !important; left: 0 !important; right: 0 !important;
-        display: block !important; z-index: 9999; line-height: 0; margin: 0; padding: 0;
-      }
-      .print-timbrado-hdr img, .print-timbrado-ftr img {
-        width: 100%; height: auto; display: block;
-      }
-
-      @page {
-        margin: 4.8cm 2.25cm 5cm 3cm;
-        size: A4 portrait;
-      }
-      html, body {
-        width: 210mm !important;
-        height: auto !important;
-      }
-      .print-overlay { width: 210mm !important; }
-      .print-modal { width: 100% !important; max-width: 210mm !important; }
-      .print-preview-area { width: 100% !important; }
-      .print-page { width: 100% !important; box-sizing: border-box !important; }
-      /* Fontes A4 */
-      .ptable { font-size: 0.6rem !important; }
-      .ptable thead th, .ptable tbody td, .ptable tfoot td { padding: 0.3rem 0.38rem !important; white-space: normal !important; }
     }
   </style>
   <!-- Leaflet para o mapa -->
@@ -2651,33 +2669,38 @@ function _gerarPDFCompleto() {
     addPage();
     titulo("4. CRONOGRAMA FÍSICO");
 
-    /* Tenta renderizar o SVG do Gantt como imagem PNG via canvas */
+    /* Renderiza SVG do Gantt em canvas com escala 2× (alta resolução p/ PDF) */
     const svgEl = document.getElementById("gantt-svg");
     if (svgEl && svgEl.getAttribute("width")) {
       try {
-        const svgW = parseInt(svgEl.getAttribute("width"))||1800;
-        const svgH = parseInt(svgEl.getAttribute("height"))||500;
-        const canv = document.createElement("canvas");
-        canv.width = svgW; canv.height = svgH;
-        const ctx = canv.getContext("2d");
+        const svgW    = parseInt(svgEl.getAttribute("width"))  || 1800;
+        const svgH    = parseInt(svgEl.getAttribute("height")) || 500;
+        const SCALE   = 2;                    // 2× → resolução adequada para 96 DPI→PDF
+        const canv    = document.createElement("canvas");
+        canv.width    = svgW * SCALE;
+        canv.height   = svgH * SCALE;
+        const ctx     = canv.getContext("2d");
+        ctx.scale(SCALE, SCALE);
         const blob = new Blob([new XMLSerializer().serializeToString(svgEl)],{type:"image/svg+xml"});
         const url  = URL.createObjectURL(blob);
         const img  = new Image();
         img.onload = () => {
-          ctx.drawImage(img,0,0);
+          ctx.drawImage(img, 0, 0, svgW, svgH);
           URL.revokeObjectURL(url);
-          const ph = (svgH/svgW)*CW;
-          if (y+ph > YM) { addPage(); titulo("4. CRONOGRAMA FÍSICO (cont.)"); }
-          doc.addImage(canv.toDataURL("image/png"),"PNG",ML,y,CW,Math.min(ph,YM-y));
-          y += Math.min(ph,YM-y)+5;
+          // Proporção real, altura mínima de 60mm para garantir legibilidade
+          const rawH  = (svgH / svgW) * CW;
+          const ph    = Math.max(rawH, 60);   // mínimo 60mm no PDF
+          if (y + ph > YM) { addPage(); titulo("4. CRONOGRAMA FÍSICO (cont.)"); }
+          doc.addImage(canv.toDataURL("image/png"), "PNG", ML, y, CW, Math.min(ph, YM-y));
+          y += Math.min(ph, YM-y) + 5;
           _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM,pg,moTotal,pico,dataIni,maxDia,dataFim,durMes,nomeObra,PW,PH,FTR,HDR);
         };
         img.src = url;
         return; // continua no callback
-      } catch(e) { /* sem SVG */ }
+      } catch(e) { /* sem SVG → cai no fallback */ }
     }
 
-    /* Fallback: só tabela */
+    /* Fallback: tabela simples */
     doc.autoTable({
       head:[["KM","Atividade","Início (dia)","Duração","Término (dia)"]],
       body: GANTT_DATA.map(a=>[a.km,a.atividade,"Dia "+a.inicio,a.duracao+"d","Dia "+a.termino]),
@@ -2758,6 +2781,11 @@ function gerarPreviewImpressao() {
     el.onchange = gerarPreviewImpressao;
   });
 
+  // ── Helper: envolve conteúdo com timbrado dentro da página ──
+  const _timHdr = `<div class="print-timbrado-hdr"><img src="data:image/png;base64,${_TIMBRADO_HDR}" alt="Cabeçalho SEINFRA/AM"/></div>`;
+  const _timFtr = `<div class="print-timbrado-ftr"><img src="data:image/png;base64,${_TIMBRADO_FTR}" alt="Rodapé SEINFRA/AM"/></div>`;
+  const mkPg = (inner) => `<div class="print-page">${_timHdr}<div class="print-page-inner">${inner}</div>${_timFtr}</div>`;
+
   let html = "";
 
   // ── PÁGINA 1: CAPA + IDENTIFICAÇÃO ──
@@ -2769,7 +2797,7 @@ function gerarPreviewImpressao() {
       : "—";
     const durMeses = Math.ceil(maxDia/30);
 
-    html += `<div class="print-page">
+    html += mkPg(`
       <div class="print-page-capa">
         <div class="print-capa-inner">
           <div class="print-capa-gov">GOVERNO DO ESTADO DO AMAZONAS · SEINFRA/AM · DMOB</div>
@@ -2814,7 +2842,7 @@ function gerarPreviewImpressao() {
           </div>
         </div>
       </div>
-    </div>`;
+    `);
   }
 
   // ── PÁGINA 2: EAP ──
@@ -2829,7 +2857,7 @@ function gerarPreviewImpressao() {
     });
     const pico = calcPicoRecursos();
 
-    html += `<div class="print-page">
+    html += mkPg(`
       <div class="print-section-title">📊 EAP — Estrutura Analítica do Projeto</div>
       <div class="print-section-body">
         <div class="print-kpis">
@@ -2898,7 +2926,7 @@ function gerarPreviewImpressao() {
           <span>Fonte: DNIT-313 / SICRO2 / CPU / e-Obras</span>
         </div>
       </div>
-    </div>`;
+    `);
   }
 
   // ── PÁGINA 3: GANTT ──
@@ -2911,28 +2939,35 @@ function gerarPreviewImpressao() {
     }
 
     // Função que gera o SVG escalado para caber na largura do preview
+    // com altura mínima garantida para legibilidade
     const buildScaledGantt = (svg) => {
       if (!svg || !svg.getAttribute("width")) {
         return "<p style='color:var(--cinza-aux);padding:1rem'>Acesse a aba Cronograma antes de imprimir para gerar o Gantt.</p>";
       }
       const svgW = parseInt(svg.getAttribute("width"))  || 2000;
       const svgH = parseInt(svg.getAttribute("height")) || 600;
-      // viewBox + preserveAspectRatio para escalar corretamente em A4
+      // Calcula proporção: largura disponível = ~158mm ≈ 597px @96dpi
+      // Altura proporcional — forçamos mínimo de 220px para legibilidade
+      const aspect   = svgH / svgW;
+      const dispW    = 597; // px equivalente à largura de conteúdo A4
+      const calcH    = Math.round(aspect * dispW);
+      const minH     = 220; // px mínimos para que o Gantt seja legível
+      const finalH   = Math.max(calcH, minH);
+
       let svgHtml = svg.outerHTML;
-      // Remove width/height absolutos; adiciona viewBox responsivo
       svgHtml = svgHtml
-        .replace(/width="[^"]*"/, 'width="100%"')
-        .replace(/height="[^"]*"/, 'height="auto"');
-      if (!svgHtml.includes('viewBox')) {
+        .replace(/\s+width="[^"]*"/, ` width="${dispW}"`)
+        .replace(/\s+height="[^"]*"/, ` height="${finalH}"`);
+      if (!svgHtml.includes("viewBox")) {
         svgHtml = svgHtml.replace(/<svg /, `<svg viewBox="0 0 ${svgW} ${svgH}" preserveAspectRatio="xMinYMin meet" `);
       }
-      return `<div style="width:100%;max-width:100%;overflow:visible">${svgHtml}</div>`;
+      return `<div class="print-gantt-wrap" style="width:100%;overflow:hidden">${svgHtml}</div>`;
     };
 
     let ganttContent = buildScaledGantt(srcSVG);
 
     const maxDia = GANTT_DATA.reduce((m,a)=>Math.max(m,a.termino),0);
-    html += `<div class="print-page">
+    html += mkPg(`
       <div class="print-section-title">📅 Cronograma Físico — Gráfico de Gantt</div>
       <div class="print-section-body">
         <div style="display:flex;gap:2rem;margin-bottom:0.8rem;font-size:0.75rem;">
@@ -2961,7 +2996,7 @@ function gerarPreviewImpressao() {
           </table>
         </div>
       </div>
-    </div>`;
+    `);
   }
 
   // ── PÁGINA 4: HISTOGRAMAS ──
@@ -2976,7 +3011,7 @@ function gerarPreviewImpressao() {
     const hasMO  = HIST_DATA.some(d=>d.servente+d.pedreiro+d.operador+d.carpinteiro>0);
     const hasEQP = HIST_DATA.some(d=>d.escavadeira+d.rolo+d.caminhao+d.moto>0);
 
-    html += `<div class="print-page">
+    html += mkPg(`
       <div class="print-section-title">📈 Histogramas — Distribuição Mensal de Recursos</div>
       <div class="print-section-body">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.2rem">
@@ -3018,7 +3053,7 @@ function gerarPreviewImpressao() {
           }).join("")}</tbody>
         </table>
       </div>
-    </div>`;
+    `);
   }
 
   // ── PÁGINA 5: MEMORIAL ──
@@ -3042,7 +3077,7 @@ function gerarPreviewImpressao() {
         </div>`).join("")}
       </div>`;
 
-    html += `<div class="print-page">
+    html += mkPg(`
       <div class="print-section-title">📄 Memorial de Execução</div>
       <div class="print-section-body">
         <div class="print-memorial-grid">
@@ -3089,7 +3124,6 @@ function gerarPreviewImpressao() {
               </div>`).join("")}
           </div>
         </div>
-        <!-- Rodapé do documento -->
         <div style="margin-top:1.5rem;padding-top:0.8rem;border-top:1px solid var(--borda);display:flex;justify-content:space-between;align-items:flex-end;font-size:0.62rem;color:var(--cinza-aux)">
           <div>
             <div style="font-weight:700;color:var(--azul);font-size:0.75rem">SEINFRA/AM</div>
@@ -3102,7 +3136,7 @@ function gerarPreviewImpressao() {
           </div>
         </div>
       </div>
-    </div>`;
+    `);
   }
 
   if (!html) {
