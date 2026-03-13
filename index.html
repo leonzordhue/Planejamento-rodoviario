@@ -1026,8 +1026,11 @@
       <div class="card-header">
         <div class="card-header-icon">🗺️</div>
         <div class="card-header-title">Localização Geográfica da Obra</div>
-        <div id="mapa-status" style="margin-left:auto;font-size:0.68rem;color:rgba(255,255,255,0.7)"></div>
-        <button class="btn btn-outline btn-sm" onclick="recarregarMapa()" style="margin-left:0.8rem;color:white;border-color:rgba(255,255,255,0.3);font-size:0.68rem">🔄 Recarregar</button>
+        <div id="mapa-status" style="margin-left:auto;font-size:0.65rem;color:rgba(255,255,255,0.85);background:rgba(0,0,0,0.25);border-radius:4px;padding:0.15rem 0.5rem;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis"></div>
+        <button class="btn btn-outline btn-sm" onclick="recarregarMapa()" title="Recarregar traçado do mapa"
+          style="margin-left:0.6rem;color:white;border-color:rgba(255,255,255,0.35);font-size:0.68rem;padding:0.2rem 0.55rem;white-space:nowrap">
+          🔄 Recarregar
+        </button>
       </div>
       <div class="card-body" style="padding:0">
         <div class="mapa-container">
@@ -2671,7 +2674,11 @@ function _gerarPDFCompleto() {
       styles:{fontSize:6.5,cellPadding:1.2,overflow:"linebreak"},
       headStyles:{fillColor:[0,45,114],textColor:255,fontStyle:"bold"},
       alternateRowStyles:{fillColor:[245,247,252]},
-      columnStyles:{0:{cW:8},1:{cW:20},2:{cW:34},3:{cW:10},4:{cW:11},5:{cW:13},6:{cW:7},7:{cW:7},8:{cW:7},9:{cW:8},10:{cW:8},11:{cW:8},12:{cW:7}},
+      columnStyles:{
+        0:{cellWidth:8},1:{cellWidth:20},2:{cellWidth:34},3:{cellWidth:10},
+        4:{cellWidth:11},5:{cellWidth:13},6:{cellWidth:7},7:{cellWidth:7},
+        8:{cellWidth:7},9:{cellWidth:8},10:{cellWidth:8},11:{cellWidth:8},12:{cellWidth:7}
+      },
       didDrawPage: didDrawPageFn
     });
     y = doc.lastAutoTable.finalY + 8;
@@ -2685,48 +2692,80 @@ function _gerarPDFCompleto() {
     /* Renderiza SVG do Gantt em canvas com escala 2× (alta resolução p/ PDF) */
     const svgEl = document.getElementById("gantt-svg");
     if (svgEl && svgEl.getAttribute("width")) {
+      let _pdfCallbackFired = false;
+      const _continuar = () => {
+        if (_pdfCallbackFired) return;
+        _pdfCallbackFired = true;
+        _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM,pg,moTotal,pico,dataIni,maxDia,dataFim,durMes,nomeObra,PW,PH,FTR,HDR);
+      };
       try {
-        const svgW    = parseInt(svgEl.getAttribute("width"))  || 1800;
-        const svgH    = parseInt(svgEl.getAttribute("height")) || 500;
-        const SCALE   = 2;                    // 2× → resolução adequada para 96 DPI→PDF
-        const canv    = document.createElement("canvas");
-        canv.width    = svgW * SCALE;
-        canv.height   = svgH * SCALE;
-        const ctx     = canv.getContext("2d");
+        const svgW  = parseInt(svgEl.getAttribute("width"))  || 1800;
+        const svgH  = parseInt(svgEl.getAttribute("height")) || 500;
+        const SCALE = 2;
+        const canv  = document.createElement("canvas");
+        canv.width  = svgW * SCALE;
+        canv.height = svgH * SCALE;
+        const ctx   = canv.getContext("2d");
         ctx.scale(SCALE, SCALE);
-        const blob = new Blob([new XMLSerializer().serializeToString(svgEl)],{type:"image/svg+xml"});
+        /* Serializa o SVG garantindo namespace correto */
+        const svgClone = svgEl.cloneNode(true);
+        svgClone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+        const svgStr = new XMLSerializer().serializeToString(svgClone);
+        const blob = new Blob([svgStr], {type:"image/svg+xml;charset=utf-8"});
         const url  = URL.createObjectURL(blob);
         const img  = new Image();
         img.onload = () => {
-          ctx.drawImage(img, 0, 0, svgW, svgH);
-          URL.revokeObjectURL(url);
-          // Proporção real, altura mínima de 60mm para garantir legibilidade
-          const rawH  = (svgH / svgW) * CW;
-          const ph    = Math.max(rawH, 60);   // mínimo 60mm no PDF
-          if (y + ph > YM) { addPage(); titulo("4. CRONOGRAMA FÍSICO (cont.)"); }
-          doc.addImage(canv.toDataURL("image/png"), "PNG", ML, y, CW, Math.min(ph, YM-y));
-          y += Math.min(ph, YM-y) + 5;
-          _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM,pg,moTotal,pico,dataIni,maxDia,dataFim,durMes,nomeObra,PW,PH,FTR,HDR);
+          try {
+            ctx.drawImage(img, 0, 0, svgW, svgH);
+            URL.revokeObjectURL(url);
+            const rawH = (svgH / svgW) * CW;
+            const ph   = Math.max(rawH, 60);
+            if (y + ph > YM) { addPage(); titulo("4. CRONOGRAMA FÍSICO (cont.)"); }
+            doc.addImage(canv.toDataURL("image/png"), "PNG", ML, y, CW, Math.min(ph, YM-y));
+            y += Math.min(ph, YM-y) + 5;
+          } catch(ex) {
+            console.warn("Gantt canvas→PDF falhou, usando tabela:", ex);
+            URL.revokeObjectURL(url);
+            _ganttFallbackTabela(doc, chk, addPage, titulo, didDrawPageFn, y, ML, MR, YM);
+            y = doc.lastAutoTable.finalY + 8;
+          }
+          _continuar();
         };
+        img.onerror = (e) => {
+          console.warn("Gantt SVG→Image falhou, usando tabela:", e);
+          URL.revokeObjectURL(url);
+          _ganttFallbackTabela(doc, chk, addPage, titulo, didDrawPageFn, y, ML, MR, YM);
+          y = doc.lastAutoTable.finalY + 8;
+          _continuar();
+        };
+        /* Segurança: se após 8s o callback não disparar, continua mesmo assim */
+        setTimeout(() => { if (!_pdfCallbackFired) { URL.revokeObjectURL(url); _continuar(); } }, 8000);
         img.src = url;
-        return; // continua no callback
-      } catch(e) { /* sem SVG → cai no fallback */ }
+        return; // continua nos callbacks acima
+      } catch(e) {
+        console.warn("Gantt serialização falhou:", e);
+        /* cai no fallback inline abaixo */
+      }
     }
 
-    /* Fallback: tabela simples */
-    doc.autoTable({
-      head:[["KM","Atividade","Início (dia)","Duração","Término (dia)"]],
-      body: GANTT_DATA.map(a=>[a.km,a.atividade,"Dia "+a.inicio,a.duracao+"d","Dia "+a.termino]),
-      startY:y, margin:{left:ML,right:MR},
-      styles:{fontSize:7.5,cellPadding:1.5},
-      headStyles:{fillColor:[0,45,114],textColor:255},
-      alternateRowStyles:{fillColor:[245,247,252]},
-      didDrawPage: didDrawPageFn
-    });
+    /* Fallback imediato: tabela simples do cronograma */
+    _ganttFallbackTabela(doc, chk, addPage, titulo, didDrawPageFn, y, ML, MR, YM);
     y = doc.lastAutoTable.finalY + 8;
   }
 
   _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM,pg,moTotal,pico,dataIni,maxDia,dataFim,durMes,nomeObra,PW,PH,FTR,HDR);
+}
+
+function _ganttFallbackTabela(doc, chk, addPage, titulo, didDrawPageFn, y, ML, MR, YM) {
+  doc.autoTable({
+    head:[["KM","Atividade","Início (dia)","Duração","Término (dia)"]],
+    body: GANTT_DATA.map(a=>[a.km, a.atividade, "Dia "+a.inicio, a.duracao+"d", "Dia "+a.termino]),
+    startY: y, margin:{left:ML, right:MR},
+    styles:{fontSize:7.5, cellPadding:1.5},
+    headStyles:{fillColor:[0,45,114], textColor:255},
+    alternateRowStyles:{fillColor:[245,247,252]},
+    didDrawPage: didDrawPageFn
+  });
 }
 
 function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM,pg,moTotal,pico,dataIni,maxDia,dataFim,durMes,nomeObra,PW,PH,FTR,HDR) {
@@ -3195,10 +3234,11 @@ const SHEETS = {
     geojson: "https://raw.githubusercontent.com/leonzordhue/Planejamento-rodoviario/main/geojson/RAMAIS_SEINFRA.geojson",
     label: "Ramais SEINFRA/AM",
     cor: "#F5A623",
-    nameCol: "denominacao",
-    codigoCol: "codigo",
+    nameCol:      "denominacao",
+    codigoCol:    "codigo",
     municipioCol: "municipio",
-    extensaoCol: "extensao_km",
+    referenciaCol: "ponto_de_referencia",  // coluna Ponto de Referência
+    extensaoCol:  "extensao_km",
     groupBy: null,
   },
   "RODOVIA ESTADUAL": {
@@ -3207,10 +3247,11 @@ const SHEETS = {
     geojson: "https://raw.githubusercontent.com/leonzordhue/Planejamento-rodoviario/main/geojson/RODOVIAS_ESTADUAIS_AMAZONAS.geojson",
     label: "Rodovias Estaduais AM",
     cor: "#1565C0",
-    nameCol: "rodovia",
-    codigoCol: "codigo_ser_snv",
+    nameCol:      "rodovia",
+    codigoCol:    "codigo_ser_snv",
     municipioCol: "inicio",
-    extensaoCol: "extensao",
+    referenciaCol: null,
+    extensaoCol:  "extensao",
     groupBy: "rodovia",
   },
 };
@@ -3268,7 +3309,11 @@ function normalizeRoadRow(row, sheet) {
     const extRaw    = row[sheet.extensaoCol] || detectCol(row, ["extensao","extensao_km","comprimento","km"]);
     const extensao  = parseFloat(String(extRaw || "0").replace(",",".")) || 0;
     const situacao  = row["situacao_fisica"] || row["descricao"] || detectCol(row, ["situacao","status","descricao"]);
-    return { nome, codigo, municipio, extensao, situacao, raw: row };
+    // Ponto de referência — coluna configurada ou busca fuzzy
+    const referencia = (sheet.referenciaCol && row[sheet.referenciaCol])
+      || detectCol(row, ["ponto_de_referencia","ponto_referencia","referencia","ref_km","km_referencia","ponto","rodovia_referencia"])
+      || "";
+    return { nome, codigo, municipio, extensao, situacao, referencia, raw: row };
   }
   return {
     nome:      detectCol(row, ["nome","denominacao","descricao","trecho","ramal","rodovia"]),
@@ -3276,6 +3321,7 @@ function normalizeRoadRow(row, sheet) {
     municipio: detectCol(row, ["municipio","municipios","cidade","local","inicio"]),
     extensao:  parseFloat(String(detectCol(row, ["extensao","extensao_km","comprimento","km","length"])||"0").replace(",",".")) || 0,
     situacao:  detectCol(row, ["situacao","status","condicao","estado","descricao"]),
+    referencia: detectCol(row, ["ponto_de_referencia","ponto_referencia","referencia","ref_km","rodovia_referencia","ponto"]),
     raw: row,
   };
 }
@@ -3430,9 +3476,9 @@ function showRoadDropdown(results) {
     <div class="road-dropdown-item" onmousedown="selectRoad(${i},'${getV('obra-tipo').replace(/'/g,'')}')" data-idx="${i}">
       <div class="rd-name">${r.nome || r.codigo || "—"}</div>
       <div class="rd-meta">
-        ${r.codigo ? '<strong>'+r.codigo+'</strong> · ' : ''}
+        ${r.referencia ? '<strong>Ref: '+r.referencia+'</strong> · ' : (r.codigo ? '<strong>'+r.codigo+'</strong> · ' : '')}
+        ${r.municipio ? r.municipio + ' · ' : ''}
         ${r.extensao > 0 ? r.extensao.toFixed(2) + ' km' : ''}
-        ${r._trechos > 1 ? ' · '+r._trechos+' trechos' : ''}
         ${r.situacao ? ' · ' + r.situacao : ''}
       </div>
     </div>`).join("");
@@ -3473,8 +3519,10 @@ async function selectRoad(idx, tipo) {
   if (road.municipio) {
     document.getElementById("obra-local").value = road.municipio;
   }
-  if (road.codigo) {
-    document.getElementById("obra-rodovia").value = road.codigo;
+  // Rodovia / KM de Referência: usa campo "Ponto de Referência" da planilha, senão código
+  const refVal = road.referencia || road.codigo || "";
+  if (refVal) {
+    document.getElementById("obra-rodovia").value = refVal;
   }
   if (road.extensao > 0) {
     document.getElementById("obra-extensao").value = road.extensao.toFixed(2);
@@ -3632,13 +3680,13 @@ async function highlightRoadOnMap(road) {
   if (!_leafletMap) return;
   if (_layerSelected) { _leafletMap.removeLayer(_layerSelected); _layerSelected = null; }
 
-  const tipo  = road.tipo;
+  const tipo  = road.tipo || getV("obra-tipo");
   const sheet = SHEETS[tipo];
   if (!sheet?.geojson) return;
 
   setMapaStatus("⏳ Carregando traçado...");
 
-  // Carrega GeoJSON somente quando necessário (on-demand)
+  // Carrega GeoJSON on-demand
   let gj = _geojsonCache[tipo];
   if (!gj) {
     try {
@@ -3647,57 +3695,87 @@ async function highlightRoadOnMap(road) {
       gj = await resp.json();
       _geojsonCache[tipo] = gj;
     } catch(e) {
-      setMapaStatus("⚠️ Traçado indisponível");
+      setMapaStatus("⚠️ Traçado indisponível: " + e.message);
       console.warn("GeoJSON erro:", tipo, e.message);
+      _fallbackCentroide(road);
       return;
     }
   }
 
   const nomeUpper = (road.nome || "").trim().toUpperCase();
   const codUpper  = (road.codigo || "").trim().toUpperCase();
+  const refUpper  = (road.referencia || "").trim().toUpperCase();
+
+  // Normaliza string para comparação: remove acentos e espaços extras
+  const norm = s => (s||"").trim().toUpperCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/\s+/g," ");
+
+  const nomeN = norm(road.nome);
+  const codN  = norm(road.codigo);
+  const refN  = norm(road.referencia);
 
   const matching = {
     type: "FeatureCollection",
     features: gj.features.filter(f => {
       const p = f.properties || {};
+
       if (tipo === "RODOVIA ESTADUAL") {
-        // Match direto pelo campo RODOVIA do GeoJSON
-        const r = (p.RODOVIA || p.rodovia || "").trim().toUpperCase();
-        return r === nomeUpper;
-      } else {
-        // Ramais: match fuzzy por nome ou código
-        const fn = (p.nome||p.NOME||p.DENOMINACAO||p.denominacao||p.name||"").trim().toUpperCase();
-        const fc = (p.codigo||p.CODIGO||p.sigla||p.SIGLA||"").trim().toUpperCase();
-        return (nomeUpper && fn.includes(nomeUpper.substring(0,18))) ||
-               (codUpper  && fc.includes(codUpper.substring(0,12)));
+        const r = norm(p.RODOVIA || p.rodovia || "");
+        return r && r === nomeN;
       }
+
+      // RAMAL: tenta múltiplos campos do GeoJSON
+      const fn = norm(p.nome || p.NOME || p.DENOMINACAO || p.denominacao ||
+                      p.name || p.RAMAL || p.ramal || "");
+      const fc = norm(p.codigo || p.CODIGO || p.sigla || p.SIGLA ||
+                      p.cod || p.COD || "");
+      const fr = norm(p.ponto_de_referencia || p.PONTO_DE_REFERENCIA ||
+                      p.referencia || p.REFERENCIA || p.ref || "");
+      const fm = norm(p.municipio || p.MUNICIPIO || p.municipios || "");
+
+      // Match por nome (substring de pelo menos 8 chars)
+      const matchNome = nomeN.length >= 4 && (
+        fn.includes(nomeN) || nomeN.includes(fn.substring(0, Math.max(fn.length-2, 6)))
+      );
+      // Match por código exato
+      const matchCod = codN.length >= 3 && (fc === codN || fc.includes(codN) || codN.includes(fc));
+      // Match por referência
+      const matchRef = refN.length >= 3 && (fr.includes(refN) || refN.includes(fr));
+
+      return matchNome || matchCod || matchRef;
     })
   };
 
-  if (!matching.features.length) {
-    setMapaStatus("⚠️ Traçado não encontrado");
+  if (matching.features.length === 0) {
+    setMapaStatus("⚠️ Traçado não localizado no GeoJSON — centralizando por município");
+    _fallbackCentroide(road);
     return;
   }
 
   _layerSelected = L.geoJSON(matching, {
     style: f => {
-      const sit = ((f.properties || {})["SITUAÇÃO"] || (f.properties || {}).situacao || "").toUpperCase();
+      const sit = norm(
+        (f.properties || {})["SITUAÇÃO"] ||
+        (f.properties || {}).SITUACAO   ||
+        (f.properties || {}).situacao   || ""
+      );
       let cor = sheet.cor;
-      if (sit === "PAV") cor = "#007B3E";
-      if (sit === "DUP") cor = "#1565C0";
-      if (sit === "LEI") cor = "#F5A623";
-      if (sit === "PLA") cor = "#8896A8";
+      if (sit.startsWith("PAV")) cor = "#007B3E";
+      if (sit.startsWith("DUP")) cor = "#1565C0";
+      if (sit.startsWith("LEI")) cor = "#F5A623";
+      if (sit.startsWith("PLA")) cor = "#8896A8";
       return { color: cor, weight: 5, opacity: 0.95, lineJoin: "round", lineCap: "round" };
     },
     onEachFeature: (feature, layer) => {
       const p   = feature.properties || {};
       const rod = p.RODOVIA || p.rodovia || p.nome || p.NOME || road.nome || "";
-      const cod = p["CÓDIGO S."] || p["CODIGO_S_"] || p.codigo || p.CODIGO || road.codigo || "";
-      const sit = p["DESCRIÇÃ"]  || p["DESCRICA"] || p.SITUAÇÃO || p.situacao || "";
-      const rev = p["DESCRIÇ_1"] || p["TIPO DE RE"]|| p.revestimento || "";
-      const ext = p.EXTENSÃO     || p.EXTENSAO    || p.extensao || "";
-      const ini = p.INÍCIO       || p.INICIO      || p.inicio || "";
-      const fim = p.FIM          || p.final || "";
+      const cod = p["CÓDIGO S."] || p.CODIGO_S_ || p.codigo || p.CODIGO || road.codigo || "";
+      const sit = p.DESCRICAO  || p["DESCRIÇÃ"] || p.SITUAÇÃO || p.situacao || "";
+      const rev = p["DESCRIÇ_1"] || p["TIPO DE RE"] || p.revestimento || "";
+      const ext = p.EXTENSÃO || p.EXTENSAO || p.extensao || "";
+      const ini = p.INÍCIO || p.INICIO || p.inicio || "";
+      const fim = p.FIM || p.final || "";
       layer.bindPopup(`
         <div style="font-family:'Outfit',sans-serif;font-size:0.82rem;min-width:200px;">
           <div style="font-weight:800;color:#002D72;font-size:0.95rem;margin-bottom:6px;">${rod}</div>
@@ -3711,13 +3789,38 @@ async function highlightRoadOnMap(road) {
     }
   }).addTo(_leafletMap);
 
-  try { _leafletMap.fitBounds(_layerSelected.getBounds(), { padding: [40, 40] }); } catch(e) {}
+  try { _leafletMap.fitBounds(_layerSelected.getBounds(), { padding: [50, 50] }); } catch(e) {}
 
   const badge = document.getElementById("mapa-badge");
   if (badge) { badge.textContent = road.nome || road.codigo; badge.style.display = "block"; }
-
   addMapaLegenda(tipo, sheet.cor, road.nome || road.codigo);
   setMapaStatus(`✅ ${matching.features.length} trecho(s) mapeado(s)`);
+}
+
+// Fallback: centraliza o mapa no município/localização usando Nominatim
+async function _fallbackCentroide(road) {
+  const local = (road.municipio || getV("obra-local") || "").trim();
+  if (!local || !_leafletMap) return;
+  try {
+    const q = encodeURIComponent(local + ", Amazonas, Brasil");
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`,
+      { headers: { "Accept-Language": "pt-BR" } });
+    const data = await r.json();
+    if (data && data[0]) {
+      const lat = parseFloat(data[0].lat);
+      const lon = parseFloat(data[0].lon);
+      _leafletMap.setView([lat, lon], 11);
+      // Marcador provisório
+      if (_layerSelected) _leafletMap.removeLayer(_layerSelected);
+      _layerSelected = L.circleMarker([lat, lon], {
+        radius: 10, color: "#F5A623", fillColor: "#F5A623",
+        fillOpacity: 0.7, weight: 3
+      }).addTo(_leafletMap)
+        .bindPopup(`<strong>${road.nome || road.codigo}</strong><br>${local}<br><em style="font-size:0.7rem;color:#888">Traçado não disponível no GeoJSON — posição aproximada</em>`)
+        .openPopup();
+      setMapaStatus(`📍 Centralizado em ${local} (traçado indisponível)`);
+    }
+  } catch(e) { console.warn("Nominatim fallback erro:", e); }
 }
 
 
