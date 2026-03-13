@@ -390,10 +390,10 @@
     /* Tabelas no preview */
     .ptable { width:100%; border-collapse:collapse; font-size:0.72rem; font-family:var(--font); }
     .ptable thead tr { background: var(--azul); }
-    .ptable thead th { padding:0.5rem 0.6rem; color:rgba(255,255,255,0.9); font-size:0.6rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; text-align:left; white-space:nowrap; }
+    .ptable thead th { padding:0.5rem 0.6rem; color:rgba(255,255,255,0.9); font-size:0.6rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; text-align:left; white-space:normal; word-break:break-word; }
     .ptable thead th.r { text-align:right; }
     .ptable tbody tr:nth-child(even) { background: var(--cinza-bg); }
-    .ptable tbody td { padding:0.45rem 0.6rem; border-bottom:1px solid #eee; color:var(--cinza-txt); white-space:nowrap; }
+    .ptable tbody td { padding:0.45rem 0.6rem; border-bottom:1px solid #eee; color:var(--cinza-txt); white-space:normal; word-break:break-word; }
     .ptable tbody td.r { text-align:right; font-variant-numeric:tabular-nums; }
     .ptable tfoot tr { background: var(--azul); }
     .ptable tfoot td { padding:0.5rem 0.6rem; color:white; font-weight:700; font-size:0.7rem; }
@@ -518,7 +518,7 @@
       .ptable tfoot td { color: white !important; }
       .ptable tbody tr:nth-child(even) { background: #F5F7FB !important; }
       .ptable { font-size: 0.6rem !important; }
-      .ptable thead th, .ptable tbody td, .ptable tfoot td { padding: 0.3rem 0.38rem !important; white-space: normal !important; }
+      .ptable thead th, .ptable tbody td, .ptable tfoot td { padding: 0.3rem 0.38rem !important; white-space: normal !important; word-break: break-word !important; }
 
       /* KPIs */
       .print-kpi { background: #F5F7FB !important; }
@@ -2614,6 +2614,22 @@ function abrirModalImpressao() {
   // Atualiza subtítulo da toolbar
   const nome = getV("obra-nome") || "Obra não identificada";
   document.getElementById("print-obra-sub").textContent = nome + " · " + getV("obra-tipo");
+
+  // Força render do Gantt (necessário para captura no PDF/preview)
+  if (GANTT_DATA.length > 0) {
+    try { renderGantt(); } catch(e) { console.warn("renderGantt pre-modal:", e); }
+  }
+
+  // Força render dos Histogramas (necessário para captura no PDF/preview)
+  if (HIST_DATA.length > 0) {
+    // Ativa temporariamente a aba de histogramas para garantir que os canvas existam
+    const tabHist = document.getElementById("tab-histogramas");
+    const wasHidden = tabHist && tabHist.style.display === "none";
+    if (wasHidden) tabHist.style.display = "block";
+    try { renderHistogramas(); } catch(e) { console.warn("renderHistogramas pre-modal:", e); }
+    if (wasHidden) tabHist.style.display = "none";
+  }
+
   // Renderiza o preview
   gerarPreviewImpressao();
   // Abre o modal
@@ -2837,7 +2853,16 @@ function _gerarPDFCompleto() {
     titulo("4. CRONOGRAMA FÍSICO");
 
     /* Renderiza SVG do Gantt em canvas com escala 2× (alta resolução p/ PDF) */
-    const svgEl = document.getElementById("gantt-svg");
+    // Tentar forçar render do Gantt se SVG ainda não existe
+    let svgEl = document.getElementById("gantt-svg");
+    if (!svgEl || !svgEl.getAttribute("width")) {
+      const tabGantt = document.getElementById("tab-gantt");
+      const wasHidden2 = tabGantt && tabGantt.style.display === "none";
+      if (wasHidden2) tabGantt.style.display = "block";
+      try { renderGantt(); } catch(eg) { console.warn("renderGantt pre-PDF2:", eg); }
+      if (wasHidden2) tabGantt.style.display = "none";
+      svgEl = document.getElementById("gantt-svg");
+    }
     if (svgEl && svgEl.getAttribute("width")) {
       let _pdfCallbackFired = false;
       const _continuar = () => {
@@ -2949,6 +2974,14 @@ function _ganttFallbackTabela(doc, chk, addPage, titulo, didDrawPageFn, y, ML, M
 function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM,pg,moTotal,pico,dataIni,maxDia,dataFim,durMes,nomeObra,PW,PH,FTR,HDR) {
   /* ── HISTOGRAMAS ── */
   if (chk("histogramas")) {
+    // Garantir que os histogramas estejam renderizados antes de capturar
+    if (HIST_DATA.length > 0) {
+      const tabHist = document.getElementById("tab-histogramas");
+      const wasHidden = tabHist && tabHist.style.display === "none";
+      if (wasHidden) tabHist.style.display = "block";
+      try { renderHistogramas(); } catch(e2) { console.warn("renderHistogramas pré-PDF:", e2); }
+      if (wasHidden) tabHist.style.display = "none";
+    }
     addPage();
     titulo("5. HISTOGRAMAS — DISTRIBUIÇÃO MENSAL");
     for (const [id,lbl] of [["chart-mo","Mão de Obra (pessoas/mês)"],["chart-eqp","Equipamentos (un/mês)"]]) {
@@ -2956,12 +2989,12 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
       if (!c) continue;
       try {
         const imgD = c.toDataURL("image/png");
-        const ih   = 56;
+        const ih   = 60;
         if (y+ih+6 > YM) addPage();
         doc.setFontSize(8); doc.setTextColor(0,45,114); doc.setFont("helvetica","bold");
         doc.text(lbl, ML, y); doc.setFont("helvetica","normal"); y += 4;
         doc.addImage(imgD,"PNG",ML,y,CW,ih); y += ih+8;
-      } catch(e) {}
+      } catch(e) { console.warn("Histograma PDF erro:", e); }
     }
   }
 
@@ -2969,12 +3002,23 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
   if (chk("memorial")) {
     addPage();
     titulo("6. MEMORIAL DE EXECUÇÃO");
-    linha("Responsável Técnico", getV("obra-responsavel"), true);
-    linha("CREA-AM",             getV("obra-crea"));
-    linha("Cargo / Função",      getV("obra-cargo"));
-    linha("E-mail",              getV("obra-email")); y += 2;
+    linha("Responsável Técnico", getV("obra-responsavel")||"—", true);
+    linha("CREA-AM",             getV("obra-crea")||"—");
+    linha("Cargo / Função",      getV("obra-cargo")||"—");
+    linha("E-mail",              getV("obra-email")||"—"); y += 2;
+    linha("Nome da Obra",        getV("obra-nome")||"—", true);
+    linha("Nº Orçamento",        getV("obra-orcamento")||"—");
+    linha("Tipo de Modal",       getV("obra-tipo")||"—", true);
+    linha("Localização",         getV("obra-local")||"—");
+    linha("Rodovia / KM Ref.",   getV("obra-rodovia")||"—");
+    linha("Extensão Total",      (getV("obra-extensao")||"—")+" km"); y += 2;
+    linha("Data de Início",      dataIni ? new Date(dataIni+"T00:00:00").toLocaleDateString("pt-BR") : "—");
+    linha("Data de Término",     dataFim, true);
+    linha("Duração Total",       maxDia+" dias ("+durMes+" meses)", true);
+    linha("Jornada de Trabalho", (getV("obra-jornada")||"—")+"h/dia");
+    linha("Nº de Frentes",       getV("obra-frentes")||"—");
+    linha("Defasagem",           (getV("obra-defasagem")||"—")+" dias"); y += 2;
     linha("MO Total (h·h)",      numBR(moTotal,0)+" horas", true);
-    linha("Duração Total",       maxDia+" dias ("+durMes+" meses)");
     linha("Serviços Cadastrados",String(EAP_CALC.length)); y += 2;
     linha("Serventes (pico)",    String(pico.servente||0));
     linha("Pedreiros (pico)",    String(pico.pedreiro||0));
@@ -2984,6 +3028,26 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
     linha("Rolos (pico)",        String(pico.rolo||0));
     linha("Caminhões (pico)",    String(pico.caminhao||0));
     linha("Motoniv. (pico)",     String(pico.moto||0));
+  }
+
+  /* ── MAPA DE LOCALIZAÇÃO ── */
+  if (chk("memorial")) {
+    // Tentar capturar o mapa como imagem (se disponível e visível)
+    try {
+      const mapaEl = document.getElementById("mapa-rodovia");
+      if (mapaEl && _leafletMap) {
+        // Usar leaflet-image se disponível, ou canvas do leaflet
+        const mapaCanvas = mapaEl.querySelector("canvas");
+        if (mapaCanvas) {
+          const mapaImg = mapaCanvas.toDataURL("image/png");
+          const mh = 80;
+          if (y + mh + 10 > YM) addPage();
+          titulo("7. LOCALIZAÇÃO — MAPA");
+          doc.addImage(mapaImg, "PNG", ML, y, CW, mh);
+          y += mh + 8;
+        }
+      }
+    } catch(eMap) { console.warn("Captura de mapa PDF:", eMap); }
   }
 
   /* ── SALVAR ── */
@@ -3175,26 +3239,30 @@ function gerarPreviewImpressao() {
     // com altura mínima garantida para legibilidade
     const buildScaledGantt = (svg) => {
       if (!svg || !svg.getAttribute("width")) {
-        return "<p style='color:var(--cinza-aux);padding:1rem'>Acesse a aba Cronograma antes de imprimir para gerar o Gantt.</p>";
+        // Tentar renderizar agora se não existe
+        try { renderGantt(); svg = document.getElementById("gantt-svg"); } catch(e) {}
+        if (!svg || !svg.getAttribute("width")) {
+          return "<p style='color:var(--cinza-aux);padding:1rem'>Acesse a aba Cronograma antes de imprimir para gerar o Gantt.</p>";
+        }
       }
       const svgW = parseInt(svg.getAttribute("width"))  || 2000;
       const svgH = parseInt(svg.getAttribute("height")) || 600;
-      // Calcula proporção: largura disponível = ~158mm ≈ 597px @96dpi
-      // Altura proporcional — forçamos mínimo de 220px para legibilidade
+      // Mantemos largura original do SVG para legibilidade — scroll horizontal se necessário
+      // Altura proporcional — forçamos mínimo de 400px para legibilidade
       const aspect   = svgH / svgW;
-      const dispW    = 597; // px equivalente à largura de conteúdo A4
-      const calcH    = Math.round(aspect * dispW);
-      const minH     = 220; // px mínimos para que o Gantt seja legível
+      // Usar largura original do SVG preservando escala
+      const dispW    = svgW; // largura nativa para máxima legibilidade
+      const calcH    = svgH;  // altura nativa
+      const minH     = 400; // px mínimos para que o Gantt seja legível
       const finalH   = Math.max(calcH, minH);
 
       let svgHtml = svg.outerHTML;
-      svgHtml = svgHtml
-        .replace(/\s+width="[^"]*"/, ` width="${dispW}"`)
-        .replace(/\s+height="[^"]*"/, ` height="${finalH}"`);
+      // Manter dimensões originais — o container terá scroll horizontal
       if (!svgHtml.includes("viewBox")) {
-        svgHtml = svgHtml.replace(/<svg /, `<svg viewBox="0 0 ${svgW} ${svgH}" preserveAspectRatio="xMinYMin meet" `);
+        svgHtml = svgHtml.replace(/<svg /, `<svg viewBox="0 0 ${svgW} ${svgH}" `);
       }
-      return `<div class="print-gantt-wrap" style="width:100%;overflow:hidden">${svgHtml}</div>`;
+      // Container com scroll horizontal para garantir legibilidade total
+      return `<div class="print-gantt-wrap" style="width:100%;overflow-x:auto;overflow-y:hidden">${svgHtml}</div>`;
     };
 
     let ganttContent = buildScaledGantt(srcSVG);
