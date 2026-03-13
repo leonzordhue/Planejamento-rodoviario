@@ -689,6 +689,19 @@
             <!-- SELETOR INTELIGENTE DE RODOVIA/RAMAL -->
             <div class="form-group form-span-2" id="road-selector-wrap">
               <label id="road-selector-label">🔍 Buscar Rodovia/Ramal na base SEINFRA</label>
+
+              <!-- FILTRO DE MUNICÍPIO (só RAMAL / VICINAL) -->
+              <div id="muni-filter-wrap" style="display:none;margin-bottom:0.5rem">
+                <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+                  <label style="font-size:0.7rem;font-weight:700;color:var(--cinza-aux);text-transform:uppercase;letter-spacing:0.08em;white-space:nowrap;margin:0">🏙️ Município</label>
+                  <select id="muni-filter-select" onchange="onMunicipioChange()"
+                    style="flex:1;min-width:200px;padding:0.45rem 0.7rem;border:1.5px solid var(--borda);border-radius:8px;font-size:0.82rem;font-family:var(--font);background:white;color:var(--cinza-txt);cursor:pointer">
+                    <option value="">— Todos os municípios —</option>
+                  </select>
+                  <span id="muni-count" style="font-size:0.65rem;color:var(--cinza-aux);white-space:nowrap"></span>
+                </div>
+              </div>
+
               <div class="road-search-wrap">
                 <input type="text" id="road-search-input"
                   placeholder="Digite o nome, código ou município..."
@@ -3314,6 +3327,11 @@ async function loadRoadData(tipo) {
 
     _roadCache[tipo] = items;
     setRoadStatus(`✅ ${items.length} registro${items.length !== 1 ? "s" : ""} carregado${items.length !== 1 ? "s" : ""}`);
+    // Popula select de municípios se for RAMAL e select ainda não populado
+    if (tipo === "RAMAL / VICINAL") {
+      const sel = document.getElementById("muni-filter-select");
+      if (sel && sel.options.length <= 1) populateMunicipioSelect(items);
+    }
     return items;
   } catch(e) {
     setRoadStatus("⚠️ Não foi possível carregar a base: " + e.message);
@@ -3334,16 +3352,73 @@ async function onRoadSearch(q) {
     showRoadDropdown([]);
     return;
   }
-  const data = await loadRoadData(tipo);
+  let data = await loadRoadData(tipo);
+
+  // Aplica filtro de município se RAMAL e município selecionado
+  if (tipo === "RAMAL / VICINAL") {
+    const muniSel = document.getElementById("muni-filter-select")?.value || "";
+    if (muniSel) {
+      data = data.filter(r => (r.municipio || "").toLowerCase() === muniSel.toLowerCase());
+    }
+  }
+
   const term = q.toLowerCase().trim();
   const results = term.length < 1
-    ? data.slice(0, 50)
+    ? data.slice(0, 60)
     : data.filter(r =>
         r.nome.toLowerCase().includes(term) ||
         r.codigo.toLowerCase().includes(term) ||
         r.municipio.toLowerCase().includes(term)
-      ).slice(0, 40);
+      ).slice(0, 50);
   showRoadDropdown(results);
+}
+
+// ── Popula select de municípios a partir dos dados carregados ───────
+function populateMunicipioSelect(items) {
+  const sel = document.getElementById("muni-filter-select");
+  if (!sel) return;
+
+  const munis = [...new Set(
+    items
+      .map(r => (r.municipio || "").trim())
+      .filter(m => m.length > 1)
+  )].sort((a, b) => a.localeCompare(b, "pt-BR"));
+
+  // Preserva seleção atual se possível
+  const current = sel.value;
+  sel.innerHTML = `<option value="">— Todos os municípios (${munis.length}) —</option>` +
+    munis.map(m => `<option value="${m}"${m === current ? " selected" : ""}>${m}</option>`).join("");
+
+  // Atualiza contador
+  const cnt = document.getElementById("muni-count");
+  if (cnt) cnt.textContent = `${items.length} ramais`;
+}
+
+// ── Ação ao mudar município ─────────────────────────────────────────
+function onMunicipioChange() {
+  const muniSel = document.getElementById("muni-filter-select")?.value || "";
+  const cnt     = document.getElementById("muni-count");
+
+  if (muniSel) {
+    // Atualiza contador com ramais desse município
+    const tipo = getV("obra-tipo");
+    loadRoadData(tipo).then(data => {
+      const filtrado = data.filter(r =>
+        (r.municipio || "").toLowerCase() === muniSel.toLowerCase()
+      );
+      if (cnt) cnt.textContent = `${filtrado.length} ramal${filtrado.length !== 1 ? "is" : ""} em ${muniSel}`;
+    });
+  } else {
+    const tipo = getV("obra-tipo");
+    loadRoadData(tipo).then(data => {
+      if (cnt) cnt.textContent = `${data.length} ramais`;
+    });
+  }
+
+  // Limpa seleção de ramal anterior e busca com filtro novo
+  document.getElementById("road-search-input").value = "";
+  document.getElementById("road-selected-info").style.display = "none";
+  onRoadSearch("");
 }
 
 function showRoadDropdown(results) {
@@ -3372,6 +3447,7 @@ async function selectRoad(idx, tipo) {
   if (!road) return;
 
   _selectedRoad = { ...road, tipo };
+  _lastHighlightedRoad = null; // força re-highlight na próxima abertura do mapa
   dd.style.display = "none";
   document.getElementById("road-search-input").value = road.nome || road.codigo;
 
@@ -3443,6 +3519,7 @@ function resetExtensao() {
 
 function clearRoadSelection() {
   _selectedRoad = null;
+  _lastHighlightedRoad = null;
   document.getElementById("road-search-input").value = "";
   document.getElementById("road-selected-info").style.display = "none";
   document.getElementById("road-dropdown").style.display = "none";
@@ -3458,17 +3535,26 @@ function clearRoadSelection() {
 function onTipoChange() {
   syncObra(); renderParamCards();
   const tipo = getV("obra-tipo");
-  const lbl = document.getElementById("road-selector-label");
+  const lbl  = document.getElementById("road-selector-label");
   const wrap = document.getElementById("road-selector-wrap");
+  const muniWrap = document.getElementById("muni-filter-wrap");
+
   if (["RAMAL / VICINAL","RODOVIA ESTADUAL"].includes(tipo)) {
     wrap.style.display = "block";
     if (lbl) lbl.textContent = tipo === "RAMAL / VICINAL"
       ? "🔍 Buscar Ramal na base SEINFRA/AM"
       : "🔍 Buscar Rodovia Estadual AM";
-    // Pre-carrega dados em background
-    loadRoadData(tipo);
+
+    // Filtro de município: somente para RAMAL
+    if (muniWrap) muniWrap.style.display = tipo === "RAMAL / VICINAL" ? "block" : "none";
+
+    // Pre-carrega dados em background e popula municípios se RAMAL
+    loadRoadData(tipo).then(items => {
+      if (tipo === "RAMAL / VICINAL") populateMunicipioSelect(items);
+    });
   } else {
     wrap.style.display = "none";
+    if (muniWrap) muniWrap.style.display = "none";
     clearRoadSelection();
   }
   // fecha dropdown ao mudar tipo
@@ -3489,24 +3575,41 @@ document.addEventListener("click", e => {
 // MAPA LEAFLET
 // ═══════════════════════════════════════════════════════════════════
 let _mapaIniciado = false;
+let _lastHighlightedRoad = null; // evita re-fetch desnecessário
 
 function initMapa() {
-  if (_mapaIniciado || !document.getElementById("mapa-rodovia")) return;
-  _mapaIniciado = true;
+  if (!document.getElementById("mapa-rodovia")) return;
 
-  _leafletMap = L.map("mapa-rodovia", { zoomControl: true }).setView([-3.5, -62], 6);
+  if (!_mapaIniciado) {
+    _mapaIniciado = true;
+    _leafletMap = L.map("mapa-rodovia", { zoomControl: true }).setView([-3.5, -62], 6);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
+      maxZoom: 18,
+    }).addTo(_leafletMap);
+  }
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
-    maxZoom: 18,
-  }).addTo(_leafletMap);
+  // Sempre sincroniza com a seleção atual ao entrar no tab
+  syncMapWithSelection();
+}
 
-  // Só carrega traçado se já houver rodovia selecionada
-  if (_selectedRoad) highlightRoadOnMap(_selectedRoad);
+// Garante que o traçado correto é exibido sempre que o tab memorial abre
+function syncMapWithSelection() {
+  if (!_leafletMap || !_selectedRoad) return;
+  // Só recarrega se a seleção mudou desde o último highlight
+  const key = (_selectedRoad.tipo || "") + "|" + (_selectedRoad.nome || "") + "|" + (_selectedRoad.codigo || "");
+  if (_lastHighlightedRoad === key) {
+    // Já está exibido — apenas invalida o tamanho do tile (resolve glitch de tiles em branco)
+    setTimeout(() => _leafletMap.invalidateSize(), 120);
+    return;
+  }
+  _lastHighlightedRoad = key;
+  highlightRoadOnMap(_selectedRoad);
 }
 
 function selectRoadFromMap(road, tipo) {
   _selectedRoad = { ...road, tipo };
+  _lastHighlightedRoad = null;
   // Preenche os campos
   if (road.nome) document.getElementById("road-search-input").value = road.nome;
   const info = document.getElementById("road-selected-info");
@@ -3635,20 +3738,24 @@ function addMapaLegenda(tipo, cor, label) {
 
 function recarregarMapa() {
   _geojsonCache = {};
+  _lastHighlightedRoad = null;
   const el = document.getElementById("mapa-legenda");
   if (el) el.innerHTML = "";
   if (_layerSelected && _leafletMap) { _leafletMap.removeLayer(_layerSelected); _layerSelected = null; }
   if (_selectedRoad) highlightRoadOnMap(_selectedRoad);
 }
 
-// ── Inicializa mapa ao entrar na aba memorial ──────────────────────
-// Patch no switchTab existente
-const _origSwitchTab = window.switchTab;
-// We already have a tab switch handler; let's hook into it
+// ── Inicializa/sincroniza mapa ao entrar na aba memorial ───────────
 document.querySelectorAll(".tab-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     if (btn.dataset.tab === "memorial") {
-      setTimeout(initMapa, 100);
+      // Pequeno delay para garantir que o panel já está visível (display != none)
+      // antes de o Leaflet calcular as dimensões
+      setTimeout(() => {
+        initMapa();
+        // invalidateSize resolve tiles em branco quando o tab estava oculto
+        if (_leafletMap) _leafletMap.invalidateSize();
+      }, 150);
     }
   });
 });
