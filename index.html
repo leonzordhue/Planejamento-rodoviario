@@ -385,15 +385,15 @@
       padding: 0.6rem 1.2rem; display: flex; align-items: center; gap: 0.6rem;
       font-size: 0.75rem; font-weight: 800; color: var(--azul); text-transform: uppercase; letter-spacing: 0.08em;
     }
-    .print-section-body { padding: 1.2rem; }
+    .print-section-body { padding: 1.2rem; overflow-x: auto; }
 
     /* Tabelas no preview */
     .ptable { width:100%; border-collapse:collapse; font-size:0.72rem; font-family:var(--font); }
     .ptable thead tr { background: var(--azul); }
-    .ptable thead th { padding:0.5rem 0.6rem; color:rgba(255,255,255,0.9); font-size:0.6rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; text-align:left; white-space:normal; word-break:break-word; }
+    .ptable thead th { padding:0.5rem 0.6rem; color:rgba(255,255,255,0.9); font-size:0.6rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; text-align:left; white-space:nowrap; }
     .ptable thead th.r { text-align:right; }
     .ptable tbody tr:nth-child(even) { background: var(--cinza-bg); }
-    .ptable tbody td { padding:0.45rem 0.6rem; border-bottom:1px solid #eee; color:var(--cinza-txt); white-space:normal; word-break:break-word; }
+    .ptable tbody td { padding:0.45rem 0.6rem; border-bottom:1px solid #eee; color:var(--cinza-txt); white-space:nowrap; }
     .ptable tbody td.r { text-align:right; font-variant-numeric:tabular-nums; }
     .ptable tfoot tr { background: var(--azul); }
     .ptable tfoot td { padding:0.5rem 0.6rem; color:white; font-weight:700; font-size:0.7rem; }
@@ -518,7 +518,7 @@
       .ptable tfoot td { color: white !important; }
       .ptable tbody tr:nth-child(even) { background: #F5F7FB !important; }
       .ptable { font-size: 0.6rem !important; }
-      .ptable thead th, .ptable tbody td, .ptable tfoot td { padding: 0.3rem 0.38rem !important; white-space: normal !important; word-break: break-word !important; }
+      .ptable thead th, .ptable tbody td, .ptable tfoot td { padding: 0.3rem 0.38rem !important; white-space: nowrap !important; }
 
       /* KPIs */
       .print-kpi { background: #F5F7FB !important; }
@@ -2936,6 +2936,7 @@ function _ganttFallbackTabela(doc, chk, addPage, titulo, didDrawPageFn, y, ML, M
 }
 
 function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM,pg,moTotal,pico,dataIni,maxDia,dataFim,durMes,nomeObra,PW,PH,FTR,HDR) {
+  const Y0 = HDR + 8; // topo de conteúdo — recalculado a partir de HDR
   /* ── HISTOGRAMAS ── */
   if (chk("histogramas")) {
     addPage();
@@ -3043,24 +3044,47 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
     linha("Motoniv. (pico)",     String(pico.moto||0));
   }
 
-  /* ── MAPA DE LOCALIZAÇÃO ── */
-  if (chk("memorial")) {
-    // Tentar capturar o mapa como imagem (se disponível e visível)
+
+  /* ── LOCALIZAÇÃO DA OBRA ── */
+  if (chk("memorial") && typeof _selectedRoad !== "undefined" && _selectedRoad) {
+    addPage();
+    titulo("7. LOCALIZACAO DA OBRA");
+    linha("Rodovia / Ramal", _selectedRoad.nome || getV("obra-rodovia")||"—", true);
+    linha("Municipio",       _selectedRoad.municipio || getV("obra-local")||"—");
+    linha("Codigo",          _selectedRoad.codigo || "—");
+    linha("Extensao da obra",getV("obra-extensao")+" km"); y += 3;
+    // Tenta capturar o SVG do traçado (overlay Leaflet) — síncrono
     try {
       const mapaEl = document.getElementById("mapa-rodovia");
-      if (mapaEl && _leafletMap) {
-        // Usar leaflet-image se disponível, ou canvas do leaflet
-        const mapaCanvas = mapaEl.querySelector("canvas");
-        if (mapaCanvas) {
-          const mapaImg = mapaCanvas.toDataURL("image/png");
-          const mh = 80;
-          if (y + mh + 10 > YM) addPage();
-          titulo("7. LOCALIZAÇÃO — MAPA");
-          doc.addImage(mapaImg, "PNG", ML, y, CW, mh);
-          y += mh + 8;
+      if (mapaEl && typeof _leafletMap !== "undefined" && _leafletMap) {
+        const svgEl = mapaEl.querySelector(".leaflet-overlay-pane svg");
+        if (svgEl) {
+          const svgClone = svgEl.cloneNode(true);
+          svgClone.setAttribute("xmlns","http://www.w3.org/2000/svg");
+          // Garante viewBox
+          if (!svgClone.getAttribute("viewBox")) {
+            const r = svgEl.getBoundingClientRect();
+            svgClone.setAttribute("viewBox",`0 0 ${r.width||800} ${r.height||400}`);
+          }
+          const svgData = new XMLSerializer().serializeToString(svgClone);
+          const ih = 68;
+          if (y + ih > YM) addPage();
+          try {
+            doc.addSvgAsImage(svgData, ML, y, CW, ih);
+            y += ih + 5;
+          } catch(eSvg) {
+            // Fallback: só text
+            doc.setFontSize(8); doc.setTextColor(100);
+            doc.setFont("helvetica","normal");
+            doc.text("Traçado disponivel na plataforma digital.", ML, y);
+            y += 6;
+          }
         }
       }
-    } catch(eMap) { console.warn("Captura de mapa PDF:", eMap); }
+    } catch(eMap) { console.warn("Mapa PDF:", eMap); }
+    doc.setFontSize(7); doc.setTextColor(150); doc.setFont("helvetica","normal");
+    doc.text("Mapa interativo disponivel na plataforma digital · © OpenStreetMap contributors", ML, y);
+    y += 6;
   }
 
   /* ── SALVAR ── */
@@ -3122,7 +3146,7 @@ function gerarPreviewImpressao() {
           </div>
         </div>
       </div>
-      <div class="print-section-title">📋 Identificação e Parâmetros da Obra</div>
+      <div class="print-section-title">1. 📋 Identificação e Parâmetros da Obra</div>
       <div class="print-section-body">
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1rem;">
           ${[
@@ -3168,7 +3192,7 @@ function gerarPreviewImpressao() {
     const pico = calcPicoRecursos();
 
     html += mkPg(`
-      <div class="print-section-title">📊 EAP — Estrutura Analítica do Projeto</div>
+      <div class="print-section-title">3. 📊 EAP — Estrutura Analítica do Projeto</div>
       <div class="print-section-body">
         <div class="print-kpis">
           ${[
@@ -3282,7 +3306,7 @@ function gerarPreviewImpressao() {
 
     const maxDia = GANTT_DATA.reduce((m,a)=>Math.max(m,a.termino),0);
     html += mkPg(`
-      <div class="print-section-title">📅 Cronograma Físico — Gráfico de Gantt</div>
+      <div class="print-section-title">4. 📅 Cronograma Físico — Gráfico de Gantt</div>
       <div class="print-section-body">
         <div style="display:flex;gap:2rem;margin-bottom:0.8rem;font-size:0.75rem;">
           <span>Duração total: <strong style="color:var(--azul)">${maxDia} dias (${Math.ceil(maxDia/30)} meses)</strong></span>
@@ -3315,29 +3339,53 @@ function gerarPreviewImpressao() {
 
   // ── PÁGINA 4: HISTOGRAMAS ──
   if (checks.histogramas) {
-    // Captura imagens dos canvas Chart.js
-    const canvasMO  = document.getElementById("chart-mo");
-    const canvasEQP = document.getElementById("chart-eqp");
-    let imgMO = "", imgEQP = "";
-    try { imgMO  = canvasMO?.toDataURL("image/png")  || ""; } catch(e){}
-    try { imgEQP = canvasEQP?.toDataURL("image/png") || ""; } catch(e){}
+    const _pEQP_prev = ["escavadeira","rolo","caminhao","moto"];
+    const _pMO_prev  = HIST_DATA.length ? Object.keys(HIST_DATA[0]).filter(k=>k!=="mes"&&!_pEQP_prev.includes(k)) : ["servente","pedreiro","operador","carpinteiro"];
+    const _lblMO_prev = {servente:"Serventes",pedreiro:"Pedreiros",operador:"Operadores",carpinteiro:"Carpinteiros"};
 
-    const _pEQP = ["escavadeira","rolo","caminhao","moto"];
-    const _pMO  = HIST_DATA.length ? Object.keys(HIST_DATA[0]).filter(k=>k!=="mes"&&!_pEQP.includes(k)) : ["servente","pedreiro","operador","carpinteiro"];
-    const hasMO  = HIST_DATA.some(d => _pMO.reduce( (s,k)=>s+(d[k]||0),0) > 0);
-    const hasEQP = HIST_DATA.some(d => _pEQP.reduce((s,k)=>s+(d[k]||0),0) > 0);
+    // Gera mini gráfico SVG de barras inline a partir dos dados HIST_DATA
+    const _miniBarChart = (keys, colors, label, bgColor) => {
+      if (!HIST_DATA.length) return `<div style="padding:1rem;color:var(--cinza-aux);font-size:0.8rem">Sem dados.</div>`;
+      const rows = HIST_DATA.filter(m => keys.reduce((s,k)=>s+(m[k]||0),0) > 0);
+      if (!rows.length) return `<div style="padding:1rem;color:var(--cinza-aux);font-size:0.8rem">Sem dados no período.</div>`;
+      const maxVal = Math.max(...rows.map(m => keys.reduce((s,k)=>s+(m[k]||0),0)), 1);
+      const W = 400, H = 140, PL = 30, PR = 10, PT = 10, PB = 30;
+      const bW = Math.max(4, Math.floor((W-PL-PR) / rows.length) - 2);
+      const bX = i => PL + i * ((W-PL-PR)/rows.length) + ((W-PL-PR)/rows.length - bW)/2;
+      const barH = v => Math.max(1, Math.round(v/maxVal*(H-PT-PB)));
+      const barY = v => PT + (H-PT-PB) - barH(v);
+      let bars = "";
+      rows.forEach((m,i) => {
+        let cumH = 0;
+        keys.forEach((k,ki) => {
+          const v = m[k]||0;
+          if (!v) return;
+          const h = barH(v);
+          const y = barY(keys.reduce((s,k2,ki2)=>ki2<=ki?s+(m[k2]||0):s,0)) + cumH - h + barH(keys.reduce((s,k2,ki2)=>ki2<=ki?s+(m[k2]||0):s,0));
+          bars += `<rect x="${bX(i)}" y="${barY(keys.reduce((s,k2,ki2)=>ki2<=ki?s+(m[k2]||0):s,0))}" width="${bW}" height="${barH(keys.reduce((s,k2,ki2)=>ki2<=ki?s+(m[k2]||0):s,0))}" fill="${colors[ki]}" opacity="0.85"/>`;
+        });
+        // label mês
+        const mes = m.mes.length > 3 ? m.mes.substring(0,3) : m.mes;
+        bars += `<text x="${bX(i)+bW/2}" y="${H-4}" text-anchor="middle" font-size="9" fill="#666">${mes}</text>`;
+      });
+      // Eixo Y max label
+      bars += `<text x="${PL-2}" y="${PT+4}" text-anchor="end" font-size="9" fill="#999">${maxVal}</text>`;
+      bars += `<line x1="${PL}" y1="${PT}" x2="${PL}" y2="${H-PB}" stroke="#ddd" stroke-width="1"/>`;
+      bars += `<line x1="${PL}" y1="${H-PB}" x2="${W-PR}" y2="${H-PB}" stroke="#ddd" stroke-width="1"/>`;
+      return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;display:block" xmlns="http://www.w3.org/2000/svg">${bars}</svg>`;
+    };
 
     html += mkPg(`
-      <div class="print-section-title">📈 Histogramas — Distribuição Mensal de Recursos</div>
+      <div class="print-section-title">5. 📈 Histogramas — Distribuição Mensal de Recursos</div>
       <div class="print-section-body">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.2rem">
           <div style="background:var(--cinza-bg);border-radius:8px;padding:1rem">
-            <div style="font-size:0.7rem;font-weight:700;color:var(--azul);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.7rem">Histograma de Mão de Obra</div>
-            ${imgMO ? `<img src="${imgMO}" style="width:100%;border-radius:4px" alt="Histograma MO"/>` : "<p style='color:var(--cinza-aux);font-size:0.8rem'>Acesse a aba Histogramas antes de imprimir.</p>"}
+            <div style="font-size:0.7rem;font-weight:700;color:#0277BD;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.5rem">Mão de Obra (pessoas/mês)</div>
+            ${_miniBarChart(_pMO_prev,["#1565C0","#0288D1","#0097A7","#80DEEA"],"MO","#E3F2FD")}
           </div>
           <div style="background:var(--cinza-bg);border-radius:8px;padding:1rem">
-            <div style="font-size:0.7rem;font-weight:700;color:var(--azul);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.7rem">Histograma de Equipamentos</div>
-            ${imgEQP ? `<img src="${imgEQP}" style="width:100%;border-radius:4px" alt="Histograma EQP"/>` : "<p style='color:var(--cinza-aux);font-size:0.8rem'>Acesse a aba Histogramas antes de imprimir.</p>"}
+            <div style="font-size:0.7rem;font-weight:700;color:#2E7D32;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.5rem">Equipamentos (unidades/mês)</div>
+            ${_miniBarChart(_pEQP_prev,["#2E7D32","#558B2F","#9E9D24","#F9A825"],"EQP","#E8F5E9")}
           </div>
         </div>
         <table class="ptable">
@@ -3394,7 +3442,7 @@ function gerarPreviewImpressao() {
       </div>`;
 
     html += mkPg(`
-      <div class="print-section-title">📄 Memorial de Execução</div>
+      <div class="print-section-title">6. 📄 Memorial de Execução</div>
       <div class="print-section-body">
         <div class="print-memorial-grid">
           ${mCard("👷 Responsabilidade Técnica",[
@@ -3451,6 +3499,59 @@ function gerarPreviewImpressao() {
             <div>Responsável: ${getV("obra-responsavel")||"—"} · ${getV("obra-crea")||"—"}</div>
           </div>
         </div>
+      </div>
+    `);
+  }
+
+  // ── PÁGINA: LOCALIZAÇÃO DA OBRA ──
+  if (checks.memorial && _selectedRoad) {
+    const _buildMapSVG = () => {
+      // Tenta capturar o SVG do traçado do mapa (overlay Leaflet)
+      try {
+        const mapaEl = document.getElementById("mapa-rodovia");
+        if (!mapaEl) return null;
+        const svgEl = mapaEl.querySelector(".leaflet-overlay-pane svg");
+        if (!svgEl) return null;
+        const svgClone = svgEl.cloneNode(true);
+        // Ajusta viewBox para o bounding box real
+        const mapaRect = mapaEl.getBoundingClientRect();
+        const svgRect  = svgEl.getBoundingClientRect();
+        const svgData = new XMLSerializer().serializeToString(svgClone);
+        const b64 = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgData)));
+        const relW = svgRect.width || mapaRect.width;
+        const relH = svgRect.height || mapaRect.height;
+        return `<img src="${b64}" style="width:100%;max-height:260px;object-fit:contain;background:#e8ecf4;border-radius:8px" alt="Traçado"/>`;
+      } catch(e) { return null; }
+    };
+    const mapSVGHtml = _buildMapSVG();
+    html += mkPg(`
+      <div class="print-section-title">7. 📍 Localização da Obra — Traçado</div>
+      <div class="print-section-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+          <div>
+            <div style="font-size:0.6rem;font-weight:700;color:var(--cinza-aux);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.2rem">Rodovia / Ramal</div>
+            <div style="font-size:0.9rem;font-weight:700;color:var(--azul)">${_selectedRoad.nome||getV("obra-rodovia")||"—"}</div>
+          </div>
+          <div>
+            <div style="font-size:0.6rem;font-weight:700;color:var(--cinza-aux);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.2rem">Município</div>
+            <div style="font-size:0.9rem;font-weight:700;color:var(--azul)">${_selectedRoad.municipio||getV("obra-local")||"—"}</div>
+          </div>
+          <div>
+            <div style="font-size:0.6rem;font-weight:700;color:var(--cinza-aux);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.2rem">Código</div>
+            <div style="font-size:0.85rem;font-weight:600;color:var(--cinza-txt)">${_selectedRoad.codigo||"—"}</div>
+          </div>
+          <div>
+            <div style="font-size:0.6rem;font-weight:700;color:var(--cinza-aux);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.2rem">Extensão Intervenção</div>
+            <div style="font-size:0.85rem;font-weight:600;color:var(--cinza-txt)">${getV("obra-extensao")||"—"} km</div>
+          </div>
+        </div>
+        <div style="border-radius:8px;overflow:hidden;border:1px solid var(--borda);background:#e8ecf4;min-height:220px;display:flex;align-items:center;justify-content:center">
+          ${mapSVGHtml || `<div style="padding:2rem;text-align:center;color:var(--cinza-aux)">
+            <div style="font-size:2rem;margin-bottom:0.5rem">🗺️</div>
+            <div style="font-size:0.8rem">Traçado disponível na plataforma digital.<br>Acesse a aba Memorial para visualizar o mapa.</div>
+          </div>`}
+        </div>
+        <div style="font-size:0.65rem;color:var(--cinza-aux);margin-top:0.5rem">© OpenStreetMap contributors · Dados: SEINFRA/AM</div>
       </div>
     `);
   }
