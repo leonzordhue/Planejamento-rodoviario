@@ -2701,8 +2701,8 @@ function _gerarPDFCompleto() {
 
   /* ── Utilitários ── */
   const timbrado = () => {
-    doc.addImage("data:image/png;base64,"+_TIMBRADO_HDR,"PNG",0,0,PW,HDR);
-    doc.addImage("data:image/png;base64,"+_TIMBRADO_FTR,"PNG",0,PH-FTR,PW,FTR);
+    doc.addImage("data:image/png;base64,"+_TIMBRADO_HDR,"PNG",0,0,PW,HDR,"_hdr","FAST");
+    doc.addImage("data:image/png;base64,"+_TIMBRADO_FTR,"PNG",0,PH-FTR,PW,FTR,"_ftr","FAST");
     doc.setFontSize(7); doc.setTextColor(150);
     doc.setFont("helvetica","normal");
     doc.text("Plataforma de Planejamento de Obras · DMOB/SEINFRA",ML,PH-FTR+3.5);
@@ -2734,8 +2734,8 @@ function _gerarPDFCompleto() {
   };
   const didDrawPageFn = () => {
     pg++;
-    doc.addImage("data:image/png;base64,"+_TIMBRADO_HDR,"PNG",0,0,PW,HDR);
-    doc.addImage("data:image/png;base64,"+_TIMBRADO_FTR,"PNG",0,PH-FTR,PW,FTR);
+    doc.addImage("data:image/png;base64,"+_TIMBRADO_HDR,"PNG",0,0,PW,HDR,"_hdr","FAST");
+    doc.addImage("data:image/png;base64,"+_TIMBRADO_FTR,"PNG",0,PH-FTR,PW,FTR,"_ftr","FAST");
     doc.setFontSize(7); doc.setTextColor(150); doc.setFont("helvetica","normal");
     doc.text("Plataforma de Planejamento de Obras · DMOB/SEINFRA",ML,PH-FTR+3.5);
     doc.text("Página "+pg,PW-MR,PH-FTR+3.5,{align:"right"});
@@ -2797,8 +2797,9 @@ function _gerarPDFCompleto() {
   kpi("OPERADORES (pico)",   String(pico.operador||0),"pessoas",ML+3*(kw+3),kw);
   y += 18;
 
-  /* ── IDENTIFICAÇÃO ── */
+  /* ── IDENTIFICAÇÃO ── (nova página após capa) */
   if (chk("identificacao")) {
+    addPage();
     titulo("1. IDENTIFICAÇÃO DA OBRA");
     linha("Nome da Obra",        getV("obra-nome"), true);
     linha("Nº Orçamento",        getV("obra-orcamento"));
@@ -2807,15 +2808,16 @@ function _gerarPDFCompleto() {
     linha("Rodovia / KM Ref.",   getV("obra-rodovia"));
     linha("Extensão Total",      getV("obra-extensao")+" km");
     linha("KM do Canteiro",      parseFloat(getV("obra-canteiro"))>0?"KM "+getV("obra-canteiro"):"KM 0");
-    linha("Início / Término",    (dataIni?new Date(dataIni+"T00:00:00").toLocaleDateString("pt-BR"):"—")+" → "+dataFim);
+    linha("Início / Término",    (dataIni?new Date(dataIni+"T00:00:00").toLocaleDateString("pt-BR"):"—")+" a "+dataFim);
     linha("Jornada",             getV("obra-jornada")+"h/dia");
     linha("Frentes / Defasagem", getV("obra-frentes")+" frentes / "+getV("obra-defasagem")+" dias");
     y += 3;
+    addPage();
     titulo("2. RESPONSABILIDADE TÉCNICA");
-    linha("Responsável Técnico", getV("obra-responsavel"), true);
-    linha("CREA-AM",             getV("obra-crea"));
-    linha("Cargo / Função",      getV("obra-cargo"));
-    linha("E-mail",              getV("obra-email"));
+    linha("Responsável Técnico", getV("obra-responsavel")||"—", true);
+    linha("CREA-AM",             getV("obra-crea")||"—");
+    linha("Cargo / Função",      getV("obra-cargo")||"—");
+    linha("E-mail",              getV("obra-email")||"—");
     y += 3;
   }
 
@@ -2847,110 +2849,72 @@ function _gerarPDFCompleto() {
     y = doc.lastAutoTable.finalY + 8;
   }
 
-  /* ── GANTT tabela ── */
+  /* ── GANTT tabela ── síncrono, legível, leve */
   if (chk("gantt") && GANTT_DATA.length) {
     addPage();
     titulo("4. CRONOGRAMA FÍSICO");
 
-    /* Renderiza SVG do Gantt em canvas com escala 2× (alta resolução p/ PDF) */
-    // Tentar forçar render do Gantt se SVG ainda não existe
-    let svgEl = document.getElementById("gantt-svg");
-    if (!svgEl || !svgEl.getAttribute("width")) {
-      const tabGantt = document.getElementById("tab-gantt");
-      const wasHidden2 = tabGantt && tabGantt.style.display === "none";
-      if (wasHidden2) tabGantt.style.display = "block";
-      try { renderGantt(); } catch(eg) { console.warn("renderGantt pre-PDF2:", eg); }
-      if (wasHidden2) tabGantt.style.display = "none";
-      svgEl = document.getElementById("gantt-svg");
-    }
-    if (svgEl && svgEl.getAttribute("width")) {
-      let _pdfCallbackFired = false;
-      const _continuar = () => {
-        if (_pdfCallbackFired) return;
-        _pdfCallbackFired = true;
-        _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM,pg,moTotal,pico,dataIni,maxDia,dataFim,durMes,nomeObra,PW,PH,FTR,HDR);
-      };
-      try {
-        const svgW  = parseInt(svgEl.getAttribute("width"))  || 1800;
-        const svgH  = parseInt(svgEl.getAttribute("height")) || 500;
-        const SCALE = 2;
-        const canv  = document.createElement("canvas");
-        canv.width  = svgW * SCALE;
-        canv.height = svgH * SCALE;
-        const ctx   = canv.getContext("2d");
-        ctx.scale(SCALE, SCALE);
-        /* Clona SVG e substitui fontes externas (Outfit, etc.) por helvetica
-           para garantir renderização correta no canvas */
-        const svgClone = svgEl.cloneNode(true);
-        svgClone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    const _corRGB = (etapa) => {
+      const u = (etapa||"").toUpperCase();
+      if (u.includes("CANTEIRO")) return [0,45,114];
+      if (u.includes("LIMPEZA"))  return [46,125,50];
+      if (u.includes("TERRAPLAN")) return [232,160,69];
+      if (u.includes("DRENAGEM")) return [2,119,189];
+      if (u.includes("PAVIMENT")) return [198,40,40];
+      if (u.includes("SINALIZ"))  return [249,168,37];
+      if (u.includes("SUB-BASE") || u.includes("BASE")) return [106,27,154];
+      if (u.includes("MEIO-FIO") || u.includes("SARJETA")) return [0,131,143];
+      if (u.includes("ROÇADA") || u.includes("ROCADA")) return [85,139,47];
+      if (u.includes("RECUPER"))  return [21,101,192];
+      if (u.includes("RECOMP"))   return [191,54,12];
+      return [96,125,139];
+    };
 
-        // Substitui font-family no atributo style inline do SVG raiz
-        const rootStyle = svgClone.getAttribute("style") || "";
-        svgClone.setAttribute("style",
-          rootStyle.replace(/font-family\s*:[^;"}]*/gi, "font-family:helvetica,sans-serif")
-        );
+    const ganttAtivs = GANTT_DATA.filter(a => !a.isHeader);
+    const maxDiaG    = ganttAtivs.reduce((m,a) => Math.max(m,a.termino), 0);
+    const dataIniG   = getV("obra-inicio");
 
-        // Remove qualquer <style> com @import de fontes externas
-        svgClone.querySelectorAll("style").forEach(s => {
-          s.textContent = s.textContent
-            .replace(/@import[^;]+;/g, "")
-            .replace(/font-family\s*:[^;"}]+/gi, "font-family:helvetica,sans-serif");
-        });
+    // Resumo no topo
+    doc.setFontSize(8.5); doc.setTextColor(60); doc.setFont("helvetica","normal");
+    doc.text(
+      `Duracao total: ${maxDiaG} dias  |  Extensao: ${getV("obra-extensao")} km  |  ${ganttAtivs.length} atividades`,
+      ML, y
+    );
+    y += 7;
 
-        // Substitui font-family em atributos style inline de qualquer elemento filho
-        svgClone.querySelectorAll("*").forEach(el => {
-          const st = el.getAttribute("style");
-          if (st && /font-family/i.test(st)) {
-            el.setAttribute("style",
-              st.replace(/font-family\s*:[^;"}]*/gi, "font-family:helvetica,sans-serif")
-            );
+    doc.autoTable({
+      head: [["KM", "Atividade / Etapa", "Inicio", "Dur.", "Termino"]],
+      body: ganttAtivs.map(a => [
+        a.km || "—",
+        a.atividade || "—",
+        "Dia " + a.inicio,
+        a.duracao + "d",
+        "Dia " + a.termino
+      ]),
+      startY: y,
+      margin: {left:ML, right:MR, top:Y0, bottom:PH-YM},
+      styles: {fontSize:7.5, cellPadding:2, overflow:"linebreak"},
+      headStyles: {fillColor:[0,45,114], textColor:255, fontStyle:"bold", fontSize:8},
+      columnStyles: {
+        0: {cellWidth:14, halign:"center"},
+        1: {cellWidth:64},
+        2: {cellWidth:22, halign:"center"},
+        3: {cellWidth:14, halign:"center"},
+        4: {cellWidth:22, halign:"center"}
+      },
+      willDrawCell: function(data) {
+        if (data.section === "body" && data.column.index === 0) {
+          const act = ganttAtivs[data.row.index];
+          if (act) {
+            const c = _corRGB(act.etapa);
+            doc.setFillColor(c[0], c[1], c[2]);
+            doc.rect(data.cell.x, data.cell.y, 3, data.cell.height, "F");
           }
-          // Também trata atributo font-family explícito
-          if (el.hasAttribute("font-family")) {
-            el.setAttribute("font-family", "helvetica, sans-serif");
-          }
-        });
-
-        const svgStr = new XMLSerializer().serializeToString(svgClone);
-        const blob = new Blob([svgStr], {type:"image/svg+xml;charset=utf-8"});
-        const url  = URL.createObjectURL(blob);
-        const img  = new Image();
-        img.onload = () => {
-          try {
-            ctx.drawImage(img, 0, 0, svgW, svgH);
-            URL.revokeObjectURL(url);
-            const rawH = (svgH / svgW) * CW;
-            const ph   = Math.max(rawH, 60);
-            if (y + ph > YM) { addPage(); titulo("4. CRONOGRAMA FÍSICO (cont.)"); }
-            doc.addImage(canv.toDataURL("image/png"), "PNG", ML, y, CW, Math.min(ph, YM-y));
-            y += Math.min(ph, YM-y) + 5;
-          } catch(ex) {
-            console.warn("Gantt canvas→PDF falhou, usando tabela:", ex);
-            URL.revokeObjectURL(url);
-            _ganttFallbackTabela(doc, chk, addPage, titulo, didDrawPageFn, y, ML, MR, YM);
-            y = doc.lastAutoTable.finalY + 8;
-          }
-          _continuar();
-        };
-        img.onerror = (e) => {
-          console.warn("Gantt SVG→Image falhou, usando tabela:", e);
-          URL.revokeObjectURL(url);
-          _ganttFallbackTabela(doc, chk, addPage, titulo, didDrawPageFn, y, ML, MR, YM);
-          y = doc.lastAutoTable.finalY + 8;
-          _continuar();
-        };
-        /* Segurança: se após 8s o callback não disparar, continua mesmo assim */
-        setTimeout(() => { if (!_pdfCallbackFired) { URL.revokeObjectURL(url); _continuar(); } }, 8000);
-        img.src = url;
-        return; // continua nos callbacks acima
-      } catch(e) {
-        console.warn("Gantt serialização falhou:", e);
-        /* cai no fallback inline abaixo */
-      }
-    }
-
-    /* Fallback imediato: tabela simples do cronograma */
-    _ganttFallbackTabela(doc, chk, addPage, titulo, didDrawPageFn, y, ML, MR, YM);
+        }
+      },
+      alternateRowStyles: {fillColor:[245,247,252]},
+      didDrawPage: didDrawPageFn
+    });
     y = doc.lastAutoTable.finalY + 8;
   }
 
@@ -2974,27 +2938,76 @@ function _ganttFallbackTabela(doc, chk, addPage, titulo, didDrawPageFn, y, ML, M
 function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM,pg,moTotal,pico,dataIni,maxDia,dataFim,durMes,nomeObra,PW,PH,FTR,HDR) {
   /* ── HISTOGRAMAS ── */
   if (chk("histogramas")) {
-    // Garantir que os histogramas estejam renderizados antes de capturar
-    if (HIST_DATA.length > 0) {
-      const tabHist = document.getElementById("tab-histogramas");
-      const wasHidden = tabHist && tabHist.style.display === "none";
-      if (wasHidden) tabHist.style.display = "block";
-      try { renderHistogramas(); } catch(e2) { console.warn("renderHistogramas pré-PDF:", e2); }
-      if (wasHidden) tabHist.style.display = "none";
-    }
     addPage();
-    titulo("5. HISTOGRAMAS — DISTRIBUIÇÃO MENSAL");
-    for (const [id,lbl] of [["chart-mo","Mão de Obra (pessoas/mês)"],["chart-eqp","Equipamentos (un/mês)"]]) {
-      const c = document.getElementById(id);
-      if (!c) continue;
-      try {
-        const imgD = c.toDataURL("image/png");
-        const ih   = 60;
-        if (y+ih+6 > YM) addPage();
-        doc.setFontSize(8); doc.setTextColor(0,45,114); doc.setFont("helvetica","bold");
-        doc.text(lbl, ML, y); doc.setFont("helvetica","normal"); y += 4;
-        doc.addImage(imgD,"PNG",ML,y,CW,ih); y += ih+8;
-      } catch(e) { console.warn("Histograma PDF erro:", e); }
+    titulo("5. HISTOGRAMAS — DISTRIBUICAO MENSAL DE RECURSOS");
+
+    const _RKEYS_EQP = ["escavadeira","rolo","caminhao","moto"];
+    const _LBLS_EQP  = ["Escavadeiras","Rolos","Caminhoes","Motoniv."];
+    const _LBLS_MO   = {servente:"Serventes",pedreiro:"Pedreiros",operador:"Operadores",carpinteiro:"Carpinteiros"};
+
+    if (HIST_DATA && HIST_DATA.length > 0) {
+      const _pMO = Object.keys(HIST_DATA[0]).filter(k => k !== "mes" && !_RKEYS_EQP.includes(k));
+
+      /* ─ Tabela MO ─ */
+      const moRows = HIST_DATA
+        .filter(m => _pMO.reduce((s,k)=>s+(m[k]||0),0) > 0)
+        .map(m => [
+          m.mes,
+          ..._pMO.map(k => m[k]||0),
+          _pMO.reduce((s,k)=>s+(m[k]||0),0)
+        ]);
+
+      if (moRows.length > 0) {
+        doc.setFontSize(8.5); doc.setTextColor(2,119,189); doc.setFont("helvetica","bold");
+        doc.text("Mao de Obra — Pessoas/Mes", ML, y); y += 4;
+        doc.autoTable({
+          head: [["Mes", ..._pMO.map(k => _LBLS_MO[k]||k.charAt(0).toUpperCase()+k.slice(1)), "TOTAL MO"]],
+          body: moRows,
+          startY: y,
+          margin: {left:ML, right:MR, top:Y0, bottom:PH-YM},
+          styles: {fontSize:8, cellPadding:2, halign:"right"},
+          headStyles: {fillColor:[2,119,189], textColor:255, fontStyle:"bold"},
+          columnStyles: {0:{halign:"left", cellWidth:24}},
+          footStyles: {fillColor:[2,119,189], textColor:255, fontStyle:"bold"},
+          foot: [["PICO", ..._pMO.map(k => HIST_DATA.reduce((mx,m)=>Math.max(mx,m[k]||0),0)), ""]],
+          alternateRowStyles: {fillColor:[227,242,253]},
+          didDrawPage: didDrawPageFn
+        });
+        y = doc.lastAutoTable.finalY + 8;
+      }
+
+      /* ─ Tabela EQP ─ */
+      const eqpRows = HIST_DATA
+        .filter(m => _RKEYS_EQP.reduce((s,k)=>s+(m[k]||0),0) > 0)
+        .map(m => [
+          m.mes,
+          m.escavadeira||0, m.rolo||0, m.caminhao||0, m.moto||0,
+          _RKEYS_EQP.reduce((s,k)=>s+(m[k]||0),0)
+        ]);
+
+      if (eqpRows.length > 0) {
+        if (y + 40 > YM) addPage();
+        doc.setFontSize(8.5); doc.setTextColor(46,125,50); doc.setFont("helvetica","bold");
+        doc.text("Equipamentos — Unidades/Mes", ML, y); y += 4;
+        doc.autoTable({
+          head: [["Mes", ..._LBLS_EQP, "TOTAL EQP"]],
+          body: eqpRows,
+          startY: y,
+          margin: {left:ML, right:MR, top:Y0, bottom:PH-YM},
+          styles: {fontSize:8, cellPadding:2, halign:"right"},
+          headStyles: {fillColor:[46,125,50], textColor:255, fontStyle:"bold"},
+          columnStyles: {0:{halign:"left", cellWidth:24}},
+          footStyles: {fillColor:[46,125,50], textColor:255, fontStyle:"bold"},
+          foot: [["PICO", ..._RKEYS_EQP.map(k => HIST_DATA.reduce((mx,m)=>Math.max(mx,m[k]||0),0)), ""]],
+          alternateRowStyles: {fillColor:[232,245,233]},
+          didDrawPage: didDrawPageFn
+        });
+        y = doc.lastAutoTable.finalY + 8;
+      }
+    } else {
+      doc.setFontSize(9); doc.setTextColor(150); doc.setFont("helvetica","normal");
+      doc.text("Dados de histograma nao disponiveis. Recalcule antes de exportar.", ML, y);
+      y += 8;
     }
   }
 
