@@ -3053,32 +3053,91 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
     linha("Municipio",       _selectedRoad.municipio || getV("obra-local")||"—");
     linha("Codigo",          _selectedRoad.codigo || "—");
     linha("Extensao da obra",getV("obra-extensao")+" km"); y += 3;
-    // Tenta capturar o SVG do traçado (overlay Leaflet) — síncrono
+    // Captura do mapa: usa leaflet-image se disponível, senão captura canvas tiles + SVG overlay
     try {
       const mapaEl = document.getElementById("mapa-rodovia");
       if (mapaEl && typeof _leafletMap !== "undefined" && _leafletMap) {
+        const ih = 72;
+        if (y + ih > YM) addPage();
+        // Tenta capturar todos os canvas de tiles + o SVG overlay numa composição
+        const tileCanvases = Array.from(mapaEl.querySelectorAll(".leaflet-tile-pane canvas, .leaflet-tile-container canvas"));
         const svgEl = mapaEl.querySelector(".leaflet-overlay-pane svg");
+        const mapaRect = mapaEl.getBoundingClientRect();
+        const mapW = Math.round(mapaRect.width) || 700;
+        const mapH = Math.round(mapaRect.height) || 400;
+        // Cria canvas de composição
+        const compCanvas = document.createElement("canvas");
+        compCanvas.width = mapW; compCanvas.height = mapH;
+        const ctx2 = compCanvas.getContext("2d");
+        // Fundo cinza claro (simula mapa)
+        ctx2.fillStyle = "#e8ecf4";
+        ctx2.fillRect(0, 0, mapW, mapH);
+        // Tenta desenhar tiles
+        let tilesDrawn = 0;
+        tileCanvases.forEach(function(tc) {
+          try {
+            const tr = tc.getBoundingClientRect();
+            const ox = tr.left - mapaRect.left;
+            const oy = tr.top  - mapaRect.top;
+            ctx2.drawImage(tc, ox, oy, tr.width, tr.height);
+            tilesDrawn++;
+          } catch(et) {}
+        });
+        // Se não havia tiles canvas, tenta img tiles
+        if (tilesDrawn === 0) {
+          const tileImgs = Array.from(mapaEl.querySelectorAll(".leaflet-tile-pane img.leaflet-tile"));
+          tileImgs.forEach(function(ti) {
+            if (!ti.complete) return;
+            try {
+              const tr = ti.getBoundingClientRect();
+              const ox = tr.left - mapaRect.left;
+              const oy = tr.top  - mapaRect.top;
+              ctx2.drawImage(ti, ox, oy, tr.width, tr.height);
+              tilesDrawn++;
+            } catch(et) {}
+          });
+        }
+        // Desenha o traçado SVG por cima
         if (svgEl) {
           const svgClone = svgEl.cloneNode(true);
           svgClone.setAttribute("xmlns","http://www.w3.org/2000/svg");
-          // Garante viewBox
+          const sr = svgEl.getBoundingClientRect();
+          const sox = Math.round(sr.left - mapaRect.left);
+          const soy = Math.round(sr.top - mapaRect.top);
+          const sw = Math.round(sr.width) || mapW;
+          const sh = Math.round(sr.height) || mapH;
           if (!svgClone.getAttribute("viewBox")) {
-            const r = svgEl.getBoundingClientRect();
-            svgClone.setAttribute("viewBox",`0 0 ${r.width||800} ${r.height||400}`);
+            svgClone.setAttribute("viewBox", "0 0 " + sw + " " + sh);
           }
+          svgClone.setAttribute("width", sw);
+          svgClone.setAttribute("height", sh);
           const svgData = new XMLSerializer().serializeToString(svgClone);
-          const ih = 68;
-          if (y + ih > YM) addPage();
-          try {
-            doc.addSvgAsImage(svgData, ML, y, CW, ih);
-            y += ih + 5;
-          } catch(eSvg) {
-            // Fallback: só text
-            doc.setFontSize(8); doc.setTextColor(100);
-            doc.setFont("helvetica","normal");
-            doc.text("Traçado disponivel na plataforma digital.", ML, y);
-            y += 6;
-          }
+          const svgBlob = new Blob([svgData], {type:"image/svg+xml"});
+          const svgUrl = URL.createObjectURL(svgBlob);
+          // síncrono via Image pre-loaded tentativa
+          const svgImg = new Image();
+          svgImg.src = svgUrl;
+          // Adiciona imagem da composição ao PDF (mesmo sem SVG por cima ainda)
+          setTimeout(function() {
+            try {
+              ctx2.drawImage(svgImg, sox, soy, sw, sh);
+            } catch(e2) {}
+            URL.revokeObjectURL(svgUrl);
+          }, 0);
+        }
+        // Borda
+        ctx2.strokeStyle = "#c0c8d8";
+        ctx2.lineWidth = 1;
+        ctx2.strokeRect(0, 0, mapW, mapH);
+        // Adiciona ao PDF
+        try {
+          const imgData = compCanvas.toDataURL("image/jpeg", 0.85);
+          doc.addImage(imgData, "JPEG", ML, y, CW, ih, undefined, "FAST");
+          y += ih + 4;
+        } catch(ePdf) {
+          doc.setFontSize(8); doc.setTextColor(100);
+          doc.text("Traçado disponivel na plataforma digital.", ML, y);
+          y += 6;
         }
       }
     } catch(eMap) { console.warn("Mapa PDF:", eMap); }
@@ -3203,7 +3262,8 @@ function gerarPreviewImpressao() {
             {l:"Caminhões",v:pico.caminhao,u:"pico/KM simultâneo"},
           ].map(k=>`<div class="print-kpi"><div class="print-kpi-lbl">${k.l}</div><div class="print-kpi-val">${k.v}</div><div class="print-kpi-unit">${k.u}</div></div>`).join("")}
         </div>
-        <table class="ptable">
+        <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%">
+        <table class="ptable" style="min-width:900px">
           <thead><tr>
             <th>#</th><th>Etapa</th><th style="min-width:180px">Serviço</th>
             <th>KM</th><th>Unid</th><th class="r">Qtde</th>
@@ -3253,6 +3313,7 @@ function gerarPreviewImpressao() {
             <td class="r">${totEQP.moto}</td>
           </tr></tfoot>
         </table>
+        </div><!-- /scroll -->
         <div style="margin-top:0.8rem;display:flex;flex-wrap:wrap;gap:1rem;font-size:0.65rem;color:var(--cinza-aux);background:var(--cinza-bg);border-radius:6px;padding:0.6rem 1rem">
           <span><strong style="color:var(--azul)">DP</strong> = ROUNDUP(MO_Total / ${getV("obra-jornada")}h, 0)</span>
           <span><strong style="color:var(--azul)">DA</strong> = ROUNDUP(DP / QE, 0)</span>
@@ -3302,34 +3363,93 @@ function gerarPreviewImpressao() {
       return `<div class="print-gantt-wrap" style="width:100%;overflow-x:auto;overflow-y:hidden">${svgHtml}</div>`;
     };
 
-    let ganttContent = buildScaledGantt(srcSVG);
-
     const maxDia = GANTT_DATA.reduce((m,a)=>Math.max(m,a.termino),0);
+    const ativs = GANTT_DATA.filter(a=>!a.isHeader);
+
+    // ── Mini-Gantt SVG compacto baseado em dados ──
+    const _buildGanttSVG = () => {
+      if (!ativs.length) return "<p style='color:#aaa;padding:1rem'>Sem atividades calculadas.</p>";
+      const nRows = ativs.length;
+      const rowH = 14; const labelW = 160; const barAreaW = 560;
+      const totalH = nRows * rowH + 30;
+      const totalW = labelW + barAreaW + 10;
+      let out = "<svg viewBox='0 0 " + totalW + " " + totalH + "' style='width:100%;height:" + Math.min(totalH, 500) + "px;display:block;font-family:sans-serif' xmlns='http://www.w3.org/2000/svg'>";
+      // Header
+      out += "<rect x='0' y='0' width='" + totalW + "' height='20' fill='#002D72'/>";
+      out += "<text x='4' y='13' font-size='8' fill='white' font-weight='bold'>KM / Atividade</text>";
+      out += "<text x='" + (labelW+4) + "' y='13' font-size='8' fill='white' font-weight='bold'>Cronograma (dias)</text>";
+      // Grid lines (monthly)
+      const months = Math.ceil(maxDia/30);
+      for (let mi=0; mi<=months; mi++) {
+        const gx = labelW + (mi*30/maxDia)*barAreaW;
+        out += "<line x1='" + Math.round(gx) + "' y1='20' x2='" + Math.round(gx) + "' y2='" + totalH + "' stroke='#e0e0e0' stroke-width='0.5'/>";
+        if (mi < months) out += "<text x='" + Math.round(gx+2) + "' y='" + (totalH-2) + "' font-size='7' fill='#999'>M" + (mi+1) + "</text>";
+      }
+      // Rows
+      const etapaColors = {
+        "Limpeza":"#2E7D32","Terraplenagem":"#E8A045","Drenagem":"#0277BD",
+        "Pavimentação":"#C62828","Sinalização Viária":"#F9A825","Canteiro":"#002D72",
+        "Sub-base":"#6A1B9A","Base":"#6A1B9A","Meio-Fio":"#00838F","Recuperação":"#1565C0"
+      };
+      const getColor = (etapa) => {
+        for (const [k,v] of Object.entries(etapaColors)) {
+          if (etapa && etapa.toUpperCase().includes(k.toUpperCase())) return v;
+        }
+        return "#607D8B";
+      };
+      ativs.forEach((a, i) => {
+        const ry = 20 + i * rowH;
+        const bg = i%2===0 ? "#f8f9fb" : "#ffffff";
+        out += "<rect x='0' y='" + ry + "' width='" + totalW + "' height='" + rowH + "' fill='" + bg + "'/>";
+        // label
+        const lbl = (a.km ? "KM" + a.km + " " : "") + (a.atividade || "").substring(0, 22);
+        out += "<text x='4' y='" + (ry + rowH - 4) + "' font-size='7' fill='#333'>" + lbl + "</text>";
+        // bar
+        if (maxDia > 0) {
+          const bx = labelW + (a.inicio / maxDia) * barAreaW;
+          const bw = Math.max(2, (a.duracao / maxDia) * barAreaW);
+          const bc = getColor(a.etapa);
+          out += "<rect x='" + Math.round(bx) + "' y='" + (ry+2) + "' width='" + Math.round(bw) + "' height='" + (rowH-4) + "' rx='2' fill='" + bc + "' opacity='0.8'/>";
+        }
+      });
+      out += "</svg>";
+      return out;
+    };
+
     html += mkPg(`
       <div class="print-section-title">4. 📅 Cronograma Físico — Gráfico de Gantt</div>
       <div class="print-section-body">
-        <div style="display:flex;gap:2rem;margin-bottom:0.8rem;font-size:0.75rem;">
+        <div style="display:flex;gap:2rem;margin-bottom:0.8rem;font-size:0.75rem;flex-wrap:wrap">
           <span>Duração total: <strong style="color:var(--azul)">${maxDia} dias (${Math.ceil(maxDia/30)} meses)</strong></span>
           <span>Extensão: <strong style="color:var(--azul)">${getV("obra-extensao")} km</strong></span>
           <span>Frentes: <strong style="color:var(--azul)">${getV("obra-frentes")}</strong></span>
           <span>Defasagem: <strong style="color:var(--amarelo)">${getV("obra-defasagem")} dias/frente</strong></span>
+          <span>Atividades: <strong style="color:var(--azul)">${ativs.length}</strong></span>
         </div>
-        ${ganttContent}
-        <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:0.8rem;">
-          ${[...new Set(GANTT_DATA.map(a=>a.etapa))].map(e=>`
-            <div style="display:flex;align-items:center;gap:5px;font-size:0.68rem;color:var(--cinza-aux)">
-              <div style="width:10px;height:10px;border-radius:2px;background:${etapaCor(e)}"></div>${e}
+        <div style="width:100%;overflow:hidden;border-radius:6px;border:1px solid #e8ecf4">
+          ${_buildGanttSVG()}
+        </div>
+        <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:0.6rem;">
+          ${[...new Set(ativs.map(a=>a.etapa))].map(e=>`
+            <div style="display:flex;align-items:center;gap:4px;font-size:0.65rem;color:var(--cinza-aux)">
+              <div style="width:9px;height:9px;border-radius:2px;background:${etapaCor(e)}"></div>${e}
             </div>`).join("")}
         </div>
-        <div style="margin-top:1rem">
-          <table class="ptable">
-            <thead><tr><th>KM</th><th>Atividade</th><th class="r">Início (dia)</th><th class="r">Duração</th><th class="r">Término (dia)</th></tr></thead>
-            <tbody>${GANTT_DATA.map(a=>`<tr>
-              <td style="color:var(--cinza-aux)">${a.km}</td>
-              <td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${etapaCor(a.etapa)};margin-right:5px"></span>${a.atividade}</td>
-              <td class="r">${a.inicio}</td>
+        <div style="margin-top:0.8rem;overflow-x:auto">
+          <table class="ptable" style="font-size:0.65rem">
+            <thead><tr>
+              <th style="width:40px">KM</th>
+              <th>Atividade / Etapa</th>
+              <th class="r" style="width:60px">Início</th>
+              <th class="r" style="width:50px">Dur.</th>
+              <th class="r" style="width:60px">Término</th>
+            </tr></thead>
+            <tbody>${ativs.map(a=>`<tr>
+              <td style="color:var(--cinza-aux);text-align:center">${a.km||"—"}</td>
+              <td><span style="display:inline-block;width:7px;height:7px;border-radius:1px;background:${etapaCor(a.etapa)};margin-right:4px;vertical-align:middle"></span>${a.atividade}</td>
+              <td class="r">Dia ${a.inicio}</td>
               <td class="r" style="color:var(--amarelo);font-weight:700">${a.duracao}d</td>
-              <td class="r">${a.termino}</td>
+              <td class="r">Dia ${a.termino}</td>
             </tr>`).join("")}</tbody>
           </table>
         </div>
