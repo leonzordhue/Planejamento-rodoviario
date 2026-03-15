@@ -1157,20 +1157,20 @@ const PARAMETROS = {
 
 // Cores por etapa
 const ETAPA_CORES = {
-  "CANTEIRO":    "#002D72",
-  "LIMPEZA":     "#2E7D32",
-  "TERRAPLAN":   "#E8A045",
-  "DRENAGEM":    "#0277BD",
-  "SUB-BASE":    "#6A1B9A",
-  "BASE":        "#6A1B9A",
-  "PAVIMENT":    "#C62828",
-  "SINALIZ":     "#F9A825",
-  "MEIO-FIO":    "#00838F",
-  "SARJETA":     "#00838F",
-  "ROÇADA":      "#558B2F",
-  "RECUPER":     "#1565C0",
-  "GUARDA":      "#4527A0",
-  "RECOMP":      "#BF360C",
+  "CANTEIRO":    "#002D72",  // azul marinho
+  "LIMPEZA":     "#2E7D32",  // verde escuro
+  "TERRAPLAN":   "#5D4037",  // marrom terra — diferente do amarelo sinalização
+  "DRENAGEM":    "#0277BD",  // azul
+  "SUB-BASE":    "#6A1B9A",  // roxo
+  "BASE":        "#6A1B9A",  // roxo
+  "PAVIMENT":    "#C62828",  // vermelho
+  "SINALIZ":     "#F9A825",  // amarelo
+  "MEIO-FIO":    "#00838F",  // ciano
+  "SARJETA":     "#00838F",  // ciano
+  "ROÇADA":      "#558B2F",  // verde musgo
+  "RECUPER":     "#1565C0",  // azul médio
+  "GUARDA":      "#4527A0",  // índigo
+  "RECOMP":      "#BF360C",  // laranja escuro
 };
 
 function etapaCor(etapa) {
@@ -2858,7 +2858,7 @@ function _gerarPDFCompleto() {
       const u = (etapa||"").toUpperCase();
       if (u.includes("CANTEIRO")) return [0,45,114];
       if (u.includes("LIMPEZA"))  return [46,125,50];
-      if (u.includes("TERRAPLAN")) return [232,160,69];
+      if (u.includes("TERRAPLAN")) return [93,64,55];   // marrom terra
       if (u.includes("DRENAGEM")) return [2,119,189];
       if (u.includes("PAVIMENT")) return [198,40,40];
       if (u.includes("SINALIZ"))  return [249,168,37];
@@ -2939,8 +2939,9 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
   const Y0 = HDR + 8; // topo de conteúdo — recalculado a partir de HDR
   /* ── HISTOGRAMAS ── */
   if (chk("histogramas")) {
-    addPage();
+    addPage(); y = Y0; // CRÍTICO: resetar y local após addPage
     titulo("5. HISTOGRAMAS — DISTRIBUICAO MENSAL DE RECURSOS");
+    y = Y0 + 12; // após título
 
     const _RKEYS_EQP = ["escavadeira","rolo","caminhao","moto"];
     const _LBLS_EQP  = ["Escavadeiras","Rolos","Caminhoes","Motoniv."];
@@ -2987,7 +2988,7 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
         ]);
 
       if (eqpRows.length > 0) {
-        if (y + 40 > YM) addPage();
+        if (y + 40 > YM) { addPage(); y = Y0; }
         doc.setFontSize(8.5); doc.setTextColor(46,125,50); doc.setFont("helvetica","bold");
         doc.text("Equipamentos — Unidades/Mes", ML, y); y += 4;
         doc.autoTable({
@@ -3014,8 +3015,9 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
 
   /* ── MEMORIAL ── */
   if (chk("memorial")) {
-    addPage();
+    addPage(); y = Y0;
     titulo("6. MEMORIAL DE EXECUÇÃO");
+    y = Y0 + 12;
     linha("Responsável Técnico", getV("obra-responsavel")||"—", true);
     linha("CREA-AM",             getV("obra-crea")||"—");
     linha("Cargo / Função",      getV("obra-cargo")||"—");
@@ -3047,98 +3049,140 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
 
   /* ── LOCALIZAÇÃO DA OBRA ── */
   if (chk("memorial") && typeof _selectedRoad !== "undefined" && _selectedRoad) {
-    addPage();
+    addPage(); y = Y0;
     titulo("7. LOCALIZACAO DA OBRA");
+    y = Y0 + 12;
     linha("Rodovia / Ramal", _selectedRoad.nome || getV("obra-rodovia")||"—", true);
     linha("Municipio",       _selectedRoad.municipio || getV("obra-local")||"—");
     linha("Codigo",          _selectedRoad.codigo || "—");
     linha("Extensao da obra",getV("obra-extensao")+" km"); y += 3;
-    // Captura do mapa: usa leaflet-image se disponível, senão captura canvas tiles + SVG overlay
+    // Gera mapa vetorial a partir das coordenadas GeoJSON do traçado selecionado
+    // Esta abordagem é 100% confiável — não depende de CORS nem de canvas de tiles
     try {
-      const mapaEl = document.getElementById("mapa-rodovia");
-      if (mapaEl && typeof _leafletMap !== "undefined" && _leafletMap) {
-        const ih = 72;
-        if (y + ih > YM) addPage();
-        // Tenta capturar todos os canvas de tiles + o SVG overlay numa composição
-        const tileCanvases = Array.from(mapaEl.querySelectorAll(".leaflet-tile-pane canvas, .leaflet-tile-container canvas"));
-        const svgEl = mapaEl.querySelector(".leaflet-overlay-pane svg");
-        const mapaRect = mapaEl.getBoundingClientRect();
-        const mapW = Math.round(mapaRect.width) || 700;
-        const mapH = Math.round(mapaRect.height) || 400;
-        // Cria canvas de composição
-        const compCanvas = document.createElement("canvas");
-        compCanvas.width = mapW; compCanvas.height = mapH;
-        const ctx2 = compCanvas.getContext("2d");
-        // Fundo cinza claro (simula mapa)
-        ctx2.fillStyle = "#e8ecf4";
-        ctx2.fillRect(0, 0, mapW, mapH);
-        // Tenta desenhar tiles
-        let tilesDrawn = 0;
-        tileCanvases.forEach(function(tc) {
-          try {
-            const tr = tc.getBoundingClientRect();
-            const ox = tr.left - mapaRect.left;
-            const oy = tr.top  - mapaRect.top;
-            ctx2.drawImage(tc, ox, oy, tr.width, tr.height);
-            tilesDrawn++;
-          } catch(et) {}
-        });
-        // Se não havia tiles canvas, tenta img tiles
-        if (tilesDrawn === 0) {
-          const tileImgs = Array.from(mapaEl.querySelectorAll(".leaflet-tile-pane img.leaflet-tile"));
-          tileImgs.forEach(function(ti) {
-            if (!ti.complete) return;
-            try {
-              const tr = ti.getBoundingClientRect();
-              const ox = tr.left - mapaRect.left;
-              const oy = tr.top  - mapaRect.top;
-              ctx2.drawImage(ti, ox, oy, tr.width, tr.height);
-              tilesDrawn++;
-            } catch(et) {}
-          });
-        }
-        // Desenha o traçado SVG por cima
-        if (svgEl) {
-          const svgClone = svgEl.cloneNode(true);
-          svgClone.setAttribute("xmlns","http://www.w3.org/2000/svg");
-          const sr = svgEl.getBoundingClientRect();
-          const sox = Math.round(sr.left - mapaRect.left);
-          const soy = Math.round(sr.top - mapaRect.top);
-          const sw = Math.round(sr.width) || mapW;
-          const sh = Math.round(sr.height) || mapH;
-          if (!svgClone.getAttribute("viewBox")) {
-            svgClone.setAttribute("viewBox", "0 0 " + sw + " " + sh);
-          }
-          svgClone.setAttribute("width", sw);
-          svgClone.setAttribute("height", sh);
-          const svgData = new XMLSerializer().serializeToString(svgClone);
-          const svgBlob = new Blob([svgData], {type:"image/svg+xml"});
-          const svgUrl = URL.createObjectURL(svgBlob);
-          // síncrono via Image pre-loaded tentativa
-          const svgImg = new Image();
-          svgImg.src = svgUrl;
-          // Adiciona imagem da composição ao PDF (mesmo sem SVG por cima ainda)
-          setTimeout(function() {
-            try {
-              ctx2.drawImage(svgImg, sox, soy, sw, sh);
-            } catch(e2) {}
-            URL.revokeObjectURL(svgUrl);
-          }, 0);
-        }
-        // Borda
-        ctx2.strokeStyle = "#c0c8d8";
-        ctx2.lineWidth = 1;
-        ctx2.strokeRect(0, 0, mapW, mapH);
-        // Adiciona ao PDF
+      let coords = [];
+      // Extrai coordenadas do layer Leaflet selecionado
+      if (typeof _layerSelected !== "undefined" && _layerSelected) {
         try {
-          const imgData = compCanvas.toDataURL("image/jpeg", 0.85);
-          doc.addImage(imgData, "JPEG", ML, y, CW, ih, undefined, "FAST");
-          y += ih + 4;
-        } catch(ePdf) {
-          doc.setFontSize(8); doc.setTextColor(100);
-          doc.text("Traçado disponivel na plataforma digital.", ML, y);
-          y += 6;
+          _layerSelected.eachLayer(function(lyr) {
+            if (lyr.getLatLngs) {
+              const lls = lyr.getLatLngs();
+              // Flatten nested arrays
+              const flat = (arr) => Array.isArray(arr[0]) || (arr[0] && arr[0].lat === undefined)
+                ? arr.reduce((a,b) => a.concat(flat(b)), [])
+                : arr;
+              coords = coords.concat(flat(lls));
+            }
+          });
+        } catch(e) {
+          // se eachLayer não funciona, tenta getLatLngs direto
+          try {
+            const lls = _layerSelected.getLatLngs ? _layerSelected.getLatLngs() : [];
+            const flat = (arr) => Array.isArray(arr[0]) || (arr[0] && arr[0].lat === undefined)
+              ? arr.reduce((a,b) => a.concat(flat(b)), [])
+              : arr;
+            coords = flat(lls);
+          } catch(e2) {}
         }
+      }
+
+      if (coords.length > 1) {
+        // Calcula bounding box geográfico
+        let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+        coords.forEach(function(c) {
+          const lat = c.lat !== undefined ? c.lat : c[0];
+          const lng = c.lng !== undefined ? c.lng : c[1];
+          if (lat < minLat) minLat = lat;
+          if (lat > maxLat) maxLat = lat;
+          if (lng < minLng) minLng = lng;
+          if (lng > maxLng) maxLng = lng;
+        });
+
+        // Margem de 15%
+        const dLat = (maxLat - minLat) || 0.01;
+        const dLng = (maxLng - minLng) || 0.01;
+        minLat -= dLat * 0.15; maxLat += dLat * 0.15;
+        minLng -= dLng * 0.15; maxLng += dLng * 0.15;
+
+        const SVG_W = 500, SVG_H = 200;
+        const PAD = 16;
+        const scaleX = (lng) => PAD + (lng - minLng) / (maxLng - minLng) * (SVG_W - 2*PAD);
+        const scaleY = (lat) => (SVG_H - PAD) - (lat - minLat) / (maxLat - minLat) * (SVG_H - 2*PAD);
+
+        // Monta path do traçado
+        const pts = coords.map(function(c) {
+          const lat = c.lat !== undefined ? c.lat : c[0];
+          const lng = c.lng !== undefined ? c.lng : c[1];
+          return Math.round(scaleX(lng)) + "," + Math.round(scaleY(lat));
+        });
+        const pathD = "M" + pts.join(" L");
+
+        // Grid de linhas de referência
+        let gridLines = "";
+        for (let gi = 0; gi <= 4; gi++) {
+          const gx = PAD + gi * (SVG_W - 2*PAD) / 4;
+          const gy = PAD + gi * (SVG_H - 2*PAD) / 4;
+          gridLines += "<line x1='" + gx + "' y1='" + PAD + "' x2='" + gx + "' y2='" + (SVG_H-PAD) + "' stroke='#c8d4e8' stroke-width='0.5'/>";
+          gridLines += "<line x1='" + PAD + "' y1='" + gy + "' x2='" + (SVG_W-PAD) + "' y2='" + gy + "' stroke='#c8d4e8' stroke-width='0.5'/>";
+        }
+
+        // Marca ponto inicial (canteiro)
+        const ptStart = coords[0];
+        const sx = Math.round(scaleX(ptStart.lng !== undefined ? ptStart.lng : ptStart[1]));
+        const sy = Math.round(scaleY(ptStart.lat !== undefined ? ptStart.lat : ptStart[0]));
+        const ptEnd = coords[coords.length-1];
+        const ex = Math.round(scaleX(ptEnd.lng !== undefined ? ptEnd.lng : ptEnd[1]));
+        const ey = Math.round(scaleY(ptEnd.lat !== undefined ? ptEnd.lat : ptEnd[0]));
+
+        const svgMap =
+          "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 " + SVG_W + " " + SVG_H + "'>" +
+          // fundo com gradiente simulado
+          "<defs><linearGradient id='bg' x1='0' y1='0' x2='0' y2='1'><stop offset='0%' stop-color='#dce8f0'/><stop offset='100%' stop-color='#e8f2e8'/></linearGradient></defs>" +
+          "<rect width='" + SVG_W + "' height='" + SVG_H + "' fill='url(#bg)'/>" +
+          gridLines +
+          // traçado principal (sombra)
+          "<path d='" + pathD + "' fill='none' stroke='rgba(0,0,0,0.15)' stroke-width='5' stroke-linecap='round' stroke-linejoin='round' transform='translate(1,1)'/>" +
+          // traçado principal
+          "<path d='" + pathD + "' fill='none' stroke='#E8A000' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'/>" +
+          // ponto de início
+          "<circle cx='" + sx + "' cy='" + sy + "' r='5' fill='#002D72' stroke='white' stroke-width='1.5'/>" +
+          "<text x='" + (sx+7) + "' y='" + (sy+4) + "' font-size='8' fill='#002D72' font-family='sans-serif'>Início</text>" +
+          // ponto de fim
+          "<circle cx='" + ex + "' cy='" + ey + "' r='4' fill='#C62828' stroke='white' stroke-width='1.5'/>" +
+          // borda
+          "<rect x='0.5' y='0.5' width='" + (SVG_W-1) + "' height='" + (SVG_H-1) + "' fill='none' stroke='#b0c4d8' stroke-width='1'/>" +
+          "</svg>";
+
+        const ih = 58; // altura no PDF em mm
+        if (y + ih > YM) { addPage(); y = Y0; }
+        try {
+          doc.addSvgAsImage(svgMap, ML, y, CW, ih);
+          y += ih + 4;
+        } catch(eSvg) {
+          // Se addSvgAsImage falha, converte para canvas e usa addImage
+          const tmpC = document.createElement("canvas");
+          tmpC.width = SVG_W * 2; tmpC.height = SVG_H * 2;
+          const tmpCtx = tmpC.getContext("2d");
+          const svgBlob = new Blob([svgMap], {type:"image/svg+xml"});
+          const svgUrl = URL.createObjectURL(svgBlob);
+          const tmpImg = new Image();
+          tmpImg.src = svgUrl;
+          // Fallback simples: só mensagem
+          doc.setFontSize(8); doc.setTextColor(100); doc.setFont("helvetica","normal");
+          doc.text("Tracado: " + coords.length + " pontos georeferenciados — visualize na plataforma digital.", ML, y);
+          y += 6;
+          URL.revokeObjectURL(svgUrl);
+        }
+
+        // Legenda de coordenadas
+        doc.setFontSize(6.5); doc.setTextColor(150); doc.setFont("helvetica","normal");
+        const coordLabel = "Lat: " + minLat.toFixed(4) + " a " + maxLat.toFixed(4) +
+                          " | Lon: " + minLng.toFixed(4) + " a " + maxLng.toFixed(4);
+        doc.text(coordLabel, ML, y); y += 4;
+
+      } else {
+        // Sem coordenadas disponíveis
+        doc.setFontSize(8); doc.setTextColor(130); doc.setFont("helvetica","normal");
+        doc.text("Tracado georeferenciado disponivel na plataforma digital.", ML, y); y += 6;
       }
     } catch(eMap) { console.warn("Mapa PDF:", eMap); }
     doc.setFontSize(7); doc.setTextColor(150); doc.setFont("helvetica","normal");
@@ -3370,48 +3414,58 @@ function gerarPreviewImpressao() {
     const _buildGanttSVG = () => {
       if (!ativs.length) return "<p style='color:#aaa;padding:1rem'>Sem atividades calculadas.</p>";
       const nRows = ativs.length;
-      const rowH = 14; const labelW = 160; const barAreaW = 560;
-      const totalH = nRows * rowH + 30;
-      const totalW = labelW + barAreaW + 10;
-      let out = "<svg viewBox='0 0 " + totalW + " " + totalH + "' style='width:100%;height:" + Math.min(totalH, 500) + "px;display:block;font-family:sans-serif' xmlns='http://www.w3.org/2000/svg'>";
-      // Header
-      out += "<rect x='0' y='0' width='" + totalW + "' height='20' fill='#002D72'/>";
-      out += "<text x='4' y='13' font-size='8' fill='white' font-weight='bold'>KM / Atividade</text>";
-      out += "<text x='" + (labelW+4) + "' y='13' font-size='8' fill='white' font-weight='bold'>Cronograma (dias)</text>";
-      // Grid lines (monthly)
-      const months = Math.ceil(maxDia/30);
-      for (let mi=0; mi<=months; mi++) {
-        const gx = labelW + (mi*30/maxDia)*barAreaW;
-        out += "<line x1='" + Math.round(gx) + "' y1='20' x2='" + Math.round(gx) + "' y2='" + totalH + "' stroke='#e0e0e0' stroke-width='0.5'/>";
-        if (mi < months) out += "<text x='" + Math.round(gx+2) + "' y='" + (totalH-2) + "' font-size='7' fill='#999'>M" + (mi+1) + "</text>";
-      }
-      // Rows
-      const etapaColors = {
-        "Limpeza":"#2E7D32","Terraplenagem":"#E8A045","Drenagem":"#0277BD",
-        "Pavimentação":"#C62828","Sinalização Viária":"#F9A825","Canteiro":"#002D72",
-        "Sub-base":"#6A1B9A","Base":"#6A1B9A","Meio-Fio":"#00838F","Recuperação":"#1565C0"
-      };
-      const getColor = (etapa) => {
-        for (const [k,v] of Object.entries(etapaColors)) {
-          if (etapa && etapa.toUpperCase().includes(k.toUpperCase())) return v;
+      const rowH = 13;
+      const headerH = 32; // duplo: nome + meses
+      const labelW = 170;
+      const barAreaW = 580;
+      const totalH = headerH + nRows * rowH + 2;
+      const totalW = labelW + barAreaW;
+      const months = Math.ceil(maxDia / 30);
+
+      let out = "<svg viewBox='0 0 " + totalW + " " + totalH + "' style='width:100%;height:" + Math.min(totalH, 520) + "px;display:block;font-family:sans-serif' xmlns='http://www.w3.org/2000/svg'>";
+
+      // ── Cabeçalho duplo ──
+      // Linha 1: títulos das colunas
+      out += "<rect x='0' y='0' width='" + totalW + "' height='" + headerH + "' fill='#002D72'/>";
+      out += "<text x='4' y='11' font-size='7.5' fill='white' font-weight='bold'>KM / Atividade</text>";
+
+      // Linha 2: marcadores de meses no topo da área de barras
+      for (let mi = 0; mi <= months; mi++) {
+        const gx = labelW + (mi * 30 / maxDia) * barAreaW;
+        // linha de grade descendente
+        out += "<line x1='" + Math.round(gx) + "' y1='" + headerH + "' x2='" + Math.round(gx) + "' y2='" + totalH + "' stroke='#e0e6ef' stroke-width='0.5'/>";
+        // label do mês no cabeçalho
+        if (mi < months) {
+          const gx2 = labelW + ((mi + 0.5) * 30 / maxDia) * barAreaW;
+          out += "<text x='" + Math.round(gx2) + "' y='22' text-anchor='middle' font-size='7' fill='white' font-weight='bold'>M" + (mi+1) + "</text>";
         }
-        return "#607D8B";
-      };
-      ativs.forEach((a, i) => {
-        const ry = 20 + i * rowH;
-        const bg = i%2===0 ? "#f8f9fb" : "#ffffff";
+      }
+      // separador vertical entre label e barras no header
+      out += "<line x1='" + labelW + "' y1='0' x2='" + labelW + "' y2='" + headerH + "' stroke='rgba(255,255,255,0.3)' stroke-width='1'/>";
+
+      // ── Linhas de dados ──
+      ativs.forEach(function(a, i) {
+        const ry = headerH + i * rowH;
+        const bg = i % 2 === 0 ? "#f5f7fb" : "#ffffff";
         out += "<rect x='0' y='" + ry + "' width='" + totalW + "' height='" + rowH + "' fill='" + bg + "'/>";
+        // separador vertical label/barra
+        out += "<line x1='" + labelW + "' y1='" + ry + "' x2='" + labelW + "' y2='" + (ry+rowH) + "' stroke='#dee3ec' stroke-width='0.5'/>";
         // label
-        const lbl = (a.km ? "KM" + a.km + " " : "") + (a.atividade || "").substring(0, 22);
-        out += "<text x='4' y='" + (ry + rowH - 4) + "' font-size='7' fill='#333'>" + lbl + "</text>";
-        // bar
-        if (maxDia > 0) {
+        const kmLbl = a.km ? String(a.km).replace("KM ","KM") : "";
+        const actLbl = (a.atividade || "").substring(0, 20);
+        const fullLbl = kmLbl ? kmLbl + " " + actLbl : actLbl;
+        out += "<text x='4' y='" + (ry + rowH - 4) + "' font-size='6.5' fill='#333'>" + fullLbl + "</text>";
+        // barra
+        if (maxDia > 0 && a.duracao > 0) {
           const bx = labelW + (a.inicio / maxDia) * barAreaW;
-          const bw = Math.max(2, (a.duracao / maxDia) * barAreaW);
-          const bc = getColor(a.etapa);
-          out += "<rect x='" + Math.round(bx) + "' y='" + (ry+2) + "' width='" + Math.round(bw) + "' height='" + (rowH-4) + "' rx='2' fill='" + bc + "' opacity='0.8'/>";
+          const bw = Math.max(3, (a.duracao / maxDia) * barAreaW);
+          const bc = etapaCor(a.etapa || "");
+          out += "<rect x='" + Math.round(bx) + "' y='" + (ry+2) + "' width='" + Math.round(bw) + "' height='" + (rowH-4) + "' rx='2' fill='" + bc + "' opacity='0.85'/>";
         }
       });
+
+      // borda inferior
+      out += "<rect x='0' y='0' width='" + totalW + "' height='" + totalH + "' fill='none' stroke='#dee3ec' stroke-width='1'/>";
       out += "</svg>";
       return out;
     };
@@ -3667,11 +3721,49 @@ function gerarPreviewImpressao() {
             <div style="font-size:0.85rem;font-weight:600;color:var(--cinza-txt)">${getV("obra-extensao")||"—"} km</div>
           </div>
         </div>
-        <div style="border-radius:8px;overflow:hidden;border:1px solid var(--borda);background:#e8ecf4;min-height:220px;display:flex;align-items:center;justify-content:center">
-          ${mapSVGHtml || `<div style="padding:2rem;text-align:center;color:var(--cinza-aux)">
-            <div style="font-size:2rem;margin-bottom:0.5rem">🗺️</div>
-            <div style="font-size:0.8rem">Traçado disponível na plataforma digital.<br>Acesse a aba Memorial para visualizar o mapa.</div>
-          </div>`}
+        <div style="border-radius:8px;overflow:hidden;border:1px solid var(--borda);background:#e8ecf4;min-height:220px;position:relative">
+          ${(()=>{
+            // Tenta capturar o canvas do mapa completo (tiles + overlay)
+            try {
+              const mapaEl2 = document.getElementById("mapa-rodovia");
+              if (mapaEl2) {
+                const tileImgs2 = Array.from(mapaEl2.querySelectorAll(".leaflet-tile-pane img.leaflet-tile"));
+                const svgEl2 = mapaEl2.querySelector(".leaflet-overlay-pane svg");
+                const mr2 = mapaEl2.getBoundingClientRect();
+                const mw2 = Math.round(mr2.width)||700, mh2 = Math.round(mr2.height)||350;
+                const comp2 = document.createElement("canvas");
+                comp2.width = mw2; comp2.height = mh2;
+                const ctx3 = comp2.getContext("2d");
+                // fundo
+                ctx3.fillStyle = "#e8ecf4"; ctx3.fillRect(0,0,mw2,mh2);
+                // tiles
+                let tileCount = 0;
+                tileImgs2.forEach(function(ti){
+                  if (!ti.complete || !ti.naturalWidth) return;
+                  try {
+                    const tr2 = ti.getBoundingClientRect();
+                    ctx3.drawImage(ti, tr2.left-mr2.left, tr2.top-mr2.top, tr2.width, tr2.height);
+                    tileCount++;
+                  } catch(e){}
+                });
+                if (svgEl2) {
+                  try {
+                    const svgS2 = new XMLSerializer().serializeToString(svgEl2);
+                    const svgB2 = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgS2);
+                    const sr2 = svgEl2.getBoundingClientRect();
+                    const tmpI = new Image();
+                    tmpI.src = svgB2;
+                    if (tmpI.complete) ctx3.drawImage(tmpI, sr2.left-mr2.left, sr2.top-mr2.top, sr2.width, sr2.height);
+                  } catch(e2){}
+                }
+                if (tileCount > 0 || svgEl2) {
+                  return "<img src='" + comp2.toDataURL("image/jpeg",0.85) + "' style='width:100%;display:block;border-radius:8px' />";
+                }
+              }
+            } catch(e3){}
+            // Fallback: mostra SVG do traçado em fundo cinza estilizado
+            return mapSVGHtml || "<div style='padding:2rem;text-align:center;color:#aaa'><div style='font-size:2rem'>🗺️</div><div style=\'font-size:0.8rem\'>Traçado disponível na plataforma digital.</div></div>";
+          })()}
         </div>
         <div style="font-size:0.65rem;color:var(--cinza-aux);margin-top:0.5rem">© OpenStreetMap contributors · Dados: SEINFRA/AM</div>
       </div>
