@@ -3344,35 +3344,37 @@ function gerarPreviewImpressao() {
     const _lblMO_prev = {servente:"Serventes",pedreiro:"Pedreiros",operador:"Operadores",carpinteiro:"Carpinteiros"};
 
     // Gera mini gráfico SVG de barras inline a partir dos dados HIST_DATA
-    const _miniBarChart = (keys, colors, label, bgColor) => {
-      if (!HIST_DATA.length) return `<div style="padding:1rem;color:var(--cinza-aux);font-size:0.8rem">Sem dados.</div>`;
-      const rows = HIST_DATA.filter(m => keys.reduce((s,k)=>s+(m[k]||0),0) > 0);
-      if (!rows.length) return `<div style="padding:1rem;color:var(--cinza-aux);font-size:0.8rem">Sem dados no período.</div>`;
-      const maxVal = Math.max(...rows.map(m => keys.reduce((s,k)=>s+(m[k]||0),0)), 1);
-      const W = 400, H = 140, PL = 30, PR = 10, PT = 10, PB = 30;
-      const bW = Math.max(4, Math.floor((W-PL-PR) / rows.length) - 2);
-      const bX = i => PL + i * ((W-PL-PR)/rows.length) + ((W-PL-PR)/rows.length - bW)/2;
-      const barH = v => Math.max(1, Math.round(v/maxVal*(H-PT-PB)));
-      const barY = v => PT + (H-PT-PB) - barH(v);
-      let bars = "";
-      rows.forEach((m,i) => {
-        let cumH = 0;
-        keys.forEach((k,ki) => {
-          const v = m[k]||0;
+    const _miniBarChart = (keys, colors) => {
+      if (!HIST_DATA.length) return "<div style='padding:1rem;color:#aaa;font-size:0.8rem'>Sem dados.</div>";
+      const rows = HIST_DATA.filter(function(m){ return keys.reduce(function(s,k){ return s+(m[k]||0); },0) > 0; });
+      if (!rows.length) return "<div style='padding:1rem;color:#aaa;font-size:0.8rem'>Sem dados no período.</div>";
+      const maxVal = Math.max.apply(null, rows.map(function(m){ return keys.reduce(function(s,k){ return s+(m[k]||0); },0); }).concat([1]));
+      const W = 380, H = 130, PL = 28, PR = 8, PT = 8, PB = 28;
+      const colW = (W-PL-PR) / rows.length;
+      const bW = Math.max(4, Math.floor(colW) - 3);
+      let out = "<svg viewBox='0 0 " + W + " " + H + "' style='width:100%;height:" + H + "px;display:block' xmlns='http://www.w3.org/2000/svg'>";
+      // axes
+      out += "<line x1='" + PL + "' y1='" + PT + "' x2='" + PL + "' y2='" + (H-PB) + "' stroke='#ddd' stroke-width='1'/>";
+      out += "<line x1='" + PL + "' y1='" + (H-PB) + "' x2='" + (W-PR) + "' y2='" + (H-PB) + "' stroke='#ddd' stroke-width='1'/>";
+      out += "<text x='" + (PL-2) + "' y='" + (PT+6) + "' text-anchor='end' font-size='8' fill='#999'>" + maxVal + "</text>";
+      rows.forEach(function(m, i) {
+        var total = keys.reduce(function(s,k){ return s+(m[k]||0); }, 0);
+        var bH = total > 0 ? Math.max(2, Math.round(total/maxVal*(H-PT-PB))) : 0;
+        var bX = PL + i * colW + (colW - bW)/2;
+        var bY = H - PB - bH;
+        var cumY = bY;
+        keys.forEach(function(k, ki) {
+          var v = m[k]||0;
           if (!v) return;
-          const h = barH(v);
-          const y = barY(keys.reduce((s,k2,ki2)=>ki2<=ki?s+(m[k2]||0):s,0)) + cumH - h + barH(keys.reduce((s,k2,ki2)=>ki2<=ki?s+(m[k2]||0):s,0));
-          bars += `<rect x="${bX(i)}" y="${barY(keys.reduce((s,k2,ki2)=>ki2<=ki?s+(m[k2]||0):s,0))}" width="${bW}" height="${barH(keys.reduce((s,k2,ki2)=>ki2<=ki?s+(m[k2]||0):s,0))}" fill="${colors[ki]}" opacity="0.85"/>`;
+          var segH = Math.max(1, Math.round(v/maxVal*(H-PT-PB)));
+          out += "<rect x='" + Math.round(bX) + "' y='" + Math.round(cumY) + "' width='" + bW + "' height='" + segH + "' fill='" + colors[ki] + "' opacity='0.85'/>";
+          cumY += segH;
         });
-        // label mês
-        const mes = m.mes.length > 3 ? m.mes.substring(0,3) : m.mes;
-        bars += `<text x="${bX(i)+bW/2}" y="${H-4}" text-anchor="middle" font-size="9" fill="#666">${mes}</text>`;
+        var lbl = m.mes && m.mes.length > 3 ? m.mes.substring(0,3) : (m.mes||"");
+        out += "<text x='" + Math.round(bX+bW/2) + "' y='" + (H-4) + "' text-anchor='middle' font-size='8' fill='#666'>" + lbl + "</text>";
       });
-      // Eixo Y max label
-      bars += `<text x="${PL-2}" y="${PT+4}" text-anchor="end" font-size="9" fill="#999">${maxVal}</text>`;
-      bars += `<line x1="${PL}" y1="${PT}" x2="${PL}" y2="${H-PB}" stroke="#ddd" stroke-width="1"/>`;
-      bars += `<line x1="${PL}" y1="${H-PB}" x2="${W-PR}" y2="${H-PB}" stroke="#ddd" stroke-width="1"/>`;
-      return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;display:block" xmlns="http://www.w3.org/2000/svg">${bars}</svg>`;
+      out += "</svg>";
+      return out;
     };
 
     html += mkPg(`
@@ -3403,8 +3405,8 @@ function gerarPreviewImpressao() {
             <th class="r" style="background:rgba(46,125,50,0.6)">Total EQP</th>
           </tr></thead>
           <tbody>${HIST_DATA.map(m=>{
-            const tMO  = _pMO.reduce( (s,k) => s + (m[k]||0), 0);
-            const tEQP = _pEQP.reduce((s,k) => s + (m[k]||0), 0);
+            const tMO  = _pMO_prev.reduce( (s,k) => s + (m[k]||0), 0);
+            const tEQP = _pEQP_prev.reduce((s,k) => s + (m[k]||0), 0);
             if (!tMO && !tEQP) return "";
             const c = (v, cor) => `<td class="r" style="color:${v>0?cor:"var(--cinza-aux)"};${v>0?"font-weight:600":""}">${v||"—"}</td>`;
             return `<tr>
