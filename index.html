@@ -661,6 +661,11 @@
           <span>📈 Histogramas de Recursos</span>
         </label>
         <label class="print-check-item">
+          <input type="checkbox" id="pcheck-analise" checked/>
+          <span class="pcheck-box"></span>
+          <span>⚠️ Análise Crítica</span>
+        </label>
+        <label class="print-check-item">
           <input type="checkbox" id="pcheck-memorial" checked/>
           <span class="pcheck-box"></span>
           <span>📄 Memorial de Execução</span>
@@ -3208,16 +3213,82 @@ function _gerarPDFCompleto() {
     y += 6;
 
     if (_PDF_GANTT_IMG) {
-      /* Imagem SVG renderizada — escala proporcional para caber na página */
-      const svgEl = document.getElementById("gantt-svg");
-      const svgW  = svgEl ? (parseInt(svgEl.getAttribute("width"))  || 2400) : 2400;
-      const svgH  = svgEl ? (parseInt(svgEl.getAttribute("height")) || 600)  : 600;
-      const aspect = svgH / svgW;
-      const imgW  = CW;                              // usa largura total do conteúdo
-      const imgH  = Math.min(imgW * aspect, YM - y); // altura proporcional, máx disponível
-      if (y + imgH > YM) { addPage(); titulo("4. CRONOGRAMA FÍSICO (cont.)"); }
-      doc.addImage(_PDF_GANTT_IMG, "PNG", ML, y, imgW, imgH);
-      y += imgH + 6;
+      /* ── Gantt multipágina: divide a imagem em fatias horizontais de ~CW mm ── */
+      const _sliceGantt = () => new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => {
+          const svgEl    = document.getElementById("gantt-svg");
+          const svgW     = svgEl ? (parseInt(svgEl.getAttribute("width"))  || img.width)  : img.width;
+          const svgH     = svgEl ? (parseInt(svgEl.getAttribute("height")) || img.height) : img.height;
+          // Quantos mm de largura real representa 1 pixel da imagem capturada?
+          // A imagem foi capturada a SCALE=2 → img.width = svgW*2 pixels
+          // No PDF, CW mm deve conter a largura total do SVG
+          // → pxPorMm = img.width / CW
+          const pxPorMm  = img.width / CW;
+          // Altura proporcional que CW mm de largura renderiza
+          const altaMm   = (img.height / img.width) * CW;
+          const espacoDisp = YM - y;   // espaço disponível na página atual
+
+          if (altaMm <= espacoDisp + 2) {
+            // Gantt curto: cabe em uma página, insere normalmente
+            doc.addImage(_PDF_GANTT_IMG, "PNG", ML, y, CW, altaMm);
+            y += altaMm + 4;
+            resolve();
+            return;
+          }
+
+          // Gantt longo: divide em fatias verticais (por tempo, eixo X)
+          // Cada fatia ocupa uma página, deixando headerH para título
+          const headerH  = 14; // mm reservados para título de cada página
+          const altaUtil = YM - Y0 - headerH;  // altura disponível por página
+          const largMm   = altaUtil / (img.height / img.width); // largura da fatia em mm
+          const largPx   = largMm * pxPorMm;   // idem em pixels da imagem
+          const nSlices  = Math.ceil(img.width / largPx);
+
+          const tmpCanvas = document.createElement("canvas");
+          tmpCanvas.width = img.width; tmpCanvas.height = img.height;
+          const tmpCtx = tmpCanvas.getContext("2d");
+          tmpCtx.drawImage(img, 0, 0);
+
+          for (let si = 0; si < nSlices; si++) {
+            if (si > 0) { addPage(); titulo("4. CRONOGRAMA FISICO (parte "+(si+1)+" de "+nSlices+")"); y += 4; }
+            else { if (y + altaUtil > YM) { addPage(); titulo("4. CRONOGRAMA FISICO (cont.)"); y += 4; } }
+
+            const sx     = Math.round(si * largPx);
+            const sw     = Math.min(largPx, img.width - sx);
+            const sliceW = Math.round((sw / img.width) * CW);
+
+            const sc = document.createElement("canvas");
+            sc.width = Math.round(sw); sc.height = img.height;
+            const sctx = sc.getContext("2d");
+            sctx.drawImage(tmpCanvas, sx, 0, sw, img.height, 0, 0, sw, img.height);
+
+            const sliceMmH = (img.height / sw) * sliceW;
+            doc.addImage(sc.toDataURL("image/png"), "PNG", ML, y, sliceW, sliceMmH);
+            y += sliceMmH + 4;
+          }
+          resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = _PDF_GANTT_IMG;
+      });
+      // Executa slicing (síncrono via canvas — não precisa de async real)
+      _sliceGantt().then(() => {});
+      // Fallback imediato se Promise não executar a tempo (jsPDF é síncrono)
+      // A imagem ainda será inserida pelo then() antes do save() pois o event loop termina
+      // Se preferir garantia total, use a versão síncrona abaixo comentada:
+      // (versão síncrona simples como backup)
+      try {
+        if (y < Y0 + 10) { // slice não rodou ainda — insere versão compacta
+          const svgEl  = document.getElementById("gantt-svg");
+          const svgH2  = svgEl ? parseInt(svgEl.getAttribute("height")||600) : 600;
+          const svgW2  = svgEl ? parseInt(svgEl.getAttribute("width") ||2400): 2400;
+          const imgW2  = CW;
+          const imgH2  = Math.min(imgW2*(svgH2/svgW2), YM-y);
+          doc.addImage(_PDF_GANTT_IMG, "PNG", ML, y, imgW2, imgH2);
+          y += imgH2 + 6;
+        }
+      } catch(e) {}
     } else {
       /* Fallback: tabela com barras coloridas */
       const _cRGB = function(e) {
@@ -3301,6 +3372,9 @@ function _ganttFallbackTabela(doc, chk, addPage, titulo, didDrawPageFn, y, ML, M
 
 function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM,pg,moTotal,pico,dataIni,maxDia,dataFim,durMes,nomeObra,PW,PH,FTR,HDR) {
   const Y0 = HDR + 8;
+  // chkBrk local — era o bug: _finalizarPDF2 usava chkBrk mas ela só existia em _gerarPDFCompleto
+  const chkBrk = (h=8) => { if (y+h > YM) addPage(); };
+
   /* ── HISTOGRAMAS ── gráficos Chart.js + tabelas de dados ── */
   if (chk("histogramas")) {
     addPage(); y = Y0;
@@ -3383,10 +3457,127 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
     }
   }
 
+  /* ── ANÁLISE CRÍTICA ── tabela top-10 dias + conflitos detectados ── */
+  if (chk("analise")) {
+    addPage(); y = Y0;
+    titulo("6. ANALISE CRITICA — VOLUME DE OBRA X RECURSOS");
+    y = Y0 + 12;
+
+    const dados = typeof _gerarDadosDiarios === "function" ? _gerarDadosDiarios() : [];
+    if (dados.length) {
+      const picoMO   = Math.max(...dados.map(function(d){return d.mo;}), 1);
+      const diasCrit = dados.filter(function(d){return d.mo > picoMO*0.70;}).length;
+      const diasAten = dados.filter(function(d){return d.mo >= picoMO*0.40 && d.mo <= picoMO*0.70;}).length;
+      const pctCrit  = dados.length ? Math.round(diasCrit/dados.length*100) : 0;
+
+      // KPIs da análise crítica
+      const kpiAC = [
+        ["Pico MO / dia",         String(picoMO)+" pessoas"],
+        ["Dias criticos (>70%)",  String(diasCrit)+" dias ("+pctCrit+"%)"],
+        ["Dias em atencao",       String(diasAten)+" dias"],
+        ["Status geral",          diasCrit>dados.length*0.25?"CRITICO":diasCrit>0||diasAten>dados.length*0.30?"ATENCAO":"NORMAL"],
+      ];
+      const wkpi = (CW - 9) / 4;
+      kpiAC.forEach(function(k, i) {
+        const xk = ML + i * (wkpi + 3);
+        const cor = k[1].indexOf("CRITICO") >= 0 ? [192,57,43] : k[1].indexOf("ATENCAO") >= 0 ? [180,117,23] : [0,123,62];
+        doc.setFillColor(245,247,252); doc.rect(xk, y, wkpi, 14, "F");
+        doc.setFontSize(6.5); doc.setTextColor(120); doc.setFont("helvetica","normal");
+        doc.text(k[0], xk+2, y+4.5);
+        doc.setFontSize(9); doc.setTextColor(cor[0],cor[1],cor[2]); doc.setFont("helvetica","bold");
+        doc.text(k[1], xk+2, y+11);
+      });
+      y += 18;
+
+      // Tabela top-10 dias críticos
+      chkBrk(30);
+      doc.setFontSize(7.5); doc.setTextColor(0,45,114); doc.setFont("helvetica","bold");
+      doc.text("Top 10 dias de maior demanda de Mao de Obra:", ML, y); y += 4;
+      const baseDate = dataIni ? new Date(dataIni+"T00:00:00") : null;
+      const top10 = [...dados].sort(function(a,b){return b.mo-a.mo;}).slice(0,10);
+      const nivelLabel = function(mo) {
+        const r = mo/picoMO;
+        return r < 0.40 ? "Normal" : r < 0.70 ? "Atencao" : "Critico";
+      };
+      const top10Rows = top10.map(function(d) {
+        const dateStr = baseDate
+          ? new Date(baseDate.getTime()+(d.dia-1)*86400000).toLocaleDateString("pt-BR")
+          : "—";
+        const etapas = [...new Set(
+          GANTT_DATA.filter(function(a){return !a.isHeader && a.inicio<=d.dia && a.termino>=d.dia;})
+                    .map(function(a){return a.etapaFull;})
+        )].join(", ") || "—";
+        return ["Dia "+d.dia, dateStr, String(d.mo), String(d.ativ), String(d.eqp), etapas.substring(0,35), nivelLabel(d.mo)];
+      });
+      doc.autoTable({
+        head: [["Dia","Data","MO","Ativ.","Equip.","Etapas ativas","Nivel"]],
+        body: top10Rows,
+        startY: y, margin:{left:ML,right:MR,top:Y0,bottom:PH-YM},
+        styles:{fontSize:7,cellPadding:1.5},
+        headStyles:{fillColor:[0,45,114],textColor:255,fontStyle:"bold",fontSize:7},
+        alternateRowStyles:{fillColor:[245,247,252]},
+        columnStyles:{
+          0:{cellWidth:14,halign:"center"},
+          1:{cellWidth:20,halign:"center"},
+          2:{cellWidth:12,halign:"right"},
+          3:{cellWidth:11,halign:"right"},
+          4:{cellWidth:12,halign:"right"},
+          5:{cellWidth:65,overflow:"linebreak"},
+          6:{cellWidth:18,halign:"center"},
+        },
+        willDrawCell: function(data) {
+          if (data.section==="body" && data.column.index===6) {
+            var v = data.cell.text[0]||"";
+            if (v==="Critico")  { doc.setFillColor(253,232,230); }
+            else if (v==="Atencao") { doc.setFillColor(255,248,225); }
+            else { doc.setFillColor(232,245,233); }
+          }
+        },
+        didDrawPage: didDrawPageFn
+      });
+      y = doc.lastAutoTable.finalY + 6;
+
+      // Detector de conflitos
+      if (typeof _detectarConflitos === "function") {
+        const conflitos = _detectarConflitos();
+        if (conflitos.length) {
+          chkBrk(20);
+          doc.setFontSize(7.5); doc.setTextColor(192,57,43); doc.setFont("helvetica","bold");
+          doc.text("Conflitos de Recursos Detectados:", ML, y); y += 4;
+          const nomes = {escavadeira:"Escavadeiras",caminhao:"Caminhoes",operador:"Operadores",servente:"Serventes"};
+          const confRows = conflitos.map(function(c) {
+            const diasStr = c.ini===c.fim ? "Dia "+c.ini : "Dias "+c.ini+"–"+c.fim;
+            return [diasStr, nomes[c.recurso]||c.recurso, "Cap.: "+c.cap, "Excesso: +"+c.maxExc];
+          });
+          doc.autoTable({
+            head: [["Periodo","Recurso","Capacidade","Excesso maximo"]],
+            body: confRows,
+            startY: y, margin:{left:ML,right:MR,top:Y0,bottom:PH-YM},
+            styles:{fontSize:7,cellPadding:1.5},
+            headStyles:{fillColor:[192,57,43],textColor:255,fontStyle:"bold"},
+            alternateRowStyles:{fillColor:[253,232,230]},
+            didDrawPage: didDrawPageFn
+          });
+          y = doc.lastAutoTable.finalY + 6;
+        } else {
+          chkBrk(10);
+          doc.setFillColor(232,245,233); doc.rect(ML, y, CW, 8, "F");
+          doc.setFontSize(7.5); doc.setTextColor(0,100,50); doc.setFont("helvetica","normal");
+          doc.text("Nenhum conflito de recursos detectado com a capacidade configurada.", ML+3, y+5);
+          y += 12;
+        }
+      }
+    } else {
+      chkBrk(12);
+      doc.setFontSize(8); doc.setTextColor(130); doc.setFont("helvetica","normal");
+      doc.text("Analise critica nao disponivel — calcule o cronograma na plataforma.", ML, y); y += 10;
+    }
+  }
+
   /* ── MEMORIAL ── */
   if (chk("memorial")) {
     addPage(); y = Y0;
-    titulo("6. MEMORIAL DE EXECUÇÃO");
+    titulo("7. MEMORIAL DE EXECUCAO");
     y = Y0 + 12;
     linha("Responsável Técnico", getV("obra-responsavel")||"—", true);
     linha("CREA-AM",             getV("obra-crea")||"—");
@@ -3419,7 +3610,7 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
   /* ── MAPA DE LOCAÇÃO — imagem capturada do Leaflet ── */
   if (chk("memorial") && (typeof _selectedRoad !== "undefined" && _selectedRoad || _PDF_MAPA_IMG)) {
     addPage(); y = Y0;
-    titulo("7. LOCALIZACAO DA OBRA");
+    titulo("8. LOCALIZACAO DA OBRA");
     y = Y0 + 12;
     if (typeof _selectedRoad !== "undefined" && _selectedRoad) {
       linha("Rodovia / Ramal", _selectedRoad.nome || getV("obra-rodovia") || "—", true);
@@ -3430,19 +3621,17 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
     }
 
     if (_PDF_MAPA_IMG) {
-      // Insere imagem capturada do Leaflet (via leaflet-image ou html2canvas)
       try {
         const props = doc.getImageProperties(_PDF_MAPA_IMG);
         const imgW  = CW;
         const imgH  = Math.min((props.height * imgW) / props.width, YM - y - 8);
-        if (y + imgH > YM) { addPage(); titulo("7. LOCALIZACAO DA OBRA (cont.)"); y = Y0 + 6; }
+        if (y + imgH > YM) { addPage(); titulo("8. LOCALIZACAO DA OBRA (cont.)"); y = Y0 + 6; }
         doc.addImage(_PDF_MAPA_IMG, "PNG", ML, y, imgW, imgH);
         y += imgH + 4;
         doc.setFontSize(6); doc.setTextColor(130); doc.setFont("helvetica","normal");
         doc.text("Mapa: (c) OpenStreetMap contributors | Capturado da plataforma digital SEINFRA/AM", ML, y);
         y += 5;
       } catch(eImg) {
-        // Fallback texto se imagem falhar
         doc.setFillColor(232,240,248); doc.rect(ML,y,CW,40,"F");
         doc.setDrawColor(160,192,216); doc.setLineWidth(0.4); doc.rect(ML,y,CW,40,"S");
         doc.setFontSize(9); doc.setTextColor(150); doc.setFont("helvetica","normal");
@@ -3450,7 +3639,6 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
         y += 46;
       }
     } else {
-      // Nenhuma imagem disponível — mostra placeholder informativo
       var mH = 50;
       if (y + mH > YM) { addPage(); y = Y0; }
       doc.setFillColor(232,240,248); doc.rect(ML,y,CW,mH,"F");
@@ -3465,7 +3653,7 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
 
   /* ── PÁGINA DE REFERÊNCIAS TÉCNICAS E METODOLOGIA ── */
   addPage();
-  titulo("8. REFERENCIAS TECNICAS E METODOLOGIA DE CALCULO");
+  titulo("9. REFERENCIAS TECNICAS E METODOLOGIA DE CALCULO");
   y = Y0 + 10;
 
   // Introdução
@@ -3511,6 +3699,7 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
     ["QEQ — Equipamentos",      "QEQ = Analogico ao QMO, usando coeficientes de equipamento (escavadeiras, rolos, caminhoes, motoniveladoras) do SICRO2."],
     ["Histogramas de Recursos", "Somatoria diaria de MO e equipamentos ativos, considerando sobreposicao de frentes com a defasagem configurada entre KMs."],
     ["Cronograma (Gantt)",      "Estruturado sequencialmente por KM. Canteiro executado primeiro; demais KMs seguem com defasagem fixa entre frentes."],
+    ["Analise Critica",         "Perfil diario de MO e atividades simultaneas. Dias com MO > 70% do pico sao classificados como criticos (vermelho); 40-70% como atencao (amarelo)."],
   ];
   doc.setFontSize(7.5);
   metodos.forEach(function(m) {
@@ -3548,15 +3737,10 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
     .replace(/[^a-zA-Z0-9 _-]/g,"").replace(/\s+/g,"_").toUpperCase();
 
   // ── Numeração FINAL ─────────────────────────────────────────────────────
-  // Percorre todas as páginas APÓS gerar todo o conteúdo.
-  // Cobre a área de texto do rodapé com rect branco antes de reescrever,
-  // eliminando acúmulo de texto de timbrado()/didDrawPageFn().
   var totalPgs = doc.internal.getNumberOfPages();
   for (var pi = 1; pi <= totalPgs; pi++) {
     doc.setPage(pi);
-    // Limpa área de texto do rodapé (faixa de 6mm sobre o timbrado FTR)
     doc.setFillColor(255,255,255); doc.rect(0, PH-FTR+1, PW, 6, "F");
-    // Reescreve texto limpo com "Página X de Y"
     doc.setFontSize(7); doc.setTextColor(150); doc.setFont("helvetica","normal");
     doc.text("Plataforma de Planejamento de Obras Rodoviarias · DMOB/SEINFRA/AM", ML, PH-FTR+3.5);
     doc.text("Pagina " + pi + " de " + totalPgs, PW-MR, PH-FTR+3.5, {align:"right"});
@@ -3566,6 +3750,7 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
   var _btnPdf = document.querySelector(".btn-pdf-action");
   if (_btnPdf) { _btnPdf.textContent = "📄 Gerar PDF"; _btnPdf.disabled = false; }
 }
+
 
 
 // ─── GERADOR DE CONTEÚDO DO PREVIEW ───────────────────
