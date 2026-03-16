@@ -1213,6 +1213,7 @@ let FRENTES = [];
 let _PDF_GANTT_IMG  = null;   // dataURL do Gantt (canvas renderizado)
 let _PDF_HIST_MO    = null;   // dataURL do histograma MO
 let _PDF_HIST_EQP   = null;   // dataURL do histograma EQP
+let _PDF_MAPA_IMG   = null;   // dataURL do mapa Leaflet (capturado via leaflet-image)
 // ──────────────────────────────────────────────────────────────
 let chartMO = null, chartEQP = null;
 
@@ -1277,7 +1278,7 @@ function gerarCronograma() {
   };
 
   // Canteiro global (KM 0)
-  const canteiroLabel = canteiroKm > 0 ? `${canteiroParam.etapa} (📍 KM ${canteiroKm})` : canteiroParam.etapa;
+  const canteiroLabel = canteiroKm > 0 ? `${canteiroParam.etapa} (KM ${canteiroKm})` : canteiroParam.etapa;
   acts.push({
     id:"C", etapa:"CANTEIRO DE OBRAS", etapaFull:canteiroParam.etapa,
     atividade: canteiroLabel,
@@ -2108,7 +2109,7 @@ function renderGantt() {
       svg += `<rect x="0" y="${y}" width="${SVG_W}" height="${ROW_H}" fill="${act.frenteCor}22"/>`;
       svg += `<rect x="0" y="${y}" width="4" height="${ROW_H}" fill="${act.frenteCor}"/>`;
       svg += `<line x1="0" y1="${y+ROW_H}" x2="${SVG_W}" y2="${y+ROW_H}" stroke="${act.frenteCor}" stroke-width="1"/>`;
-      svg += `<text x="12" y="${y+ROW_H/2+4}" font-size="9" fill="${act.frenteCor}" font-weight="800">&#x1F6A7; ${act.atividade}</text>`;
+      svg += `<text x="12" y="${y+ROW_H/2+4}" font-size="9" fill="${act.frenteCor}" font-weight="800">${act.atividade}</text>`;
       svg += `<text x="248" y="${y+ROW_H/2+4}" font-size="8" fill="${act.frenteCor}" text-anchor="middle">${act.inicio}</text>`;
       svg += `<line x1="${LBLW+(act.inicio-1)*PPD}" y1="${y}" x2="${LBLW+(act.inicio-1)*PPD}" y2="${SVG_H}" stroke="${act.frenteCor}" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.5"/>`;
       return;
@@ -2675,25 +2676,38 @@ function executarImpressao() {
   const btn = document.querySelector(".btn-pdf-action");
   if (btn) { btn.textContent = "⏳ Capturando gráficos..."; btn.disabled = true; }
 
-  // ── Fase 1: Captura assets visuais ──────────────────────────
-  // Ordem: Gantt → Histogramas → gerar PDF
+  // Captura Gantt, histogramas e mapa em sequência
   _capturarGanttImg(function(ganttImg) {
     _PDF_GANTT_IMG = ganttImg;
     _capturarHistogramas(function(moImg, eqpImg) {
       _PDF_HIST_MO  = moImg;
       _PDF_HIST_EQP = eqpImg;
-      // ── Fase 2: Gerar PDF com os assets prontos ────────────
-      if (btn) btn.textContent = "⏳ Gerando PDF...";
-      setTimeout(function() {
-        try { _gerarPDFCompleto(); }
-        catch(e) {
-          console.error("Erro PDF:", e);
-          alert("⚠️ Erro ao gerar PDF: " + e.message);
-          if (btn) { btn.textContent = "📄 Gerar PDF"; btn.disabled = false; }
-        }
-      }, 80);
+      // Captura mapa se memorial estiver marcado
+      const chkMem = document.getElementById("pcheck-memorial");
+      if (chkMem && chkMem.checked) {
+        if (btn) btn.textContent = "⏳ Capturando mapa...";
+        _capturarMapaImg(function(mapImg) {
+          _PDF_MAPA_IMG = mapImg;
+          _executarGeracaoPDF(btn);
+        });
+      } else {
+        _PDF_MAPA_IMG = null;
+        _executarGeracaoPDF(btn);
+      }
     });
   });
+}
+
+function _executarGeracaoPDF(btn) {
+  if (btn) btn.textContent = "⏳ Gerando PDF...";
+  setTimeout(function() {
+    try { _gerarPDFCompleto(); }
+    catch(e) {
+      console.error("Erro PDF:", e);
+      alert("⚠️ Erro ao gerar PDF: " + e.message);
+      if (btn) { btn.textContent = "📄 Gerar PDF"; btn.disabled = false; }
+    }
+  }, 80);
 }
 
 /* ── Captura o SVG do Gantt convertido para dataURL via canvas ── */
@@ -2713,7 +2727,7 @@ function _capturarGanttImg(cb) {
     const svgH = parseInt(svgEl.getAttribute("height")) || 600;
     const SCALE = 2;
 
-    // Clona e limpa fontes externas
+    // Clona e limpa fontes externas + remove emojis que quebram canvas cross-origin
     const clone = svgEl.cloneNode(true);
     clone.setAttribute("xmlns","http://www.w3.org/2000/svg");
     clone.querySelectorAll("style").forEach(function(s) {
@@ -2723,25 +2737,33 @@ function _capturarGanttImg(cb) {
       var st = el.getAttribute("style");
       if (st) el.setAttribute("style", st.replace(/font-family\s*:[^;"{]+/gi,"font-family:helvetica,sans-serif"));
       if (el.hasAttribute("font-family")) el.setAttribute("font-family","helvetica,sans-serif");
+      // Remove emojis Unicode de nós text SVG (evita quebra no canvas)
+      if (el.tagName === "text" && el.textContent) {
+        el.textContent = el.textContent.replace(/[\u{1F000}-\u{1FFFF}]|[\u{2600}-\u{27FF}]|[\u{1F300}-\u{1F9FF}]|[\u{2700}-\u{27BF}]/gu, "").trim();
+      }
     });
 
     const svgStr = new XMLSerializer().serializeToString(clone);
-    const blob   = new Blob([svgStr], {type:"image/svg+xml;charset=utf-8"});
-    const url    = URL.createObjectURL(blob);
-    const img    = new Image();
+    // encodeURIComponent é mais robusto que Blob URL em contexto de file:// e CORS
+    const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgStr);
+    const img = new Image();
+    var _timedOut = false;
+    const _timer = setTimeout(function() { _timedOut = true; cb(null); }, 8000);
     img.onload = function() {
+      if (_timedOut) return;
+      clearTimeout(_timer);
       try {
         const canv = document.createElement("canvas");
         canv.width = svgW * SCALE; canv.height = svgH * SCALE;
         const ctx  = canv.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canv.width, canv.height);
         ctx.scale(SCALE, SCALE);
         ctx.drawImage(img, 0, 0, svgW, svgH);
-        URL.revokeObjectURL(url);
         cb(canv.toDataURL("image/png"));
-      } catch(e) { URL.revokeObjectURL(url); cb(null); }
+      } catch(e) { cb(null); }
     };
-    img.onerror = function() { URL.revokeObjectURL(url); cb(null); };
-    setTimeout(function() { if (!img.complete) { URL.revokeObjectURL(url); cb(null); } }, 6000);
+    img.onerror = function() { clearTimeout(_timer); cb(null); };
     img.src = url;
   } catch(e) { cb(null); }
 }
@@ -2753,15 +2775,84 @@ function _capturarHistogramas(cb) {
     const wasH = tabH && tabH.style.display === "none";
     if (wasH) tabH.style.display = "block";
     try { renderHistogramas(); } catch(e) {}
-    // Pequeno delay para Chart.js renderizar
+    // Força resize para Chart.js recalcular dimensões (aba estava oculta)
+    try { if (chartMO)  chartMO.resize();  } catch(e) {}
+    try { if (chartEQP) chartEQP.resize(); } catch(e) {}
+    // Delay maior (700ms) para garantir render completo do Chart.js
     setTimeout(function() {
       var moImg = null, eqpImg = null;
-      try { var c = document.getElementById("chart-mo");  if (c) moImg  = c.toDataURL("image/png"); } catch(e) {}
-      try { var c = document.getElementById("chart-eqp"); if (c) eqpImg = c.toDataURL("image/png"); } catch(e) {}
+      // Prefere toBase64Image() do Chart.js (mais confiável que canvas.toDataURL direto)
+      try {
+        if (chartMO && typeof chartMO.toBase64Image === "function") {
+          moImg = chartMO.toBase64Image("image/png", 1.0);
+        } else {
+          var canvMO = document.getElementById("chart-mo");
+          if (canvMO) moImg = canvMO.toDataURL("image/png");
+        }
+      } catch(e) {}
+      try {
+        if (chartEQP && typeof chartEQP.toBase64Image === "function") {
+          eqpImg = chartEQP.toBase64Image("image/png", 1.0);
+        } else {
+          var canvEQP = document.getElementById("chart-eqp");
+          if (canvEQP) eqpImg = canvEQP.toDataURL("image/png");
+        }
+      } catch(e) {}
       if (wasH && tabH) tabH.style.display = "none";
       cb(moImg, eqpImg);
-    }, 400);
+    }, 700);
   } catch(e) { cb(null, null); }
+}
+
+/* ── Captura o mapa Leaflet como PNG via leaflet-image ── */
+function _capturarMapaImg(cb) {
+  try {
+    // Ativa a aba memorial para garantir que o mapa está visível
+    const tabMem = document.getElementById("tab-memorial");
+    const wasH   = tabMem && tabMem.style.display === "none";
+    if (wasH) tabMem.style.display = "block";
+
+    // Inicializa o mapa se ainda não foi aberto
+    try { initMapa(); } catch(e) {}
+
+    if (!_leafletMap) {
+      if (wasH && tabMem) tabMem.style.display = "none";
+      cb(null); return;
+    }
+
+    // Força redimensionamento do Leaflet para carregar tiles corretamente
+    _leafletMap.invalidateSize(true);
+
+    // Aguarda tiles carregarem (500ms) antes de capturar
+    setTimeout(function() {
+      // Tenta leaflet-image (plugin especializado)
+      if (typeof leafletImage === "function") {
+        leafletImage(_leafletMap, function(err, canvas) {
+          if (wasH && tabMem) tabMem.style.display = "none";
+          if (err || !canvas) { cb(null); return; }
+          try { cb(canvas.toDataURL("image/png")); } catch(e) { cb(null); }
+        });
+      } else {
+        // Fallback: captura container via html2canvas se disponível
+        if (typeof html2canvas === "function") {
+          const container = document.getElementById("mapa-rodovia");
+          html2canvas(container, {
+            useCORS: true, allowTaint: false,
+            backgroundColor: "#f0f4f8", scale: 2, logging: false
+          }).then(function(canvas) {
+            if (wasH && tabMem) tabMem.style.display = "none";
+            try { cb(canvas.toDataURL("image/png")); } catch(e) { cb(null); }
+          }).catch(function() {
+            if (wasH && tabMem) tabMem.style.display = "none";
+            cb(null);
+          });
+        } else {
+          if (wasH && tabMem) tabMem.style.display = "none";
+          cb(null); // nenhum método disponível
+        }
+      }
+    }, 600);
+  } catch(e) { cb(null); }
 }
 
 function _gerarPDFCompleto() {
@@ -2810,12 +2901,12 @@ function _gerarPDFCompleto() {
     doc.text(unit,x+2,y+13.5);
   };
   const didDrawPageFn = () => {
-    pg++;
+    const pgAtual = doc.internal.getCurrentPageInfo().pageNumber;
     doc.addImage("data:image/png;base64,"+_TIMBRADO_HDR,"PNG",0,0,PW,HDR,"_hdr","FAST");
     doc.addImage("data:image/png;base64,"+_TIMBRADO_FTR,"PNG",0,PH-FTR,PW,FTR,"_ftr","FAST");
     doc.setFontSize(7); doc.setTextColor(150); doc.setFont("helvetica","normal");
     doc.text("Plataforma de Planejamento de Obras · DMOB/SEINFRA",ML,PH-FTR+3.5);
-    doc.text("Página "+pg,PW-MR,PH-FTR+3.5,{align:"right"});
+    doc.text("Pág. "+pgAtual,PW-MR,PH-FTR+3.5,{align:"right"});
   };
 
   /* ── Dados base ── */
@@ -3132,74 +3223,50 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
     linha("Motoniv. (pico)",     String(pico.moto||0));
   }
 
-  /* ── MAPA VETORIAL — coordenadas GeoJSON ── */
-  if (chk("memorial") && typeof _selectedRoad !== "undefined" && _selectedRoad) {
+  /* ── MAPA DE LOCAÇÃO — imagem capturada do Leaflet ── */
+  if (chk("memorial") && (typeof _selectedRoad !== "undefined" && _selectedRoad || _PDF_MAPA_IMG)) {
     addPage(); y = Y0;
     titulo("7. LOCALIZACAO DA OBRA");
     y = Y0 + 12;
-    linha("Rodovia / Ramal", _selectedRoad.nome || getV("obra-rodovia") || "—", true);
-    linha("Municipio",       _selectedRoad.municipio || getV("obra-local") || "—");
-    linha("Codigo",          _selectedRoad.codigo || "—");
-    linha("Extensao",        (getV("obra-extensao") || "—") + " km");
-    y += 4;
+    if (typeof _selectedRoad !== "undefined" && _selectedRoad) {
+      linha("Rodovia / Ramal", _selectedRoad.nome || getV("obra-rodovia") || "—", true);
+      linha("Municipio",       _selectedRoad.municipio || getV("obra-local") || "—");
+      linha("Codigo",          _selectedRoad.codigo || "—");
+      linha("Extensao",        (getV("obra-extensao") || "—") + " km");
+      y += 6;
+    }
 
-    var mapCoords = [];
-    try {
-      if (typeof _layerSelected !== "undefined" && _layerSelected) {
-        var _flatLL = function(arr) {
-          if (!arr || !arr.length) return [];
-          if (arr[0] && arr[0].lat !== undefined) return arr;
-          return arr.reduce(function(a,b){ return a.concat(_flatLL(b)); }, []);
-        };
-        try { _layerSelected.eachLayer(function(lyr) { if (lyr.getLatLngs) mapCoords = mapCoords.concat(_flatLL(lyr.getLatLngs())); }); } catch(e1) {}
-        if (!mapCoords.length && _layerSelected.getLatLngs) { try { mapCoords = _flatLL(_layerSelected.getLatLngs()); } catch(e2) {} }
+    if (_PDF_MAPA_IMG) {
+      // Insere imagem capturada do Leaflet (via leaflet-image ou html2canvas)
+      try {
+        const props = doc.getImageProperties(_PDF_MAPA_IMG);
+        const imgW  = CW;
+        const imgH  = Math.min((props.height * imgW) / props.width, YM - y - 8);
+        if (y + imgH > YM) { addPage(); titulo("7. LOCALIZACAO DA OBRA (cont.)"); y = Y0 + 6; }
+        doc.addImage(_PDF_MAPA_IMG, "PNG", ML, y, imgW, imgH);
+        y += imgH + 4;
+        doc.setFontSize(6); doc.setTextColor(130); doc.setFont("helvetica","normal");
+        doc.text("Mapa: (c) OpenStreetMap contributors | Capturado da plataforma digital SEINFRA/AM", ML, y);
+        y += 5;
+      } catch(eImg) {
+        // Fallback texto se imagem falhar
+        doc.setFillColor(232,240,248); doc.rect(ML,y,CW,40,"F");
+        doc.setDrawColor(160,192,216); doc.setLineWidth(0.4); doc.rect(ML,y,CW,40,"S");
+        doc.setFontSize(9); doc.setTextColor(150); doc.setFont("helvetica","normal");
+        doc.text("Mapa disponivel na plataforma digital SEINFRA/AM.", ML+CW/2, y+20, {align:"center"});
+        y += 46;
       }
-    } catch(eLL) {}
-
-    var mH = 65;
-    if (y + mH > YM) { addPage(); y = Y0; }
-
-    if (mapCoords.length > 1) {
-      var mn_lat=1e9, mx_lat=-1e9, mn_lng=1e9, mx_lng=-1e9;
-      mapCoords.forEach(function(c){ var lat=c.lat,lng=c.lng; if(lat<mn_lat)mn_lat=lat;if(lat>mx_lat)mx_lat=lat;if(lng<mn_lng)mn_lng=lng;if(lng>mx_lng)mx_lng=lng; });
-      var dLat=(mx_lat-mn_lat)||0.01, dLng=(mx_lng-mn_lng)||0.01;
-      mn_lat-=dLat*0.12; mx_lat+=dLat*0.12; mn_lng-=dLng*0.12; mx_lng+=dLng*0.12;
-      var toX=function(lng){return ML+(lng-mn_lng)/(mx_lng-mn_lng)*CW;};
-      var toY=function(lat){return y+mH-(lat-mn_lat)/(mx_lat-mn_lat)*mH;};
-      /* fundo */
-      doc.setFillColor(220,235,245); doc.rect(ML,y,CW,mH,"F");
-      doc.setFillColor(228,242,228); doc.rect(ML,y+mH*0.6,CW,mH*0.4,"F");
-      /* grade */
-      doc.setDrawColor(195,215,230); doc.setLineWidth(0.15);
-      for(var gi=1;gi<4;gi++){var gx=ML+gi*CW/4,gy=y+gi*mH/4;doc.line(gx,y,gx,y+mH);doc.line(ML,gy,ML+CW,gy);}
-      /* sombra */
-      doc.setDrawColor(160,160,160); doc.setLineWidth(2);
-      for(var si=1;si<mapCoords.length;si++){doc.line(toX(mapCoords[si-1].lng)+0.4,toY(mapCoords[si-1].lat)+0.4,toX(mapCoords[si].lng)+0.4,toY(mapCoords[si].lat)+0.4);}
-      /* tracado */
-      doc.setDrawColor(232,160,0); doc.setLineWidth(1.6);
-      for(var ti=1;ti<mapCoords.length;ti++){doc.line(toX(mapCoords[ti-1].lng),toY(mapCoords[ti-1].lat),toX(mapCoords[ti].lng),toY(mapCoords[ti].lat));}
-      /* marcadores */
-      var p0=mapCoords[0];
-      doc.setFillColor(0,45,114);doc.circle(toX(p0.lng),toY(p0.lat),1.8,"F");
-      doc.setDrawColor(255,255,255);doc.setLineWidth(0.4);doc.circle(toX(p0.lng),toY(p0.lat),1.8,"S");
-      doc.setFontSize(6.5);doc.setTextColor(0,45,114);doc.setFont("helvetica","bold");
-      doc.text("INICIO",toX(p0.lng)+2.5,toY(p0.lat)+1.5);
-      var pN=mapCoords[mapCoords.length-1];
-      doc.setFillColor(198,40,40);doc.circle(toX(pN.lng),toY(pN.lat),1.5,"F");
-      doc.setDrawColor(255,255,255);doc.circle(toX(pN.lng),toY(pN.lat),1.5,"S");
-      doc.setFontSize(6.5);doc.setTextColor(198,40,40);doc.text("FIM",toX(pN.lng)+2,toY(pN.lat)+1.5);
-      /* borda */
-      doc.setDrawColor(160,192,216);doc.setLineWidth(0.4);doc.rect(ML,y,CW,mH,"S");
-      y += mH+2;
-      doc.setFontSize(6);doc.setTextColor(130);doc.setFont("helvetica","normal");
-      doc.text("Lat: "+mn_lat.toFixed(4)+" a "+mx_lat.toFixed(4)+"  |  Lon: "+mn_lng.toFixed(4)+" a "+mx_lng.toFixed(4)+"  |  "+mapCoords.length+" pts  |  (c) OSM contributors",ML,y);
-      y += 5;
     } else {
-      doc.setFillColor(232,240,248);doc.rect(ML,y,CW,mH,"F");
-      doc.setDrawColor(160,192,216);doc.setLineWidth(0.4);doc.rect(ML,y,CW,mH,"S");
-      doc.setFontSize(9);doc.setTextColor(150);doc.setFont("helvetica","normal");
-      doc.text("Tracado georeferenciado disponivel na plataforma digital.",ML+CW/2,y+mH/2,{align:"center"});
-      y += mH+5;
+      // Nenhuma imagem disponível — mostra placeholder informativo
+      var mH = 50;
+      if (y + mH > YM) { addPage(); y = Y0; }
+      doc.setFillColor(232,240,248); doc.rect(ML,y,CW,mH,"F");
+      doc.setDrawColor(160,192,216); doc.setLineWidth(0.4); doc.rect(ML,y,CW,mH,"S");
+      doc.setFontSize(9); doc.setTextColor(150); doc.setFont("helvetica","normal");
+      doc.text("Tracado georeferenciado disponivel na plataforma digital.", ML+CW/2, y+mH/2, {align:"center"});
+      doc.setFontSize(7); doc.setTextColor(170);
+      doc.text("(Instale o plugin leaflet-image para exportar o mapa automaticamente)", ML+CW/2, y+mH/2+6, {align:"center"});
+      y += mH + 5;
     }
   }
 
@@ -3207,8 +3274,18 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
   const nomeArq = (nomeObra||"obra")
     .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
     .replace(/[^a-zA-Z0-9 _-]/g,"").replace(/\s+/g,"_").toUpperCase();
+
+  // ── Numeração final: re-percorre TODAS as páginas com total correto ──────
+  const totalPgs = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= totalPgs; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7); doc.setTextColor(150); doc.setFont("helvetica","normal");
+    doc.text("Plataforma de Planejamento de Obras · DMOB/SEINFRA", ML, PH-FTR+3.5);
+    doc.text("Página " + i + "/" + totalPgs, PW-MR, PH-FTR+3.5, {align:"right"});
+  }
+
   doc.save("PLAN_" + nomeArq + "_" + new Date().toISOString().split("T")[0] + ".pdf");
-  // Reabilita botão (cobre tanto o caminho síncrono quanto o assíncrono via SVG)
+  // Reabilita botão
   const _btnPdf = document.querySelector(".btn-pdf-action");
   if (_btnPdf) { _btnPdf.textContent = "📄 Gerar PDF"; _btnPdf.disabled = false; }
 }
@@ -3625,6 +3702,8 @@ function gerarPreviewImpressao() {
 
 <!-- ══ LEAFLET ══ -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- leaflet-image: captura mapa Leaflet como canvas para exportação PDF -->
+  <script src="https://unpkg.com/leaflet-image@0.4.0/leaflet-image.js"></script>
 
 <script>
 // ═══════════════════════════════════════════════════════════════════
