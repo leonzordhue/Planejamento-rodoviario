@@ -190,6 +190,29 @@
     .chart-card { background: var(--branco); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.2rem; }
     .chart-title { font-size: 0.75rem; font-weight: 700; color: var(--azul); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 1rem; }
 
+    /* ══ ANÁLISE CRÍTICA ══ */
+    .critica-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin-bottom: 1.2rem; }
+    .critica-kpi-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.8rem; margin-bottom: 1.2rem; }
+    .critica-kpi { background: var(--branco); border-radius: var(--radius); padding: 0.9rem 1rem; box-shadow: var(--shadow); }
+    .critica-kpi-label { font-size: 0.6rem; font-weight: 700; color: var(--cinza-aux); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.3rem; }
+    .critica-kpi-value { font-size: 1.4rem; font-weight: 800; line-height: 1; }
+    .critica-kpi-unit { font-size: 0.62rem; color: var(--cinza-aux); font-weight: 500; margin-top: 0.15rem; }
+    .critica-kpi.normal .critica-kpi-value  { color: var(--verde); }
+    .critica-kpi.atencao .critica-kpi-value { color: var(--amarelo); }
+    .critica-kpi.critico .critica-kpi-value { color: var(--vermelho); }
+    .semaforo-legenda { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.8rem; align-items: center; }
+    .semaforo-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.7rem; color: var(--cinza-med); }
+    .semaforo-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+    .semaforo-dot.verde   { background: #4CAF50; }
+    .semaforo-dot.amarelo { background: #F5A623; }
+    .semaforo-dot.vermelho{ background: #C0392B; }
+    .conflito-lista { display: flex; flex-direction: column; gap: 0.5rem; max-height: 260px; overflow-y: auto; }
+    .conflito-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.55rem 0.8rem; border-radius: 8px; background: var(--vermelho-cl); border-left: 3px solid var(--vermelho); font-size: 0.78rem; color: var(--cinza-txt); }
+    .conflito-item-dia { font-weight: 800; color: var(--vermelho); min-width: 52px; font-size: 0.72rem; }
+    .conflito-item-recurso { font-weight: 700; text-transform: capitalize; min-width: 90px; color: var(--cinza-txt); }
+    .conflito-item-detalhe { color: var(--cinza-aux); font-size: 0.72rem; }
+    .conflito-ok { display: flex; align-items: center; gap: 0.7rem; padding: 1rem; background: var(--verde-cl); border-radius: 8px; color: var(--verde); font-size: 0.82rem; font-weight: 600; }
+
     /* ══ MEMORIAL ══ */
     .memorial-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
     .memorial-row { display: flex; justify-content: space-between; padding: 0.6rem 0; border-bottom: 1px solid var(--borda); align-items: center; }
@@ -585,6 +608,7 @@
   <button class="tab-btn" data-tab="eap">📊 EAP <span class="tab-badge verde" id="badge-eap">0</span></button>
   <button class="tab-btn" data-tab="gantt">📅 Cronograma</button>
   <button class="tab-btn" data-tab="histogramas">📈 Histogramas</button>
+  <button class="tab-btn" data-tab="analise">⚠️ Análise Crítica <span class="tab-badge" id="badge-analise" style="display:none">!</span></button>
   <button class="tab-btn" data-tab="memorial">📄 Memorial</button>
   <div style="margin-left:auto;display:flex;align-items:center;padding:0 0.5rem;">
     <button class="btn-imprimir" onclick="abrirModalImpressao()">🖨️ Imprimir / PDF</button>
@@ -1007,6 +1031,126 @@
       </div>
     </div>
   </div>
+
+  <!-- ─── ABA ANÁLISE CRÍTICA ─── -->
+  <div id="tab-analise" class="tab-panel" style="display:none">
+
+    <!-- Título -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.2rem;flex-wrap:wrap;gap:0.8rem">
+      <div class="sec-title" style="margin-bottom:0"><div class="sec-title-bar"></div><h2>Análise Crítica — Volume de Obra × Recursos</h2></div>
+      <div class="btn-group">
+        <button class="btn btn-outline btn-sm" id="btn-critica-mo" onclick="toggleDatasetCritica(0)">👷 MO Total</button>
+        <button class="btn btn-outline btn-sm" id="btn-critica-ativ" onclick="toggleDatasetCritica(1)">📋 Atividades</button>
+        <button class="btn btn-outline btn-sm" id="btn-critica-eqp" onclick="toggleDatasetCritica(2)">🚜 Equip.</button>
+      </div>
+    </div>
+
+    <!-- KPIs rápidos -->
+    <div class="critica-kpi-row" id="critica-kpis"></div>
+
+    <!-- Gráfico principal combo bar+line -->
+    <div class="card" style="margin-bottom:1.2rem">
+      <div class="card-header">
+        <div class="card-header-icon">📊</div>
+        <div class="card-header-title">Comparativo: Atividades Simultâneas × Mão de Obra × Equipamentos</div>
+        <div style="margin-left:auto;font-size:0.68rem;color:var(--cinza-aux)" id="critica-periodo"></div>
+      </div>
+      <div class="card-body">
+        <div style="position:relative;height:320px"><canvas id="chart-critica"></canvas></div>
+        <div class="semaforo-legenda">
+          <div class="semaforo-item"><div class="semaforo-dot verde"></div>Normal (MO &lt; 40% do pico)</div>
+          <div class="semaforo-item"><div class="semaforo-dot amarelo"></div>Atenção (40–70%)</div>
+          <div class="semaforo-item"><div class="semaforo-dot vermelho"></div>Crítico (&gt; 70% do pico)</div>
+          <div style="margin-left:auto;font-size:0.68rem;color:var(--cinza-aux)">Barras = MO diária total · Linha laranja = atividades simultâneas · Linha verde = equipamentos</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mapa de calor + conflitos -->
+    <div class="critica-grid">
+
+      <!-- Mapa de calor semanal -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-header-icon">🌡️</div>
+          <div class="card-header-title">Mapa de Calor — Carga Semanal</div>
+        </div>
+        <div class="card-body">
+          <div style="position:relative;height:220px"><canvas id="chart-calor"></canvas></div>
+          <div class="semaforo-legenda" style="margin-top:0.6rem">
+            <div class="semaforo-item"><div class="semaforo-dot verde"></div>Baixa (&lt; 40%)</div>
+            <div class="semaforo-item"><div class="semaforo-dot amarelo"></div>Média (40–70%)</div>
+            <div class="semaforo-item"><div class="semaforo-dot vermelho"></div>Alta (&gt; 70%)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detector de conflitos -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-header-icon">🔍</div>
+          <div class="card-header-title">Detector de Conflitos de Recursos</div>
+          <div style="margin-left:auto">
+            <select id="capacidade-preset" onchange="aplicarPresetCapacidade()" class="input-inline" style="font-size:0.7rem;padding:0.25rem 0.5rem;width:auto">
+              <option value="">Capacidade…</option>
+              <option value="p">Pequena (1 esc, 3 cam, 2 op, 4 srv)</option>
+              <option value="m">Média (2 esc, 6 cam, 3 op, 8 srv)</option>
+              <option value="g">Grande (4 esc, 12 cam, 6 op, 16 srv)</option>
+            </select>
+          </div>
+        </div>
+        <div class="card-body">
+          <!-- Inputs de capacidade -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:0.8rem">
+            <div class="form-group">
+              <label>Escavadeiras disp.</label>
+              <input class="input-inline" type="number" id="cap-escavadeira" value="2" min="0" oninput="renderConflitos()"/>
+            </div>
+            <div class="form-group">
+              <label>Caminhões disp.</label>
+              <input class="input-inline" type="number" id="cap-caminhao" value="6" min="0" oninput="renderConflitos()"/>
+            </div>
+            <div class="form-group">
+              <label>Operadores disp.</label>
+              <input class="input-inline" type="number" id="cap-operador" value="3" min="0" oninput="renderConflitos()"/>
+            </div>
+            <div class="form-group">
+              <label>Serventes disp.</label>
+              <input class="input-inline" type="number" id="cap-servente" value="8" min="0" oninput="renderConflitos()"/>
+            </div>
+          </div>
+          <div id="conflitos-lista" class="conflito-lista"></div>
+        </div>
+      </div>
+
+    </div><!-- /critica-grid -->
+
+    <!-- Tabela de dias críticos -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">📅</div>
+        <div class="card-header-title">Top 10 Dias de Pico de Mão de Obra</div>
+        <div style="margin-left:auto;font-size:0.68rem;color:var(--cinza-aux)" id="critica-total-dias"></div>
+      </div>
+      <div class="card-body" style="padding:0">
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Dia</th>
+              <th>Data (aprox.)</th>
+              <th class="right">MO Total</th>
+              <th class="right">Atividades ativas</th>
+              <th class="right">Equip. Total</th>
+              <th>Etapas em execução</th>
+              <th>Nível</th>
+            </tr></thead>
+            <tbody id="tbody-critica"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /tab-analise -->
 
   <!-- ─── ABA MEMORIAL ─── -->
   <div id="tab-memorial" class="tab-panel" style="display:none">
@@ -1470,6 +1614,7 @@ function switchTab(name) {
   if (name==="eap") renderEAP();
   if (name==="gantt") renderGantt();
   if (name==="histogramas") renderHistogramas();
+  if (name==="analise") renderAnaliseCritica();
   if (name==="memorial") renderMemorial();
 }
 
@@ -2406,7 +2551,10 @@ function _calcularTudoExec() {
   if (abaAtiva === "eap")         renderEAP();
   else if (abaAtiva === "gantt")       renderGantt();
   else if (abaAtiva === "histogramas") renderHistogramas();
+  else if (abaAtiva === "analise")     renderAnaliseCritica();
   else if (abaAtiva === "memorial")    renderMemorial();
+  // Atualiza badge de conflitos (sempre, em background)
+  _atualizarBadgeConflitos();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2880,10 +3028,9 @@ function _gerarPDFCompleto() {
   const timbrado = () => {
     doc.addImage("data:image/png;base64,"+_TIMBRADO_HDR,"PNG",0,0,PW,HDR,"_hdr","FAST");
     doc.addImage("data:image/png;base64,"+_TIMBRADO_FTR,"PNG",0,PH-FTR,PW,FTR,"_ftr","FAST");
-    doc.setFontSize(7); doc.setTextColor(150);
-    doc.setFont("helvetica","normal");
-    doc.text("Plataforma de Planejamento de Obras · DMOB/SEINFRA",ML,PH-FTR+3.5);
-    doc.text("Página "+pg, PW-MR, PH-FTR+3.5, {align:"right"});
+    // Texto institucional fixo — numeração será sobrescrita no loop final (Página X de Y)
+    doc.setFontSize(7); doc.setTextColor(150); doc.setFont("helvetica","normal");
+    doc.text("Plataforma de Planejamento de Obras · DMOB/SEINFRA", ML, PH-FTR+3.5);
   };
   const addPage = () => { pg++; doc.addPage(); timbrado(); y = Y0; };
   const chkBrk  = (h=8) => { if (y+h > YM) addPage(); };
@@ -2910,12 +3057,9 @@ function _gerarPDFCompleto() {
     doc.text(unit,x+2,y+13.5);
   };
   const didDrawPageFn = () => {
-    const pgAtual = doc.internal.getCurrentPageInfo().pageNumber;
+    // Apenas re-aplica os timbrados (imagens) — textos serão escritos no loop final
     doc.addImage("data:image/png;base64,"+_TIMBRADO_HDR,"PNG",0,0,PW,HDR,"_hdr","FAST");
     doc.addImage("data:image/png;base64,"+_TIMBRADO_FTR,"PNG",0,PH-FTR,PW,FTR,"_ftr","FAST");
-    doc.setFontSize(7); doc.setTextColor(150); doc.setFont("helvetica","normal");
-    doc.text("Plataforma de Planejamento de Obras · DMOB/SEINFRA",ML,PH-FTR+3.5);
-    doc.text("Pág. "+pgAtual,PW-MR,PH-FTR+3.5,{align:"right"});
   };
 
   /* ── Dados base ── */
@@ -3034,7 +3178,18 @@ function _gerarPDFCompleto() {
       },
       didDrawPage: didDrawPageFn
     });
-    y = doc.lastAutoTable.finalY + 8;
+    y = doc.lastAutoTable.finalY + 3;
+    // ── Legenda das colunas da EAP ──────────────────────────────────────
+    chkBrk(14);
+    doc.setFillColor(245,247,252); doc.rect(ML, y, CW, 12, "F");
+    doc.setDrawColor(200,210,230); doc.setLineWidth(0.3); doc.rect(ML, y, CW, 12, "S");
+    doc.setFontSize(6); doc.setTextColor(90); doc.setFont("helvetica","bold");
+    doc.text("LEGENDA:", ML+2, y+4);
+    doc.setFont("helvetica","normal"); doc.setTextColor(100);
+    const legendaEAP = "Und = Unidade  |  Qtde = Quantidade  |  MO(h) = Mão de obra (h·homem)  |  DP = Duração parcial (dias)  |  QE = Equipes  |  DA = Duração ajustada por equipe (dias)  |  Srv = Serventes  |  Opr = Operadores  |  Esc = Escavadeiras  |  Cam = Caminhões";
+    const legendaLines = doc.splitTextToSize(legendaEAP, CW-4);
+    doc.text(legendaLines, ML+2, y+8);
+    y += 14;
   }
 
   /* ── GANTT ── imagem SVG capturada + tabela fallback ── */
@@ -3095,9 +3250,38 @@ function _gerarPDFCompleto() {
       });
       y = doc.lastAutoTable.finalY + 8;
     }
+
+    // ── Legenda de cores do Gantt ────────────────────────────────────────
+    chkBrk(22);
+    doc.setFontSize(6.5); doc.setTextColor(80); doc.setFont("helvetica","bold");
+    doc.text("LEGENDA DE ETAPAS:", ML, y); y += 4;
+    const _legendaEtapas = [
+      {cor:[0,45,114],   label:"Canteiro / Mob."},
+      {cor:[46,125,50],  label:"Limpeza de Faixa"},
+      {cor:[93,64,55],   label:"Terraplenagem"},
+      {cor:[2,119,189],  label:"Drenagem"},
+      {cor:[106,27,154], label:"Sub-Base / Base"},
+      {cor:[198,40,40],  label:"Pavimentação"},
+      {cor:[249,168,37], label:"Sinalização Viária"},
+      {cor:[0,131,143],  label:"Meio-fio / Sarjeta"},
+    ];
+    const _legCols = 4;
+    const _legW = CW / _legCols;
+    doc.setFont("helvetica","normal");
+    _legendaEtapas.forEach(function(item, idx) {
+      const col = idx % _legCols;
+      const row = Math.floor(idx / _legCols);
+      const lx  = ML + col * _legW;
+      const ly  = y + row * 5.5;
+      doc.setFillColor(item.cor[0], item.cor[1], item.cor[2]);
+      doc.rect(lx, ly - 2.5, 5, 3.5, "F");
+      doc.setTextColor(60);
+      doc.text(item.label, lx + 6.5, ly);
+    });
+    const _legRows = Math.ceil(_legendaEtapas.length / _legCols);
+    y += _legRows * 5.5 + 6;
   }
 
-  
   _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM,pg,moTotal,pico,dataIni,maxDia,dataFim,durMes,nomeObra,PW,PH,FTR,HDR);
 }
 
@@ -3279,23 +3463,107 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
     }
   }
 
+  /* ── PÁGINA DE REFERÊNCIAS TÉCNICAS E METODOLOGIA ── */
+  addPage();
+  titulo("8. REFERENCIAS TECNICAS E METODOLOGIA DE CALCULO");
+  y = Y0 + 10;
+
+  // Introdução
+  doc.setFontSize(8); doc.setTextColor(80); doc.setFont("helvetica","normal");
+  var introLines = doc.splitTextToSize("Este documento foi elaborado pela Plataforma de Planejamento de Obras Rodoviarias v2.0, desenvolvida pelo Departamento de Mobilidade (DMOB) da Secretaria de Estado de Infraestrutura (SEINFRA/AM). Os calculos de prazo, mao de obra e equipamentos seguem metodologia baseada nas composicoes de custos unitarios do DNIT/SICRO2, adaptadas as condicoes operacionais do Estado do Amazonas.", CW);
+  doc.text(introLines, ML, y); y += introLines.length * 4.5 + 8;
+
+  // Fontes
+  chkBrk(8);
+  doc.setFillColor(245,247,252); doc.rect(ML, y-4, CW, 5, "F");
+  doc.setFontSize(8); doc.setTextColor(0,45,114); doc.setFont("helvetica","bold");
+  doc.text("FONTES E BASES DE DADOS", ML+2, y); y += 7;
+  var fontes = [
+    ["SICRO2 (DNIT)", "Sistema de Custos Referenciais de Obras — base para composicoes unitarias de servicos rodoviarios."],
+    ["Manuais DNIT",  "Manual de Implantacao de Rodovias, Manual de Pavimentacao e Especificacoes de Servicos (ES-P)."],
+    ["ABNT",          "Normas tecnicas de projeto geometrico, pavimentacao e obras de arte correntes."],
+    ["SEINFRA/AM",    "Planilha de Composicoes de Precos Unitarios e parametros regionais de produtividade amazonica."],
+    ["OpenStreetMap", "Base cartografica dos mapas de locacao (c) Contribuidores OSM — licenca ODbL."],
+    ["GeoJSON SEINFRA","Tracados georeferenciados dos ramais e rodovias estaduais do Amazonas."],
+  ];
+  doc.setFontSize(7.5);
+  fontes.forEach(function(f) {
+    chkBrk(8);
+    doc.setFont("helvetica","bold"); doc.setTextColor(0,45,114);
+    doc.text("• "+f[0]+":", ML+2, y);
+    doc.setFont("helvetica","normal"); doc.setTextColor(80);
+    var fLines = doc.splitTextToSize(f[1], CW-44);
+    doc.text(fLines, ML+44, y);
+    y += Math.max(5, fLines.length*4.5);
+  });
+  y += 5;
+
+  // Metodologia
+  chkBrk(8);
+  doc.setFillColor(245,247,252); doc.rect(ML, y-4, CW, 5, "F");
+  doc.setFontSize(8); doc.setTextColor(0,45,114); doc.setFont("helvetica","bold");
+  doc.text("METODOLOGIA DE CALCULO", ML+2, y); y += 7;
+  var metodos = [
+    ["MO Total (h·h)",          "MO_total = Qtde x Coeficiente_MO (h/unidade). Total de horas-homem para executar o servico conforme composicao SICRO2."],
+    ["DP — Duracao Prevista",   "DP = ARRED.PARA.CIMA( MO_total / Jornada ). Jornada padrao adotada: 8 h/dia. Resultado em dias corridos."],
+    ["DA — Duracao Ajustada",   "DA = ARRED.PARA.CIMA( DP / QE ). Considera o numero de equipes (QE) alocadas simultaneamente, reduzindo o prazo efetivo."],
+    ["QMO — Mao de Obra",       "QMO = ARRED.PARA.CIMA( Qtde x taxa_categoria / (DA x Jornada) ). Calculado para serventes, pedreiros e operadores."],
+    ["QEQ — Equipamentos",      "QEQ = Analogico ao QMO, usando coeficientes de equipamento (escavadeiras, rolos, caminhoes, motoniveladoras) do SICRO2."],
+    ["Histogramas de Recursos", "Somatoria diaria de MO e equipamentos ativos, considerando sobreposicao de frentes com a defasagem configurada entre KMs."],
+    ["Cronograma (Gantt)",      "Estruturado sequencialmente por KM. Canteiro executado primeiro; demais KMs seguem com defasagem fixa entre frentes."],
+  ];
+  doc.setFontSize(7.5);
+  metodos.forEach(function(m) {
+    chkBrk(12);
+    doc.setFont("helvetica","bold"); doc.setTextColor(0,45,114);
+    doc.text(m[0]+":", ML+2, y); y += 4.5;
+    doc.setFont("helvetica","normal"); doc.setTextColor(80);
+    var mLines = doc.splitTextToSize(m[1], CW-6);
+    doc.text(mLines, ML+4, y);
+    y += mLines.length*4.5 + 3;
+  });
+  y += 4;
+
+  // Observações
+  chkBrk(24);
+  doc.setFillColor(255,248,225); doc.rect(ML, y-3, CW, 20, "F");
+  doc.setDrawColor(245,168,35); doc.setLineWidth(0.5); doc.rect(ML, y-3, CW, 20, "S");
+  doc.setFontSize(7.5); doc.setTextColor(100,70,0); doc.setFont("helvetica","bold");
+  doc.text("OBSERVACOES IMPORTANTES", ML+3, y+1); y += 5;
+  doc.setFont("helvetica","normal");
+  var obs = [
+    "• Os valores sao estimativas para planejamento inicial. Devem ser validados em projeto executivo.",
+    "• Condicoes climaticas, logistica regional amazonica e disponibilidade de insumos impactam prazos reais.",
+    "• Jornada padrao de 8h/dia; ajuste na plataforma conforme jornada contratada da obra.",
+  ];
+  obs.forEach(function(o) { var oL = doc.splitTextToSize(o, CW-6); doc.text(oL, ML+3, y); y += oL.length*4.5 + 1; });
+  y += 8;
+  chkBrk(6);
+  doc.setFontSize(7); doc.setTextColor(130); doc.setFont("helvetica","normal");
+  doc.text("Elaborado: Plataforma de Planejamento de Obras Rodoviarias · DMOB/SEINFRA/AM · v2.0 · " + new Date().getFullYear(), ML, y);
+
   /* ── SALVAR ── */
-  const nomeArq = (nomeObra||"obra")
+  var nomeArq = (nomeObra||"obra")
     .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
     .replace(/[^a-zA-Z0-9 _-]/g,"").replace(/\s+/g,"_").toUpperCase();
 
-  // ── Numeração final: re-percorre TODAS as páginas com total correto ──────
-  const totalPgs = doc.internal.getNumberOfPages();
-  for (let i = 1; i <= totalPgs; i++) {
-    doc.setPage(i);
+  // ── Numeração FINAL ─────────────────────────────────────────────────────
+  // Percorre todas as páginas APÓS gerar todo o conteúdo.
+  // Cobre a área de texto do rodapé com rect branco antes de reescrever,
+  // eliminando acúmulo de texto de timbrado()/didDrawPageFn().
+  var totalPgs = doc.internal.getNumberOfPages();
+  for (var pi = 1; pi <= totalPgs; pi++) {
+    doc.setPage(pi);
+    // Limpa área de texto do rodapé (faixa de 6mm sobre o timbrado FTR)
+    doc.setFillColor(255,255,255); doc.rect(0, PH-FTR+1, PW, 6, "F");
+    // Reescreve texto limpo com "Página X de Y"
     doc.setFontSize(7); doc.setTextColor(150); doc.setFont("helvetica","normal");
-    doc.text("Plataforma de Planejamento de Obras · DMOB/SEINFRA", ML, PH-FTR+3.5);
-    doc.text("Página " + i + "/" + totalPgs, PW-MR, PH-FTR+3.5, {align:"right"});
+    doc.text("Plataforma de Planejamento de Obras Rodoviarias · DMOB/SEINFRA/AM", ML, PH-FTR+3.5);
+    doc.text("Pagina " + pi + " de " + totalPgs, PW-MR, PH-FTR+3.5, {align:"right"});
   }
 
   doc.save("PLAN_" + nomeArq + "_" + new Date().toISOString().split("T")[0] + ".pdf");
-  // Reabilita botão
-  const _btnPdf = document.querySelector(".btn-pdf-action");
+  var _btnPdf = document.querySelector(".btn-pdf-action");
   if (_btnPdf) { _btnPdf.textContent = "📄 Gerar PDF"; _btnPdf.disabled = false; }
 }
 
@@ -4421,6 +4689,475 @@ window.addEventListener("load", () => {
 });
 </script>
 
+
+<script>
+// ═══════════════════════════════════════════════════════
+// ANÁLISE CRÍTICA — Motor de dados diários
+// ═══════════════════════════════════════════════════════
+let _chartCritica = null;
+let _chartCalor   = null;
+
+// Gera array dia-a-dia com MO total, atividades simultâneas e equipamentos
+function _gerarDadosDiarios() {
+  if (!GANTT_DATA.length || !EAP_CALC.length) return [];
+  const maxDay = GANTT_DATA.reduce((mx, a) => Math.max(mx, a.termino), 0);
+  if (maxDay <= 0) return [];
+
+  const dailyMO   = new Array(maxDay + 1).fill(0);
+  const dailyEQP  = new Array(maxDay + 1).fill(0);
+  const dailyAtiv = new Array(maxDay + 1).fill(0);
+
+  GANTT_DATA.forEach(act => {
+    if (act.isHeader) return;
+    const kmNum = (act.km === "GERAL" || !act.km) ? null
+                : parseInt(act.km.replace("KM ", ""));
+    const svcs = EAP_CALC.filter(s => {
+      const sk = s.km ? parseInt(s.km) : null;
+      return sk === kmNum && s.etapa === act.etapaFull;
+    });
+    let mo = 0, eqp = 0;
+    svcs.forEach(s => {
+      mo  += (s.qmo.servente||0)+(s.qmo.pedreiro||0)
+           + (s.qmo.operador||0)+(s.qmo.carpinteiro||0);
+      eqp += (s.eqp.escavadeira||0)+(s.eqp.rolo||0)
+           + (s.eqp.caminhao||0)+(s.eqp.moto||0);
+    });
+    for (let d = act.inicio; d <= act.termino; d++) {
+      if (d < 1 || d > maxDay) continue;
+      dailyMO[d]   += mo;
+      dailyEQP[d]  += eqp;
+      dailyAtiv[d] += 1;
+    }
+  });
+
+  const result = [];
+  for (let d = 1; d <= maxDay; d++) {
+    result.push({ dia: d, mo: Math.round(dailyMO[d]), eqp: Math.round(dailyEQP[d]), ativ: dailyAtiv[d] });
+  }
+  return result;
+}
+
+// Classifica o nível de carga pelo ratio em relação ao pico
+function _nivelCarga(ratio) {
+  if (ratio < 0.40) return { label:"Normal",  cor:"#4CAF50", cls:"normal"  };
+  if (ratio < 0.70) return { label:"Atenção", cor:"#F5A623", cls:"atencao" };
+  return               { label:"Crítico", cor:"#C0392B", cls:"critico" };
+}
+
+// Agrupa por semana (reduz densidade no eixo X para obras longas)
+function _agruparPorSemana(dados) {
+  if (!dados.length) return [];
+  const semanas = [];
+  for (let i = 0; i < dados.length; i += 7) {
+    const bloco = dados.slice(i, i + 7);
+    semanas.push({
+      label: `Sem ${Math.floor(i/7)+1}`,
+      mo:   Math.round(bloco.reduce((s,d)=>s+d.mo,  0) / bloco.length),
+      eqp:  Math.round(bloco.reduce((s,d)=>s+d.eqp, 0) / bloco.length),
+      ativ: Math.round(bloco.reduce((s,d)=>s+d.ativ,0) / bloco.length),
+    });
+  }
+  return semanas;
+}
+
+// ── Render principal ────────────────────────────────────────────────────────
+function renderAnaliseCritica() {
+  const dados = _gerarDadosDiarios();
+  _renderCriticaKPIs(dados);
+
+  const agrupar = dados.length > 120;
+  const serie   = agrupar
+    ? _agruparPorSemana(dados)
+    : dados.map(d => ({ ...d, label: `D${d.dia}` }));
+
+  _renderChartCritica(serie, agrupar);
+  _renderChartCalor(_agruparPorSemana(dados));
+  _renderTabelaCritica(dados);
+  renderConflitos();
+
+  const el = document.getElementById("critica-periodo");
+  if (el && dados.length)
+    el.textContent = `${dados.length} dias úteis · ${Math.ceil(dados.length/30)} meses`;
+}
+
+// ── KPIs ────────────────────────────────────────────────────────────────────
+function _renderCriticaKPIs(dados) {
+  const el = document.getElementById("critica-kpis");
+  if (!el) return;
+  if (!dados.length) { el.innerHTML = ""; return; }
+
+  const picoMO   = Math.max(...dados.map(d=>d.mo));
+  const picoAtiv = Math.max(...dados.map(d=>d.ativ));
+  const picoEQP  = Math.max(...dados.map(d=>d.eqp));
+  const diasCrit = dados.filter(d=>d.mo > picoMO*0.70).length;
+  const diasAten = dados.filter(d=>d.mo >= picoMO*0.40 && d.mo <= picoMO*0.70).length;
+  const pctCrit  = dados.length ? Math.round(diasCrit/dados.length*100) : 0;
+
+  const nivelGeral = diasCrit > dados.length*0.25
+    ? { label:"CRÍTICO", cls:"critico" }
+    : (diasCrit > 0 || diasAten > dados.length*0.30)
+      ? { label:"ATENÇÃO", cls:"atencao" }
+      : { label:"NORMAL",  cls:"normal"  };
+
+  // Badge na aba
+  const badge = document.getElementById("badge-analise");
+  if (badge) {
+    if (diasCrit > 0) {
+      badge.textContent = diasCrit;
+      badge.style.display = "inline-block";
+      badge.style.background = "#C0392B";
+      badge.style.color = "#fff";
+      badge.style.borderColor = "#C0392B";
+    } else {
+      badge.style.display = "none";
+    }
+  }
+
+  const kpis = [
+    { label:"Pico MO / dia",          v:picoMO,        unit:"pessoas",   cls:_nivelCarga(1).cls },
+    { label:"Pico atividades / dia",   v:picoAtiv,      unit:"simultâneas",cls:"normal" },
+    { label:"Pico equipamentos / dia", v:picoEQP,       unit:"unidades",  cls:"normal" },
+    { label:"Dias críticos (>70%)",    v:diasCrit,      unit:"dias",      cls:diasCrit>0?"critico":"normal" },
+    { label:"Dias em atenção",         v:diasAten,      unit:"dias",      cls:diasAten>0?"atencao":"normal" },
+    { label:"% período crítico",       v:pctCrit+"%",   unit:"",          cls:pctCrit>25?"critico":pctCrit>0?"atencao":"normal" },
+    { label:"Status geral da obra",    v:nivelGeral.label, unit:"",       cls:nivelGeral.cls },
+  ];
+
+  el.innerHTML = kpis.map(k=>`
+    <div class="critica-kpi ${k.cls}">
+      <div class="critica-kpi-label">${k.label}</div>
+      <div class="critica-kpi-value">${k.v}</div>
+      <div class="critica-kpi-unit">${k.unit}</div>
+    </div>`).join("");
+}
+
+// ── Gráfico combo bar + 2 linhas ────────────────────────────────────────────
+function toggleDatasetCritica(idx) {
+  if (!_chartCritica) return;
+  _chartCritica.setDatasetVisibility(idx, !_chartCritica.isDatasetVisible(idx));
+  _chartCritica.update();
+}
+
+function _renderChartCritica(serie, agrupado) {
+  const ctx = document.getElementById("chart-critica");
+  if (!ctx) return;
+  if (_chartCritica) { _chartCritica.destroy(); _chartCritica = null; }
+  if (!serie.length) return;
+
+  const picoMO = Math.max(...serie.map(d=>d.mo), 1);
+  const cores  = serie.map(d => {
+    const r = d.mo / picoMO;
+    if (r < 0.40) return "rgba(76,175,80,0.78)";
+    if (r < 0.70) return "rgba(245,166,35,0.82)";
+    return "rgba(192,57,43,0.85)";
+  });
+  const labels = serie.map(d => d.label || `D${d.dia}`);
+
+  _chartCritica = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "MO Total (pessoas/dia)",
+          data: serie.map(d=>d.mo),
+          backgroundColor: cores,
+          borderRadius: 3,
+          yAxisID: "y",
+          order: 2,
+        },
+        {
+          label: "Atividades simultâneas",
+          data: serie.map(d=>d.ativ),
+          type: "line",
+          borderColor: "#F5A623",
+          backgroundColor: "rgba(245,166,35,0.08)",
+          borderWidth: 2.5,
+          pointRadius: agrupado ? 3 : 0,
+          tension: 0.3,
+          fill: false,
+          yAxisID: "y1",
+          order: 1,
+        },
+        {
+          label: "Equipamentos (unid./dia)",
+          data: serie.map(d=>d.eqp),
+          type: "line",
+          borderColor: "#2E7D32",
+          backgroundColor: "rgba(46,125,50,0.08)",
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: false,
+          yAxisID: "y1",
+          order: 1,
+          hidden: true,
+        },
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      animation: { duration: 250 },
+      plugins: {
+        legend: {
+          position: "top",
+          labels: { font:{family:"Outfit",size:11}, color:"#4A5568", boxWidth:14, padding:12 }
+        },
+        tooltip: {
+          callbacks: {
+            afterBody(ctx) {
+              const dIdx = ctx[0]?.dataIndex;
+              if (dIdx == null || !GANTT_DATA.length) return "";
+              const diaRef = agrupado ? (dIdx*7+4) : (dIdx+1);
+              const etapas = [...new Set(
+                GANTT_DATA
+                  .filter(a => !a.isHeader && a.inicio<=diaRef && a.termino>=diaRef)
+                  .map(a=>a.etapaFull)
+              )];
+              return etapas.length ? ["","Etapas:", ...etapas.map(e=>"  · "+e)] : "";
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid:{ display:false },
+          ticks:{ font:{family:"Outfit",size:9}, color:"#8896A8", maxRotation:0, autoSkip:true, maxTicksLimit:26 }
+        },
+        y: {
+          position:"left", beginAtZero:true,
+          title:{ display:true, text:"Pessoas / dia", font:{family:"Outfit",size:10} },
+          ticks:{ font:{family:"Outfit",size:10}, color:"#8896A8", precision:0 },
+          grid:{ color:"rgba(0,0,0,0.05)" }
+        },
+        y1: {
+          position:"right", beginAtZero:true,
+          title:{ display:true, text:"Atividades / Equipamentos", font:{family:"Outfit",size:10} },
+          ticks:{ font:{family:"Outfit",size:10}, color:"#8896A8", precision:0 },
+          grid:{ drawOnChartArea:false }
+        },
+      }
+    }
+  });
+}
+
+// ── Mapa de calor semanal ────────────────────────────────────────────────────
+function _renderChartCalor(semanas) {
+  const ctx = document.getElementById("chart-calor");
+  if (!ctx) return;
+  if (_chartCalor) { _chartCalor.destroy(); _chartCalor = null; }
+  if (!semanas.length) return;
+
+  const picoMO = Math.max(...semanas.map(s=>s.mo), 1);
+  const cores  = semanas.map(s => {
+    const r = s.mo / picoMO;
+    if (r < 0.40) return "#4CAF50";
+    if (r < 0.70) return "#F5A623";
+    return "#C0392B";
+  });
+
+  _chartCalor = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: semanas.map(s=>s.label),
+      datasets:[{
+        label: "Carga média MO",
+        data: semanas.map(s=>s.mo),
+        backgroundColor: cores,
+        borderRadius: 5,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation:{ duration:250 },
+      plugins: {
+        legend:{ display:false },
+        tooltip:{
+          callbacks:{
+            label: ctx => ` ${ctx.raw} pessoas/dia (média semanal)`,
+            afterLabel: ctx => {
+              const r = picoMO > 0 ? ctx.raw/picoMO : 0;
+              return "Nível: " + _nivelCarga(r).label;
+            }
+          }
+        }
+      },
+      scales: {
+        x:{ grid:{display:false}, ticks:{font:{family:"Outfit",size:10},color:"#8896A8"} },
+        y:{ beginAtZero:true, ticks:{font:{family:"Outfit",size:10},color:"#8896A8",precision:0}, grid:{color:"rgba(0,0,0,0.05)"} }
+      }
+    }
+  });
+}
+
+// ── Tabela top-10 dias de pico ───────────────────────────────────────────────
+function _renderTabelaCritica(dados) {
+  const tbody  = document.getElementById("tbody-critica");
+  const elInfo = document.getElementById("critica-total-dias");
+  if (!tbody) return;
+  if (!dados.length) {
+    tbody.innerHTML = "<tr><td colspan='7'><div class='empty-state'><p>Sem dados calculados.</p></div></td></tr>";
+    return;
+  }
+
+  const picoMO   = Math.max(...dados.map(d=>d.mo), 1);
+  const dataIni  = getV("obra-inicio");
+  const baseDate = dataIni ? new Date(dataIni+"T00:00:00") : null;
+  if (elInfo) elInfo.textContent = `${dados.length} dias no cronograma`;
+
+  const top10 = [...dados].sort((a,b)=>b.mo-a.mo).slice(0,10);
+
+  tbody.innerHTML = top10.map(d => {
+    const ratio   = d.mo / picoMO;
+    const nivel   = _nivelCarga(ratio);
+    const dataStr = baseDate
+      ? new Date(baseDate.getTime()+(d.dia-1)*86400000).toLocaleDateString("pt-BR")
+      : "—";
+    const etapas  = [...new Set(
+      GANTT_DATA
+        .filter(a => !a.isHeader && a.inicio<=d.dia && a.termino>=d.dia)
+        .map(a=>a.etapaFull)
+    )];
+    return `<tr>
+      <td class="bold">Dia ${d.dia}</td>
+      <td>${dataStr}</td>
+      <td class="right bold" style="color:#0277BD">${d.mo}</td>
+      <td class="right">${d.ativ}</td>
+      <td class="right" style="color:#2E7D32">${d.eqp}</td>
+      <td style="font-size:0.75rem;white-space:normal;max-width:260px">${etapas.join(" · ")||"—"}</td>
+      <td><span style="background:${nivel.cor};color:#fff;font-size:0.62rem;font-weight:700;padding:0.15rem 0.55rem;border-radius:100px">${nivel.label}</span></td>
+    </tr>`;
+  }).join("");
+}
+
+// ── Detector de conflitos ────────────────────────────────────────────────────
+function _getCapacidade() {
+  return {
+    escavadeira: Math.max(0, parseInt(document.getElementById("cap-escavadeira")?.value)||0),
+    caminhao:    Math.max(0, parseInt(document.getElementById("cap-caminhao")?.value)   ||0),
+    operador:    Math.max(0, parseInt(document.getElementById("cap-operador")?.value)   ||0),
+    servente:    Math.max(0, parseInt(document.getElementById("cap-servente")?.value)   ||0),
+  };
+}
+
+function aplicarPresetCapacidade() {
+  const v = document.getElementById("capacidade-preset")?.value;
+  if (!v) return;
+  const presets = {
+    p:{ escavadeira:1, caminhao:3,  operador:2, servente:4  },
+    m:{ escavadeira:2, caminhao:6,  operador:3, servente:8  },
+    g:{ escavadeira:4, caminhao:12, operador:6, servente:16 },
+  };
+  const p = presets[v];
+  if (!p) return;
+  ["escavadeira","caminhao","operador","servente"].forEach(k=>{
+    const el = document.getElementById("cap-"+k);
+    if (el && p[k] != null) el.value = p[k];
+  });
+  renderConflitos();
+}
+
+function _detectarConflitos() {
+  if (!GANTT_DATA.length || !EAP_CALC.length) return [];
+  const cap    = _getCapacidade();
+  const maxDay = GANTT_DATA.reduce((mx,a)=>Math.max(mx,a.termino),0);
+
+  const uso = { escavadeira:{}, caminhao:{}, operador:{}, servente:{} };
+
+  GANTT_DATA.forEach(act => {
+    if (act.isHeader) return;
+    const kmNum = (act.km==="GERAL"||!act.km) ? null : parseInt(act.km.replace("KM ",""));
+    const svcs  = EAP_CALC.filter(s=>{
+      const sk = s.km ? parseInt(s.km) : null;
+      return sk===kmNum && s.etapa===act.etapaFull;
+    });
+    let escav=0, cam=0, op=0, srv=0;
+    svcs.forEach(s=>{
+      escav += s.eqp.escavadeira||0;
+      cam   += s.eqp.caminhao   ||0;
+      op    += s.qmo.operador   ||0;
+      srv   += s.qmo.servente   ||0;
+    });
+    for (let d=act.inicio; d<=act.termino; d++) {
+      uso.escavadeira[d] = (uso.escavadeira[d]||0)+escav;
+      uso.caminhao[d]    = (uso.caminhao[d]   ||0)+cam;
+      uso.operador[d]    = (uso.operador[d]   ||0)+op;
+      uso.servente[d]    = (uso.servente[d]   ||0)+srv;
+    }
+  });
+
+  // Detecta dias com excesso e agrupa em blocos consecutivos por recurso
+  const conflitos = [];
+  ["escavadeira","caminhao","operador","servente"].forEach(tipo => {
+    if (!cap[tipo]) return; // capacidade = 0 → não monitora
+    const diasConflito = [];
+    for (let d=1; d<=maxDay; d++) {
+      const u = Math.round(uso[tipo][d]||0);
+      if (u > cap[tipo]) diasConflito.push({ d, excesso: u - cap[tipo], usado: u });
+    }
+    if (!diasConflito.length) return;
+    // Agrupa consecutivos
+    let ini = diasConflito[0].d, fim = diasConflito[0].d, maxExc = diasConflito[0].excesso;
+    for (let i=1; i<diasConflito.length; i++) {
+      if (diasConflito[i].d === diasConflito[i-1].d+1) {
+        fim = diasConflito[i].d;
+        if (diasConflito[i].excesso > maxExc) maxExc = diasConflito[i].excesso;
+      } else {
+        conflitos.push({ recurso:tipo, ini, fim, maxExc, cap:cap[tipo] });
+        ini = diasConflito[i].d; fim = diasConflito[i].d; maxExc = diasConflito[i].excesso;
+      }
+    }
+    conflitos.push({ recurso:tipo, ini, fim, maxExc, cap:cap[tipo] });
+  });
+  return conflitos;
+}
+
+function renderConflitos() {
+  const el = document.getElementById("conflitos-lista");
+  if (!el) return;
+  if (!GANTT_DATA.length || !EAP_CALC.length) {
+    el.innerHTML = "<div class='empty-state' style='padding:1rem 0'><p>Calcule o cronograma primeiro.</p></div>";
+    return;
+  }
+  const conflitos = _detectarConflitos();
+  if (!conflitos.length) {
+    el.innerHTML = `<div class="conflito-ok">✅ Nenhum conflito detectado com a capacidade informada.</div>`;
+    return;
+  }
+  const nomes = { escavadeira:"Escavadeiras", caminhao:"Caminhões", operador:"Operadores", servente:"Serventes" };
+  el.innerHTML = conflitos.map(c => {
+    const diasStr = c.ini===c.fim ? `Dia ${c.ini}` : `Dias ${c.ini}–${c.fim}`;
+    return `<div class="conflito-item">
+      <div class="conflito-item-dia">${diasStr}</div>
+      <div class="conflito-item-recurso">${nomes[c.recurso]||c.recurso}</div>
+      <div class="conflito-item-detalhe">Excesso máx.: +${c.maxExc} · Cap.: ${c.cap}</div>
+    </div>`;
+  }).join("");
+}
+
+// Atualiza badge em background (chamado por _calcularTudoExec)
+function _atualizarBadgeConflitos() {
+  if (!GANTT_DATA.length || !EAP_CALC.length) return;
+  const dados = _gerarDadosDiarios();
+  if (!dados.length) return;
+  const picoMO   = Math.max(...dados.map(d=>d.mo), 1);
+  const diasCrit = dados.filter(d=>d.mo > picoMO*0.70).length;
+  const badge    = document.getElementById("badge-analise");
+  if (!badge) return;
+  if (diasCrit > 0) {
+    badge.textContent = diasCrit;
+    badge.style.display = "inline-block";
+    badge.style.background = "#C0392B";
+    badge.style.color = "#fff";
+    badge.style.borderColor = "#C0392B";
+  } else {
+    badge.style.display = "none";
+  }
+}
+</script>
 
 <script>
 // ── Sticky tabs-bar: recalcula top dinamicamente conforme altura do header ──
