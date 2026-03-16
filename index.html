@@ -2823,35 +2823,44 @@ function _capturarMapaImg(cb) {
     // Força redimensionamento do Leaflet para carregar tiles corretamente
     _leafletMap.invalidateSize(true);
 
-    // Aguarda tiles carregarem (500ms) antes de capturar
+    // Aguarda tiles carregarem (1200ms) — necessário para OSM via crossOrigin
     setTimeout(function() {
-      // Tenta leaflet-image (plugin especializado)
+      // Tenta leaflet-image (plugin especializado para Leaflet)
       if (typeof leafletImage === "function") {
         leafletImage(_leafletMap, function(err, canvas) {
           if (wasH && tabMem) tabMem.style.display = "none";
           if (err || !canvas) { cb(null); return; }
-          try { cb(canvas.toDataURL("image/png")); } catch(e) { cb(null); }
+          try {
+            // Upscale 2× para nitidez no PDF (usa canvas intermediário)
+            var bigCanvas = document.createElement("canvas");
+            bigCanvas.width  = canvas.width  * 2;
+            bigCanvas.height = canvas.height * 2;
+            var ctx = bigCanvas.getContext("2d");
+            ctx.scale(2, 2);
+            ctx.drawImage(canvas, 0, 0);
+            cb(bigCanvas.toDataURL("image/png", 1.0));
+          } catch(e) { cb(null); }
         });
       } else {
-        // Fallback: captura container via html2canvas se disponível
+        // Fallback: html2canvas se disponível
         if (typeof html2canvas === "function") {
-          const container = document.getElementById("mapa-rodovia");
+          var container = document.getElementById("mapa-rodovia");
           html2canvas(container, {
             useCORS: true, allowTaint: false,
             backgroundColor: "#f0f4f8", scale: 2, logging: false
           }).then(function(canvas) {
             if (wasH && tabMem) tabMem.style.display = "none";
-            try { cb(canvas.toDataURL("image/png")); } catch(e) { cb(null); }
+            try { cb(canvas.toDataURL("image/png", 1.0)); } catch(e) { cb(null); }
           }).catch(function() {
             if (wasH && tabMem) tabMem.style.display = "none";
             cb(null);
           });
         } else {
           if (wasH && tabMem) tabMem.style.display = "none";
-          cb(null); // nenhum método disponível
+          cb(null);
         }
       }
-    }, 600);
+    }, 1200);
   } catch(e) { cb(null); }
 }
 
@@ -4120,10 +4129,14 @@ function initMapa() {
 
   if (!_mapaIniciado) {
     _mapaIniciado = true;
-    _leafletMap = L.map("mapa-rodovia", { zoomControl: true }).setView([-3.5, -62], 6);
+    _leafletMap = L.map("mapa-rodovia", {
+      zoomControl: true,
+      preferCanvas: true   // Canvas > SVG para captura PDF (compatível com leaflet-image)
+    }).setView([-3.5, -62], 6);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
       maxZoom: 18,
+      crossOrigin: true    // ESSENCIAL: permite captura canvas sem bloqueio CORS
     }).addTo(_leafletMap);
   }
 
