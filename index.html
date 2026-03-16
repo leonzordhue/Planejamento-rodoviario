@@ -287,6 +287,7 @@
     /* ══ ANIMAÇÕES ══ */
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    @keyframes fadeInUp { from{opacity:0;transform:translateX(-50%) translateY(10px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
     .tab-panel { animation: fadeIn 0.25s ease; }
 
     /* ══ EMPTY STATE ══ */
@@ -980,7 +981,7 @@
         <button class="btn btn-primary" onclick="addServico()">+ Serviço no KM atual</button>
         <button class="btn btn-outline btn-sm" onclick="addNovoKm()" style="color:var(--azul);border-color:var(--azul-borda);font-weight:700;" title="Duplica os serviços para um novo KM">📍 Novo KM</button>
         <button class="btn btn-outline btn-sm" onclick="autoPreencherServicos()" style="background:var(--amarelo);color:var(--azul);border-color:var(--amarelo);font-weight:700;" title="Gera serviços padrão por tipo × extensão">⚡ Auto-Preencher</button>
-        <button class="btn btn-outline btn-sm" onclick="calcularTudo()">🔄 Recalcular</button>
+        <button class="btn btn-outline btn-sm" onclick="calcularTudo();_toastRecalcular()">🔄 Recalcular</button>
       </div>
     </div>
 
@@ -2406,17 +2407,18 @@ function renderGantt() {
 
   // Linhas de atividades
   acts.forEach((act,i)=>{
-    const y   = HDR_H+i*ROW_H;
-    const cor = act.frenteCor || etapaCor(act.etapa);
+    const y       = HDR_H+i*ROW_H;
+    const corBarra = act.isTranslado ? "#F5A623" : etapaCor(act.etapa); // sempre cor da etapa
+    const corFrente = act.frenteCor || null;
 
     // Header de frente — linha de separação especial
     if (act.isHeader) {
-      svg += `<rect x="0" y="${y}" width="${SVG_W}" height="${ROW_H}" fill="${act.frenteCor}22"/>`;
-      svg += `<rect x="0" y="${y}" width="4" height="${ROW_H}" fill="${act.frenteCor}"/>`;
-      svg += `<line x1="0" y1="${y+ROW_H}" x2="${SVG_W}" y2="${y+ROW_H}" stroke="${act.frenteCor}" stroke-width="1"/>`;
-      svg += `<text x="12" y="${y+ROW_H/2+4}" font-size="9" fill="${act.frenteCor}" font-weight="800">${act.atividade}</text>`;
-      svg += `<text x="248" y="${y+ROW_H/2+4}" font-size="8" fill="${act.frenteCor}" text-anchor="middle">${act.inicio}</text>`;
-      svg += `<line x1="${LBLW+(act.inicio-1)*PPD}" y1="${y}" x2="${LBLW+(act.inicio-1)*PPD}" y2="${SVG_H}" stroke="${act.frenteCor}" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.5"/>`;
+      svg += `<rect x="0" y="${y}" width="${SVG_W}" height="${ROW_H}" fill="${corFrente}22"/>`;
+      svg += `<rect x="0" y="${y}" width="4" height="${ROW_H}" fill="${corFrente}"/>`;
+      svg += `<line x1="0" y1="${y+ROW_H}" x2="${SVG_W}" y2="${y+ROW_H}" stroke="${corFrente}" stroke-width="1"/>`;
+      svg += `<text x="12" y="${y+ROW_H/2+4}" font-size="9" fill="${corFrente}" font-weight="800">${act.atividade}</text>`;
+      svg += `<text x="248" y="${y+ROW_H/2+4}" font-size="8" fill="${corFrente}" text-anchor="middle">${act.inicio}</text>`;
+      svg += `<line x1="${LBLW+(act.inicio-1)*PPD}" y1="${y}" x2="${LBLW+(act.inicio-1)*PPD}" y2="${SVG_H}" stroke="${corFrente}" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.5"/>`;
       return;
     }
 
@@ -2425,8 +2427,8 @@ function renderGantt() {
     const bg   = i%2===0?"#F5F7FB":"#ffffff";
     svg += `<rect x="0" y="${y}" width="${LBLW}" height="${ROW_H}" fill="${bg}"/>`;
     svg += `<line x1="0" y1="${y+ROW_H}" x2="${SVG_W}" y2="${y+ROW_H}" stroke="#E0E6F0" stroke-width="0.5"/>`;
-    if (act.frenteCor) {
-      svg += `<rect x="0" y="${y}" width="3" height="${ROW_H}" fill="${act.frenteCor}" opacity="0.5"/>`;
+    if (corFrente) {
+      svg += `<rect x="0" y="${y}" width="3" height="${ROW_H}" fill="${corFrente}" opacity="0.7"/>`;
     }
     const isCanteiroKm = canteiroKm > 0 && act.km === `KM ${canteiroKm}`;
     const kmLabel = isCanteiroKm ? `📍 ${act.km}` : act.km;
@@ -2434,8 +2436,8 @@ function renderGantt() {
     const label = act.atividade.length>30?act.atividade.substring(0,28)+"...":act.atividade;
     svg += `<text x="52" y="${y+ROW_H/2+4}" font-size="8.5" fill="#1A2540">${label}</text>`;
     svg += `<text x="248" y="${y+ROW_H/2+4}" font-size="8" fill="#4A5568" text-anchor="middle">${act.inicio}</text>`;
-    svg += `<text x="278" y="${y+ROW_H/2+4}" font-size="8" fill="${cor}" text-anchor="middle" font-weight="700">${act.duracao}d</text>`;
-    svg += `<rect x="${barX}" y="${y+5}" width="${barW}" height="${ROW_H-10}" fill="${cor}" rx="4" opacity="0.85"/>`;
+    svg += `<text x="278" y="${y+ROW_H/2+4}" font-size="8" fill="${corBarra}" text-anchor="middle" font-weight="700">${act.duracao}d</text>`;
+    svg += `<rect x="${barX}" y="${y+5}" width="${barW}" height="${ROW_H-10}" fill="${corBarra}" rx="4" opacity="0.85"/>`;
     if (barW>30) {
       const bl = act.atividade.split(" ")[0].substring(0,8);
       svg += `<text x="${barX+6}" y="${y+ROW_H/2+4}" font-size="7.5" fill="white" font-weight="700">${bl}</text>`;
@@ -2698,6 +2700,34 @@ let _calcTimer = null;
 function calcularTudo() {
   clearTimeout(_calcTimer);
   _calcTimer = setTimeout(_calcularTudoExec, 150);
+}
+
+function _toastRecalcular() {
+  // Remove toast anterior se existir
+  const prev = document.getElementById("toast-recalcular");
+  if (prev) prev.remove();
+  const t = document.createElement("div");
+  t.id = "toast-recalcular";
+  t.style.cssText = `
+    position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);z-index:3000;
+    background:#002D72;color:#fff;border-radius:10px;
+    padding:0.65rem 1.4rem;font-size:0.82rem;font-weight:600;
+    box-shadow:0 6px 24px rgba(0,20,60,0.3);
+    display:flex;align-items:center;gap:0.6rem;
+    white-space:nowrap;pointer-events:none;
+    animation:fadeInUp .2s ease;
+  `;
+  // Verifica após o debounce se o cálculo foi feito
+  const n = (SERVICOS.length||0);
+  t.innerHTML = `<span style="font-size:1rem">🔄</span> Recalculando ${n} serviço${n!==1?"s":""}…`;
+  document.body.appendChild(t);
+  // Após o debounce (150ms) + render, mostra confirmação
+  setTimeout(()=>{
+    const nGantt = (GANTT_DATA||[]).filter(a=>!a.isHeader&&!a.isTranslado).length;
+    t.innerHTML = `<span style="font-size:1rem">✅</span> Cronograma atualizado — ${nGantt} atividade${nGantt!==1?"s":""} gerada${nGantt!==1?"s":""}`;
+    t.style.background = "#1B5E20";
+    setTimeout(()=>{ t.style.transition="opacity .4s"; t.style.opacity="0"; setTimeout(()=>t.remove(),450); }, 3000);
+  }, 400);
 }
 function _calcularTudoExec() {
   const jornada = parseInt(getV("obra-jornada")) || 8;
