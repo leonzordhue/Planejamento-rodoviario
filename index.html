@@ -1403,11 +1403,11 @@ const PARAMETROS = {
   ],
   "MANUTENÇÃO RODOVIÁRIA": [
     { etapa:"Canteiro / Sinalização de Obra", prazo:10, porKm:false },
-    { etapa:"Roçada e Limpeza",           prazo:250, porKm:false },
-    { etapa:"Recuperação de Drenagem",    prazo:190, porKm:false },
-    { etapa:"Guarda-corpo e Defensas",    prazo:195, porKm:false },
-    { etapa:"Recomposição de Pavimento",  prazo:120, porKm:false },
-    { etapa:"Sinalização",                prazo:230, porKm:false },
+    { etapa:"Roçada e Limpeza",           prazo:3,  porKm:true  },
+    { etapa:"Recuperação de Drenagem",    prazo:4,  porKm:true  },
+    { etapa:"Guarda-corpo e Defensas",    prazo:2,  porKm:true  },
+    { etapa:"Recomposição de Pavimento",  prazo:8,  porKm:true  },
+    { etapa:"Sinalização",                prazo:2,  porKm:true  },
   ],
 };
 
@@ -1509,7 +1509,14 @@ function gerarCronograma() {
   const canteiro = parseFloat(getV("obra-canteiro")) || 0;
   const params   = PARAMETROS[tipo] || PARAMETROS["RAMAL / VICINAL"];
   const canteiroParam = params.find(p => !p.porKm) || { etapa:"Canteiro de Obras", prazo:10 };
-  const seq      = params.filter(p => p.porKm);
+  // seq = etapas por KM. Se todas forem globais (ex: tipo legado), usa todas as não-canteiro como por-KM
+  let seq = params.filter(p => p.porKm);
+  if (!seq.length) {
+    seq = params.filter(p => p.porKm !== undefined ? p.porKm : true)
+               .filter(p => p.etapa !== canteiroParam.etapa);
+    // Se ainda vazio, usa todos exceto canteiro
+    if (!seq.length) seq = params.filter(p => p.etapa !== canteiroParam.etapa);
+  }
   const acts     = [];
 
   const durEtapa = (etapa, km) => {
