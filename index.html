@@ -213,6 +213,17 @@
     .conflito-item-detalhe { color: var(--cinza-aux); font-size: 0.72rem; }
     .conflito-ok { display: flex; align-items: center; gap: 0.7rem; padding: 1rem; background: var(--verde-cl); border-radius: 8px; color: var(--verde); font-size: 0.82rem; font-weight: 600; }
 
+    /* ══ TRECHOS ══ */
+    .trechos-wrap { margin-top:0.9rem; display:flex; flex-direction:column; gap:0; border-radius:8px; overflow:hidden; border:1.5px solid var(--borda); }
+    .trecho-row { display:grid; grid-template-columns:auto 1fr 80px 80px 90px 80px 36px; gap:0.5rem; align-items:center; padding:0.55rem 0.7rem; background:var(--branco); border-bottom:1px solid var(--borda); font-size:0.78rem; }
+    .trecho-row:last-child { border-bottom:none; }
+    .trecho-row.head { background:var(--azul); font-size:0.62rem; font-weight:700; color:rgba(255,255,255,0.85); text-transform:uppercase; letter-spacing:0.07em; padding:0.4rem 0.7rem; }
+    .trecho-row input { font-family:var(--font); font-size:0.78rem; padding:0.3rem 0.5rem; border:1.5px solid var(--borda); border-radius:6px; background:var(--branco); color:var(--cinza-txt); width:100%; }
+    .trecho-row input:focus { outline:none; border-color:var(--azul); }
+    .trecho-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+    .trecho-total-bar { background:var(--azul-claro); border-radius:0 0 8px 8px; padding:0.4rem 0.7rem; font-size:0.7rem; color:var(--azul); font-weight:700; display:flex; gap:1.2rem; flex-wrap:wrap; }
+    .translado-row { display:flex; align-items:center; gap:0.5rem; padding:0.35rem 0.7rem; background:var(--amarelo-cl); border-bottom:1px solid var(--amarelo-brd); font-size:0.72rem; color:#7a5000; }
+
     /* ══ MEMORIAL ══ */
     .memorial-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
     .memorial-row { display: flex; justify-content: space-between; padding: 0.6rem 0; border-bottom: 1px solid var(--borda); align-items: center; }
@@ -760,33 +771,67 @@
               <label>Rodovia / KM de Referência</label>
               <input type="text" id="obra-rodovia" placeholder="Ex.: AM-070 / km 12"/>
             </div>
-            <div class="form-group">
-              <label>Extensão Total (km)
-                <span id="ext-full-badge" style="display:none;margin-left:0.4rem;font-size:0.62rem;background:#E8F5E9;color:#2E7D32;padding:0.1rem 0.5rem;border-radius:100px;font-weight:700"></span>
-              </label>
-              <div style="display:flex;gap:0.5rem;align-items:center">
-                <input type="number" id="obra-extensao" value="2" min="0.1" step="0.1" oninput="syncObra(); updateExtBadge()" style="flex:1"/>
-                <button id="ext-reset-btn" onclick="resetExtensao()" title="Restaurar extensão original da rodovia"
-                  style="display:none;background:var(--azul-claro);border:1px solid var(--azul-borda);color:var(--azul);border-radius:6px;padding:0.3rem 0.6rem;font-size:0.68rem;cursor:pointer;white-space:nowrap">
-                  ↩ Original
-                </button>
+            <div class="form-group form-span-2" id="trechos-container-wrap">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.45rem">
+                <label style="font-size:0.68rem;font-weight:700;color:var(--cinza-aux);text-transform:uppercase;letter-spacing:0.08em">
+                  📍 Trechos da Obra
+                  <span id="trechos-count-badge" style="margin-left:0.4rem;font-size:0.6rem;background:var(--azul-claro);color:var(--azul);border:1px solid var(--azul-borda);padding:0.1rem 0.5rem;border-radius:100px;font-weight:700">1 trecho</span>
+                </label>
+                <div style="display:flex;gap:0.4rem">
+                  <button class="btn btn-outline btn-sm" onclick="addTrecho()" title="Adicionar trecho" style="font-size:0.68rem;padding:0.25rem 0.6rem">+ Trecho</button>
+                  <button class="btn btn-outline btn-sm" id="btn-modo-simples" onclick="toggleModoTrechos()" title="Alternar modo" style="font-size:0.68rem;padding:0.25rem 0.6rem;color:var(--cinza-aux)">Modo simples</button>
+                </div>
               </div>
-              <div id="ext-help" style="font-size:0.63rem;color:var(--cinza-aux);margin-top:3px">
-                Edite livremente — representa o trecho a ser executado
+
+              <!-- MODO SIMPLES (1 trecho — compatível com obras existentes) -->
+              <div id="modo-simples-wrap">
+                <div class="form-grid cols-2" style="gap:0.6rem">
+                  <div class="form-group">
+                    <label>Extensão Total (km)
+                      <span id="ext-full-badge" style="display:none;margin-left:0.4rem;font-size:0.62rem;background:#E8F5E9;color:#2E7D32;padding:0.1rem 0.5rem;border-radius:100px;font-weight:700"></span>
+                    </label>
+                    <div style="display:flex;gap:0.5rem;align-items:center">
+                      <input type="number" id="obra-extensao" value="2" min="0.1" step="0.1" oninput="syncObra(); updateExtBadge(); syncTrecho1()" style="flex:1"/>
+                      <button id="ext-reset-btn" onclick="resetExtensao()" title="Restaurar extensão original da rodovia"
+                        style="display:none;background:var(--azul-claro);border:1px solid var(--azul-borda);color:var(--azul);border-radius:6px;padding:0.3rem 0.6rem;font-size:0.68rem;cursor:pointer;white-space:nowrap">
+                        ↩ Original
+                      </button>
+                    </div>
+                    <div id="ext-help" style="font-size:0.63rem;color:var(--cinza-aux);margin-top:3px">Edite livremente — representa o trecho a ser executado</div>
+                  </div>
+                  <div class="form-group">
+                    <label>📍 KM do Canteiro de Obras</label>
+                    <input type="number" id="obra-canteiro" value="0" min="0" step="0.1" oninput="syncObra()"
+                      placeholder="Ex.: 9.5" title="KM onde está instalado o canteiro. A obra parte deste ponto."/>
+                    <div style="font-size:0.65rem;color:var(--cinza-aux);margin-top:3px">Ponto de partida das frentes de serviço</div>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div class="form-group">
-              <label>📍 KM do Canteiro de Obras</label>
-              <input type="number" id="obra-canteiro" value="0" min="0" step="0.1" oninput="syncObra()"
-                placeholder="Ex.: 9.5"
-                title="KM onde está instalado o canteiro. A obra parte deste ponto."/>
-              <div style="font-size:0.65rem;color:var(--cinza-aux);margin-top:3px">Ponto de partida das frentes de serviço</div>
-            </div>
-            <div class="form-group">
-              <label>Nº de KMs (automático)</label>
-              <input type="number" id="obra-frentes" value="2" min="1" step="1" readonly
-                style="background:var(--cinza-bg);color:var(--cinza-med);cursor:not-allowed;"
-                title="Calculado automaticamente a partir da Extensão Total"/>
+
+              <!-- MODO MULTI-TRECHO -->
+              <div id="modo-multi-wrap" style="display:none">
+                <div class="trechos-wrap">
+                  <div class="trecho-row head">
+                    <span></span><span>Nome do Trecho</span><span>KM Ini.</span><span>KM Fim</span><span>Extensão(km)</span><span>Município</span><span></span>
+                  </div>
+                  <div id="trechos-lista"></div>
+                </div>
+                <div class="trecho-total-bar" id="trechos-total-bar">
+                  <span>Extensão total: <strong id="trechos-ext-total">0,00 km</strong></span>
+                  <span>Total de KMs: <strong id="trechos-nkm-total">0</strong></span>
+                  <span style="color:var(--cinza-aux);font-weight:400">Canteiro: KM 1 do Trecho 1 (auto)</span>
+                </div>
+                <!-- Campo hidden para manter compatibilidade com obra-extensao -->
+                <input type="hidden" id="obra-extensao" value="2"/>
+                <input type="hidden" id="obra-canteiro" value="0"/>
+              </div>
+
+              <div class="form-group" style="margin-top:0.6rem">
+                <label>Nº de KMs (automático)</label>
+                <input type="number" id="obra-frentes" value="2" min="1" step="1" readonly
+                  style="background:var(--cinza-bg);color:var(--cinza-med);cursor:not-allowed;"
+                  title="Calculado automaticamente a partir da Extensão Total"/>
+              </div>
             </div>
           </div>
         </div>
@@ -812,6 +857,13 @@
               <div class="form-group">
                 <label>Valor do Contrato (R$)</label>
                 <input type="text" id="obra-valor" placeholder="0,00"/>
+              </div>
+              <div class="form-group form-span-2" id="translado-wrap" style="display:none">
+                <label>🚛 Translado entre Trechos (dias)
+                  <span style="font-size:0.6rem;font-weight:400;color:var(--cinza-aux);margin-left:0.3rem">Tempo de mobilização de equipamentos entre trechos descontínuos</span>
+                </label>
+                <input type="number" id="obra-translado" value="3" min="0" max="30" step="1" oninput="calcularTudo()"
+                  placeholder="Ex.: 3" title="Dias para deslocar equipes e equipamentos entre trechos"/>
               </div>
             </div>
           </div>
@@ -911,6 +963,7 @@
         <thead>
           <tr>
             <th>KM</th>
+            <th id="th-trecho" style="display:none">Trecho</th>
             <th>Etapa</th>
             <th style="min-width:300px">Composição (DNIT/SICRO2)</th>
             <th>Unid.</th>
@@ -1443,6 +1496,7 @@ function gerarCronograma() {
     : [{ id:0, nome:null, cor:null, kmInicio:1, kmFim:nKm, paralelo:false }];
 
   let fimUltimaFrenteSequencial = fimCanteiro;
+  let _kmAcumTrecho = 0; // controle de KMs acumulados para detectar mudança de trecho
 
   grupos.forEach((frente, fi) => {
     const frenteCor  = frente.cor || null;
@@ -1471,6 +1525,45 @@ function gerarCronograma() {
     const kmSeq = buildKmSeq(kmIni, kmFim); // sequência reordenada pelo canteiro
 
     kmSeq.forEach((km, kmIdx) => {
+      // ── Detecta mudança de trecho e injeta atividade de translado ──
+      if (_modoMultiTrecho && TRECHOS.length > 1) {
+        const tAtual = getTrechoDoKm(km);
+        const tPrev  = kmIdx > 0 ? getTrechoDoKm(kmSeq[kmIdx - 1]) : null;
+        if (tPrev && tAtual && tAtual.id !== tPrev.id) {
+          const tIdx = TRECHOS.findIndex(t => t.id === tAtual.id);
+          const diasTrans = tAtual.translado || 0;
+          if (diasTrans > 0) {
+            const fimAtividades = Object.values(fimMap).reduce((mx,v)=>Math.max(mx,v), fimFrenteDia);
+            acts.push({
+              id: `TRANS_${fi}_${km}`,
+              etapa: "TRANSLADO",
+              etapaFull: "Translado / Mobilização",
+              atividade: `Mobilização → ${tAtual.nome}`,
+              km: "—",
+              duracao: diasTrans,
+              inicio: fimAtividades + 1,
+              termino: fimAtividades + diasTrans,
+              frente: frenteNome, frenteCor,
+              isTranslado: true,
+            });
+            // Avança o tempo de referência para incluir o translado
+            fimFrenteDia = fimAtividades + diasTrans;
+          }
+          // Cabeçalho do novo trecho no Gantt
+          if (tAtual) {
+            acts.push({
+              id: `TH_${tAtual.id}_${fi}`,
+              etapa: "TRECHO",
+              etapaFull: tAtual.nome,
+              atividade: `${tAtual.nome} — ${tAtual.municipio || ""}`,
+              km: `KM ${tAtual.kmInicio}–${tAtual.kmFim}`,
+              duracao: 0, inicio: fimFrenteDia + 1, termino: fimFrenteDia + 1,
+              frente: frenteNome, frenteCor,
+              isHeader: true,
+            });
+          }
+        }
+      }
       seq.forEach((ep, i) => {
         const dur = durEtapa(ep.etapa, km);
         let inicio;
@@ -2057,6 +2150,7 @@ function renderServicos() {
       separador = `<tr style="background:#EBF0FA;border-top:2px solid var(--azul-borda)">
         <td colspan="10" style="padding:0.4rem 0.8rem;font-size:0.68rem;font-weight:700;color:var(--azul);letter-spacing:0.1em;text-transform:uppercase">
           📍 KM ${s.km}${badge}
+          ${_modoMultiTrecho ? `<span style="margin-left:0.6rem;background:#002D72;color:#fff;font-size:0.6rem;padding:0.1rem 0.5rem;border-radius:100px">${getLabelTrecho(parseInt(s.km)||0)}</span>` : ""}
           <button onclick="addServicoKm('${s.km}')" style="margin-left:0.8rem;font-size:0.65rem;font-weight:700;padding:0.15rem 0.5rem;background:var(--azul);color:white;border:none;border-radius:4px;cursor:pointer">+ Serviço neste KM</button>
         </td>
       </tr>`;
@@ -3138,6 +3232,30 @@ function _gerarPDFCompleto() {
     linha("Jornada",             getV("obra-jornada")+"h/dia");
     linha("Frentes / Defasagem", getV("obra-frentes")+" frentes / "+getV("obra-defasagem")+" dias");
     y += 3;
+
+    // ── Tabela de trechos (multi-trecho) ──────────────────────────
+    const trechoRows = getTrechosPDFRows();
+    if (trechoRows) {
+      chkBrk(16);
+      doc.setFontSize(7.5); doc.setTextColor(0,45,114); doc.setFont("helvetica","bold");
+      doc.text("TRECHOS DA OBRA:", ML, y); y += 4;
+      const transTotal = TRECHOS.reduce((s,t,i)=>i>0?s+(t.translado||0):s,0);
+      doc.autoTable({
+        head:[["Trecho","Km Inicial – Final","Extensão","Município","Translado"]],
+        body: trechoRows,
+        foot:[["TOTAL","—",
+          TRECHOS.reduce((s,t)=>s+(t.extensao||0),0).toLocaleString("pt-BR",{minimumFractionDigits:2})+" km",
+          "—", transTotal > 0 ? transTotal+" dias" : "—"]],
+        startY:y, margin:{left:ML,right:MR,top:Y0,bottom:PH-YM},
+        styles:{fontSize:7.5,cellPadding:1.8},
+        headStyles:{fillColor:[0,45,114],textColor:255,fontStyle:"bold"},
+        footStyles:{fillColor:[0,45,114],textColor:255,fontStyle:"bold"},
+        alternateRowStyles:{fillColor:[235,242,252]},
+        didDrawPage: didDrawPageFn
+      });
+      y = doc.lastAutoTable.finalY + 6;
+    }
+
     addPage();
     titulo("2. RESPONSABILIDADE TÉCNICA");
     linha("Responsável Técnico", getV("obra-responsavel"), true);
@@ -5341,6 +5459,229 @@ function _atualizarBadgeConflitos() {
   } else {
     badge.style.display = "none";
   }
+}
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// SISTEMA DE MULTI-TRECHO
+// Suporta obras descontínuas (ex: AM-010 com 3 segmentos)
+// Totalmente retrocompatível — modo simples não muda nada
+// ═══════════════════════════════════════════════════════
+
+let TRECHOS = []; // [] = modo simples (compatível com obras anteriores)
+let _trechoIdCtr = 1;
+const TRECHO_CORES = ["#1565C0","#2E7D32","#C62828","#7B1FA2","#E65100","#00695C","#4527A0","#5D4037"];
+let _modoMultiTrecho = false;
+
+// ── Ativa/desativa o modo multi-trecho ──────────────────
+function toggleModoTrechos() {
+  _modoMultiTrecho = !_modoMultiTrecho;
+  document.getElementById("modo-simples-wrap").style.display  = _modoMultiTrecho ? "none"  : "";
+  document.getElementById("modo-multi-wrap").style.display    = _modoMultiTrecho ? ""      : "none";
+  document.getElementById("translado-wrap").style.display     = _modoMultiTrecho ? ""      : "none";
+  const btn = document.getElementById("btn-modo-simples");
+  if (btn) btn.textContent = _modoMultiTrecho ? "Modo simples" : "Multi-trecho";
+
+  if (_modoMultiTrecho && TRECHOS.length === 0) {
+    // Primeira ativação: migra a extensão atual para um trecho padrão
+    const extAtual = parseFloat(document.getElementById("obra-extensao")?.value) || 1;
+    _trechoIdCtr = 1;
+    TRECHOS = [{
+      id: _trechoIdCtr++,
+      nome: "Trecho 01",
+      kmInicio: 0,
+      kmFim: extAtual,
+      extensao: extAtual,
+      municipio: document.getElementById("obra-local")?.value || "",
+      translado: 3,
+    }];
+  }
+  renderTrechos();
+  syncExtensaoFromTrechos();
+}
+
+// ── Adiciona um novo trecho ──────────────────────────────
+function addTrecho() {
+  if (!_modoMultiTrecho) toggleModoTrechos();
+  const id   = _trechoIdCtr++;
+  const idx  = TRECHOS.length;
+  const last = TRECHOS[idx - 1];
+  TRECHOS.push({
+    id,
+    nome:      `Trecho ${String(idx + 1).padStart(2,"0")}`,
+    kmInicio:  last ? last.kmFim + 1 : 0,
+    kmFim:     last ? last.kmFim + 10 : 10,
+    extensao:  10,
+    municipio: "",
+    translado: 3,
+  });
+  renderTrechos();
+  syncExtensaoFromTrechos();
+}
+
+// ── Remove trecho ────────────────────────────────────────
+function removeTrecho(id) {
+  if (TRECHOS.length <= 1) { alert("A obra precisa ter ao menos 1 trecho."); return; }
+  TRECHOS = TRECHOS.filter(t => t.id !== id);
+  renderTrechos();
+  syncExtensaoFromTrechos();
+}
+
+// ── Atualiza campo de um trecho ──────────────────────────
+function updateTrecho(id, field, val) {
+  const t = TRECHOS.find(t => t.id === id);
+  if (!t) return;
+  if (field === "extensao" || field === "kmInicio" || field === "kmFim" || field === "translado") {
+    t[field] = parseFloat(val) || 0;
+    if (field === "kmInicio" || field === "kmFim") {
+      t.extensao = Math.max(0, +(t.kmFim - t.kmInicio).toFixed(3));
+    }
+    if (field === "extensao") {
+      t.kmFim = +(t.kmInicio + t.extensao).toFixed(3);
+    }
+  } else {
+    t[field] = val;
+  }
+  renderTrechos();
+  syncExtensaoFromTrechos();
+}
+
+// ── Renderiza a lista de trechos ─────────────────────────
+function renderTrechos() {
+  const lista = document.getElementById("trechos-lista");
+  if (!lista) return;
+
+  lista.innerHTML = TRECHOS.map((t, i) => {
+    const cor = TRECHO_CORES[i % TRECHO_CORES.length];
+    const transladoRow = i > 0 ? `
+      <div class="translado-row" style="grid-column:1/-1">
+        🚛 Translado do trecho anterior: 
+        <input type="number" value="${t.translado||3}" min="0" max="60" step="1"
+          onchange="updateTrecho(${t.id},'translado',this.value)"
+          style="width:52px;padding:0.15rem 0.4rem;border:1px solid var(--amarelo-brd);border-radius:4px;font-size:0.7rem;text-align:center"/>
+        dias de mobilização/deslocamento de equipamentos
+      </div>` : "";
+    return `
+      ${i > 0 ? `<div style="background:var(--amarelo-cl);border-bottom:1px solid var(--amarelo-brd);padding:0.3rem 0.7rem;font-size:0.68rem;color:#7a5000;display:flex;align-items:center;gap:6px">
+        🚛 Translado: <input type="number" value="${t.translado||3}" min="0" max="60"
+          onchange="updateTrecho(${t.id},'translado',this.value)"
+          style="width:46px;padding:0.15rem 0.35rem;border:1px solid var(--amarelo-brd);border-radius:4px;font-size:0.68rem;text-align:center"/>
+        dias de mobilização entre trechos
+      </div>` : ""}
+      <div class="trecho-row">
+        <div class="trecho-dot" style="background:${cor}"></div>
+        <input value="${t.nome}" onchange="updateTrecho(${t.id},'nome',this.value)" placeholder="Nome do trecho"/>
+        <input type="number" value="${t.kmInicio}" step="0.01" onchange="updateTrecho(${t.id},'kmInicio',this.value)" placeholder="KM ini."/>
+        <input type="number" value="${t.kmFim}"    step="0.01" onchange="updateTrecho(${t.id},'kmFim',this.value)"    placeholder="KM fim"/>
+        <input type="number" value="${t.extensao}" step="0.01" onchange="updateTrecho(${t.id},'extensao',this.value)" placeholder="km"/>
+        <input value="${t.municipio}" onchange="updateTrecho(${t.id},'municipio',this.value)" placeholder="Município"/>
+        <button onclick="removeTrecho(${t.id})" style="background:none;border:none;color:var(--vermelho);cursor:pointer;font-size:0.9rem;padding:0" title="Remover trecho">✕</button>
+      </div>`;
+  }).join("");
+
+  // Atualiza badge
+  const badge = document.getElementById("trechos-count-badge");
+  if (badge) badge.textContent = TRECHOS.length + (TRECHOS.length === 1 ? " trecho" : " trechos");
+}
+
+// ── Sincroniza obra-extensao (campo hidden) a partir dos trechos ──
+function syncExtensaoFromTrechos() {
+  if (!_modoMultiTrecho || !TRECHOS.length) return;
+  const extTotal = +TRECHOS.reduce((s, t) => s + (t.extensao || 0), 0).toFixed(3);
+  const nKmTotal = TRECHOS.reduce((s, t) => s + Math.ceil(t.extensao || 0), 0);
+
+  // Atualiza o input hidden (ou o visible se modo simples)
+  const elExt = document.getElementById("obra-extensao");
+  if (elExt) elExt.value = extTotal;
+
+  // Atualiza barra de totais
+  const barExt = document.getElementById("trechos-ext-total");
+  const barNkm = document.getElementById("trechos-nkm-total");
+  if (barExt) barExt.textContent = extTotal.toLocaleString("pt-BR", {minimumFractionDigits:2}) + " km";
+  if (barNkm) barNkm.textContent = nKmTotal;
+
+  // Atualiza o campo obra-frentes
+  const fEl = document.getElementById("obra-frentes");
+  if (fEl) {
+    fEl.value = nKmTotal;
+    const lbl = fEl.parentElement?.querySelector("label");
+    if (lbl) lbl.textContent = `KMs: ${nKmTotal} (${TRECHOS.length} trecho${TRECHOS.length>1?"s":""})`;
+  }
+
+  calcularTudo();
+}
+
+// ── Sincroniza trecho 1 quando extensão muda no modo simples ──
+function syncTrecho1() {
+  if (_modoMultiTrecho || !TRECHOS.length) return;
+  const ext = parseFloat(document.getElementById("obra-extensao")?.value) || 1;
+  if (TRECHOS[0]) { TRECHOS[0].extensao = ext; TRECHOS[0].kmFim = ext; }
+}
+
+// ── Retorna o nome do trecho a que pertence um KM sequencial ──
+// KMs são numerados 1..N globalmente; esta função mapeia para o trecho correto
+function getTrechoDoKm(kmSeq) {
+  if (!_modoMultiTrecho || !TRECHOS.length) return null;
+  let acum = 0;
+  for (const t of TRECHOS) {
+    const nKm = Math.ceil(t.extensao || 0);
+    acum += nKm;
+    if (kmSeq <= acum) return t;
+  }
+  return TRECHOS[TRECHOS.length - 1];
+}
+
+// ── Retorna o dia de início real de um KM, considerando translados ──
+// Usado por gerarCronograma para inserir atividades de mobilização entre trechos
+function getDiasTransladoAcumulado(kmSeq) {
+  if (!_modoMultiTrecho || TRECHOS.length <= 1) return 0;
+  let acum = 0, dias = 0;
+  for (let i = 0; i < TRECHOS.length; i++) {
+    const nKm = Math.ceil(TRECHOS[i].extensao || 0);
+    if (kmSeq > acum && kmSeq <= acum + nKm) break;
+    acum += nKm;
+    if (i < TRECHOS.length - 1) dias += (TRECHOS[i + 1].translado || 0);
+  }
+  return dias;
+}
+
+// ── Gera atividades de translado para o Gantt ──────────────
+function gerarAtividadesTranslado(fimUltimaTrecho, trechoIdx) {
+  if (!_modoMultiTrecho || trechoIdx <= 0 || trechoIdx >= TRECHOS.length) return [];
+  const dias = TRECHOS[trechoIdx].translado || 0;
+  if (!dias) return [];
+  return [{
+    id: `TRANSLADO_${trechoIdx}`,
+    etapa: "TRANSLADO",
+    etapaFull: "Translado / Mobilização",
+    atividade: `Mobilização → ${TRECHOS[trechoIdx].nome}`,
+    km: "—",
+    duracao: dias,
+    inicio: fimUltimaTrecho + 1,
+    termino: fimUltimaTrecho + dias,
+    frente: null,
+    frenteCor: "#F5A623",
+    isTranslado: true,
+  }];
+}
+
+// ── Retorna label do trecho para exibição nas tabelas ──────
+function getLabelTrecho(kmSeq) {
+  const t = getTrechoDoKm(kmSeq);
+  return t ? t.nome : "";
+}
+
+// ── Exporta dados de trechos para o PDF ──────────────────
+function getTrechosPDFRows() {
+  if (!_modoMultiTrecho || !TRECHOS.length) return null;
+  return TRECHOS.map((t, i) => [
+    t.nome,
+    `KM ${t.kmInicio} – KM ${t.kmFim}`,
+    t.extensao.toLocaleString("pt-BR",{minimumFractionDigits:2}) + " km",
+    t.municipio || "—",
+    i > 0 ? `${t.translado || 0} dias` : "—",
+  ]);
 }
 </script>
 
