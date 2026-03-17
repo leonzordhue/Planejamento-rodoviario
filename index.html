@@ -746,6 +746,7 @@
                 <option>RODOVIA ESTADUAL</option>
                 <option>VIÁRIO URBANO</option>
                 <option>MANUTENÇÃO RODOVIÁRIA</option>
+                <option>LIMPEZA RODOVIÁRIA</option>
               </select>
             </div>
             <div class="form-group">
@@ -1410,6 +1411,13 @@ const PARAMETROS = {
     { etapa:"Recomposição de Pavimento",  prazo:8,  porKm:true  },
     { etapa:"Sinalização",                prazo:2,  porKm:true  },
   ],
+  "LIMPEZA RODOVIÁRIA": [
+    { etapa:"Canteiro / Mobilização",     prazo:5,  porKm:false },
+    { etapa:"Roçada Lateral",             prazo:2,  porKm:true  },
+    { etapa:"Limpeza de Dispositivos",    prazo:2,  porKm:true  },
+    { etapa:"Desobstrução de Bueiros",    prazo:1,  porKm:true  },
+    { etapa:"Remoção de Detritos",        prazo:1,  porKm:true  },
+  ],
 };
 
 // Cores por etapa
@@ -1425,9 +1433,13 @@ const ETAPA_CORES = {
   "MEIO-FIO":    "#00838F",
   "SARJETA":     "#00838F",
   "ROÇADA":      "#558B2F",
+  "LATERAL":     "#558B2F",
   "RECUPER":     "#1565C0",
   "GUARDA":      "#4527A0",
   "RECOMP":      "#BF360C",
+  "DESOBSTR":    "#0288D1",
+  "REMOÇÃO":     "#6D4C41",
+  "DISPOSITIV":  "#0288D1",
 };
 
 function etapaCor(etapa) {
@@ -1880,14 +1892,18 @@ const SERVICOS_PADRAO = {
     { etapa:"Recomposição de Pavimento", codigo:"4.4.1",  qtdePkm:200,  qe:2 },
     { etapa:"Sinalização",               codigo:"8.1.1",  qtdePkm:300,  qe:1 },
   ],
+  "LIMPEZA RODOVIÁRIA": [
+    { etapa:"Roçada Lateral",           codigo:"2.1.1",  qtdePkm:7000, qe:1 },
+    { etapa:"Roçada Lateral",           codigo:"S.01.1", qtdePkm:2000, qe:1 },
+    { etapa:"Limpeza de Dispositivos",  codigo:"10.1.1", qtdePkm:3000, qe:1 },
+    { etapa:"Desobstrução de Bueiros",  codigo:"7.3.1",  qtdePkm:4,    qe:1 },
+    { etapa:"Remoção de Detritos",      codigo:"2.3.1",  qtdePkm:100,  qe:1 },
+  ],
 };
 
 function autoPreencherServicos() {
   const tipo        = getV("obra-tipo");
   const ext         = parseFloat(getV("obra-extensao")) || 1;
-  const nKmInteiros = Math.floor(ext);
-  const fracao      = +(ext - nKmInteiros).toFixed(6);
-  const nKmTotal    = Math.ceil(ext);  // total de KMs (incluindo o parcial)
   const template    = SERVICOS_PADRAO[tipo];
   if (!template) { alert("Tipo de obra sem template padrão."); return; }
   if (SERVICOS.length > 0) {
@@ -1895,23 +1911,46 @@ function autoPreencherServicos() {
   }
   SERVICOS = [];
 
+  // ── MODO MULTI-TRECHO: gera KMs reais de cada trecho, não da rodovia inteira ──
+  if (_modoMultiTrecho && TRECHOS.length > 0) {
+    let kmGlobal = 1; // numeração sequencial global dos KMs
+    TRECHOS.forEach(trecho => {
+      const extTrecho    = trecho.extensao || 1;
+      const nKmIntTrecho = Math.floor(extTrecho);
+      const fracaoTrecho = +(extTrecho - nKmIntTrecho).toFixed(6);
+      const nKmTotalTrecho = Math.ceil(extTrecho);
+      for (let km = 1; km <= nKmTotalTrecho; km++) {
+        const ehParcial = (fracaoTrecho > 0 && km === nKmTotalTrecho);
+        const fator     = ehParcial ? fracaoTrecho : 1.0;
+        template.forEach(t => {
+          const compMatch = COMPOSICOES.find(c => c.cod === t.codigo);
+          if (!compMatch) return;
+          const qtde = ehParcial ? Math.max(1, Math.round(t.qtdePkm * fator)) : Math.round(t.qtdePkm);
+          SERVICOS.push({ id:mkId(), km:String(kmGlobal), etapa:t.etapa, codigo:t.codigo, qtde, qe:t.qe });
+        });
+        kmGlobal++;
+      }
+    });
+    const totalKMs = kmGlobal - 1;
+    calcularTudo();
+    alert(`✅ Gerados ${totalKMs} KMs distribuídos em ${TRECHOS.length} trecho(s) — extensão real: ${ext.toLocaleString("pt-BR",{minimumFractionDigits:2})} km.`);
+    return;
+  }
+
+  // ── MODO SIMPLES: usa extensão total informada ──
+  const nKmInteiros = Math.floor(ext);
+  const fracao      = +(ext - nKmInteiros).toFixed(6);
+  const nKmTotal    = Math.ceil(ext);
+
   for (let km = 1; km <= nKmTotal; km++) {
     const ehParcial = (fracao > 0 && km === nKmTotal);
     const fator     = ehParcial ? fracao : 1.0;
-
     template.forEach(t => {
       const compMatch = COMPOSICOES.find(c => c.cod === t.codigo);
       if (!compMatch) return;
       const qtdeBase = t.qtdePkm * fator;
       const qtde     = ehParcial ? Math.max(1, Math.round(qtdeBase)) : Math.round(t.qtdePkm);
-      SERVICOS.push({
-        id:    mkId(),
-        km:    String(km),
-        etapa: t.etapa,
-        codigo:t.codigo,
-        qtde:  qtde,
-        qe:    t.qe,
-      });
+      SERVICOS.push({ id:mkId(), km:String(km), etapa:t.etapa, codigo:t.codigo, qtde, qe:t.qe });
     });
   }
   calcularTudo();
@@ -1997,12 +2036,30 @@ function addFrente(kmIni, kmFim, paralelo) {
   const nKm = parseInt(getV("obra-frentes")) || 1;
   const id  = mkFrenteId();
   const idx = FRENTES.length;
+
+  // AUTO-SUGESTÃO: se não fornecido, começa onde a última frente terminou
+  let _kmIni = kmIni;
+  let _kmFim = kmFim;
+  if (_kmIni == null) {
+    if (FRENTES.length > 0) {
+      const ultima = FRENTES[FRENTES.length - 1];
+      _kmIni = ultima.kmFim + 1;
+      _kmFim = Math.min(_kmIni + 4, nKm); // grupo de até 5 KMs sugerido
+    } else {
+      _kmIni = 1;
+      _kmFim = Math.min(5, nKm);
+    }
+    // Se já passou do limite total, ajusta
+    if (_kmIni > nKm) _kmIni = nKm;
+    if (_kmFim > nKm) _kmFim = nKm;
+  }
+
   const nova = {
     id,
     nome: `Frente ${idx + 1}`,
     cor: FRENTE_CORES[idx % FRENTE_CORES.length],
-    kmInicio: kmIni != null ? kmIni : 1,
-    kmFim:    kmFim != null ? kmFim : nKm,
+    kmInicio: _kmIni,
+    kmFim:    _kmFim != null ? _kmFim : nKm,
     paralelo: paralelo || false,
   };
   const candidatas = [...FRENTES, nova];
@@ -2588,7 +2645,7 @@ function renderMemorial() {
       ["Data de Término (prev.)", dataFim, true],
       ["Duração Total",           `${maxDia} dias corridos (${durMeses} meses)`, true],
       ["Jornada de Trabalho",     getV("obra-jornada")+"h/dia"],
-      ["Nº de Frentes",           getV("obra-frentes")],
+      ["Nº de Frentes",           String(usarFrentesAtivo() ? FRENTES.length : 1)],
       ["Defasagem entre Frentes", getV("obra-defasagem")+" dias"],
     ]),
     card("👷‍♂️","4. Dimensionamento de Recursos",[
@@ -2890,7 +2947,8 @@ function exportarMemorialPDF() {
   row("Data de Término (prevista)", dataFim);
   row("Duração Total", `${maxDia} dias (${Math.ceil(maxDia/30)} meses)`);
   row("Jornada de Trabalho", getV("obra-jornada")+"h/dia");
-  row("Número de Frentes", getV("obra-frentes"));
+  const _nFrPDF2 = usarFrentesAtivo() ? FRENTES.length : 1;
+  row("Número de Frentes", String(_nFrPDF2)+" frente"+(_nFrPDF2!==1?"s":""));
   row("Defasagem entre Frentes", getV("obra-defasagem")+" dias");
   y += 4;
 
@@ -3051,15 +3109,19 @@ function _executarGeracaoPDF(btn) {
 /* ── Captura o SVG do Gantt convertido para dataURL via canvas ── */
 function _capturarGanttImg(cb) {
   try {
-    // Garante renderização do SVG
+    // Garante renderização do SVG — tab precisa estar visível para clientWidth funcionar
     const tabG = document.getElementById("tab-gantt");
     const wasH = tabG && tabG.style.display === "none";
     if (wasH) tabG.style.display = "block";
     try { renderGantt(); } catch(e) {}
     const svgEl = document.getElementById("gantt-svg");
-    if (wasH && tabG) tabG.style.display = "none";
+    // CORREÇÃO: NÃO esconder a tab aqui — o SVG precisa de clientWidth para ser serializado.
+    // A tab será escondida depois da captura, dentro do callback.
 
-    if (!svgEl || !svgEl.getAttribute("width")) { cb(null); return; }
+    if (!svgEl || !svgEl.getAttribute("width")) {
+      if (wasH && tabG) tabG.style.display = "none";
+      cb(null); return;
+    }
 
     const svgW = parseInt(svgEl.getAttribute("width"))  || 2400;
     const svgH = parseInt(svgEl.getAttribute("height")) || 600;
@@ -3086,10 +3148,15 @@ function _capturarGanttImg(cb) {
     const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgStr);
     const img = new Image();
     var _timedOut = false;
-    const _timer = setTimeout(function() { _timedOut = true; cb(null); }, 8000);
+    const _timer = setTimeout(function() {
+      _timedOut = true;
+      if (wasH && tabG) tabG.style.display = "none";
+      cb(null);
+    }, 8000);
     img.onload = function() {
       if (_timedOut) return;
       clearTimeout(_timer);
+      if (wasH && tabG) tabG.style.display = "none";
       try {
         const canv = document.createElement("canvas");
         canv.width = svgW * SCALE; canv.height = svgH * SCALE;
@@ -3101,7 +3168,11 @@ function _capturarGanttImg(cb) {
         cb(canv.toDataURL("image/png"));
       } catch(e) { cb(null); }
     };
-    img.onerror = function() { clearTimeout(_timer); cb(null); };
+    img.onerror = function() {
+      clearTimeout(_timer);
+      if (wasH && tabG) tabG.style.display = "none";
+      cb(null);
+    };
     img.src = url;
   } catch(e) { cb(null); }
 }
@@ -3319,9 +3390,11 @@ function _gerarPDFCompleto() {
     linha("Rodovia / KM Ref.",   getV("obra-rodovia"));
     linha("Extensão Total",      getV("obra-extensao")+" km");
     linha("KM do Canteiro",      parseFloat(getV("obra-canteiro"))>0?"KM "+getV("obra-canteiro"):"KM 0");
-    linha("Início / Término",    (dataIni?new Date(dataIni+"T00:00:00").toLocaleDateString("pt-BR"):"—")+" → "+dataFim);
+    linha("Início / Término",    (dataIni?new Date(dataIni+"T00:00:00").toLocaleDateString("pt-BR"):"—")+" / "+dataFim);
     linha("Jornada",             getV("obra-jornada")+"h/dia");
-    linha("Frentes / Defasagem", getV("obra-frentes")+" frentes / "+getV("obra-defasagem")+" dias");
+    // Frentes reais = FRENTES cadastradas quando ativas, ou 1 modo simples
+    const _nFrentes = usarFrentesAtivo() ? FRENTES.length : 1;
+    linha("Frentes / Defasagem", _nFrentes+" frente"+(_nFrentes!==1?"s":"")+" / "+getV("obra-defasagem")+" dias");
     y += 3;
 
     // ── Tabela de trechos (multi-trecho) ──────────────────────────
@@ -3412,10 +3485,11 @@ function _gerarPDFCompleto() {
     titulo("4. CRONOGRAMA FÍSICO");
 
     const ganttAtivs = GANTT_DATA.filter(function(a){ return !a.isHeader; });
+    const _nFrentesGantt = usarFrentesAtivo() ? FRENTES.length : 1;
     doc.setFontSize(7.5); doc.setTextColor(80); doc.setFont("helvetica","normal");
     doc.text(
       "Duracao: " + maxDia + " dias  ·  " + ganttAtivs.length + " atividades  ·  " +
-      getV("obra-extensao") + " km  ·  " + getV("obra-frentes") + " frentes  ·  def. " +
+      getV("obra-extensao") + " km  ·  " + _nFrentesGantt + " frente" + (_nFrentesGantt!==1?"s":"") + "  ·  def. " +
       getV("obra-defasagem") + " dias",
       ML, y
     );
@@ -3802,7 +3876,8 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
     linha("Data de Término",     dataFim, true);
     linha("Duração Total",       maxDia+" dias ("+durMes+" meses)", true);
     linha("Jornada de Trabalho", (getV("obra-jornada")||"—")+"h/dia");
-    linha("Nº de Frentes",       getV("obra-frentes")||"—");
+    const _nFrentesMemorial = usarFrentesAtivo() ? FRENTES.length : 1;
+    linha("Nº de Frentes",       String(_nFrentesMemorial)+" frente"+(_nFrentesMemorial!==1?"s":""));
     linha("Defasagem",           (getV("obra-defasagem")||"—")+" dias"); y += 2;
     linha("MO Total (h·h)",      numBR(moTotal,0)+" horas", true);
     linha("Serviços Cadastrados",String(EAP_CALC.length)); y += 2;
@@ -4175,7 +4250,7 @@ function gerarPreviewImpressao() {
         <div style="display:flex;gap:2rem;margin-bottom:0.8rem;font-size:0.75rem;">
           <span>Duração total: <strong style="color:var(--azul)">${maxDia} dias (${Math.ceil(maxDia/30)} meses)</strong></span>
           <span>Extensão: <strong style="color:var(--azul)">${getV("obra-extensao")} km</strong></span>
-          <span>Frentes: <strong style="color:var(--azul)">${getV("obra-frentes")}</strong></span>
+          <span>Frentes: <strong style="color:var(--azul)">${usarFrentesAtivo() ? FRENTES.length : 1}</strong></span>
           <span>Defasagem: <strong style="color:var(--amarelo)">${getV("obra-defasagem")} dias/frente</strong></span>
         </div>
         ${ganttContent}
@@ -4305,7 +4380,7 @@ function gerarPreviewImpressao() {
             ["Data de Término",   dataFim],
             ["Duração Total",     `${maxDia} dias (${Math.ceil(maxDia/30)} meses)`],
             ["Jornada",           getV("obra-jornada")+"h/dia"],
-            ["Nº de Frentes",     getV("obra-frentes")],
+            ["Nº de Frentes",     String(usarFrentesAtivo() ? FRENTES.length : 1)],
             ["Defasagem",         getV("obra-defasagem")+" dias"],
           ])}
           ${mCard("👷‍♂️ Dimensionamento de Recursos",[
@@ -4553,11 +4628,14 @@ function setRoadStatus(msg) {
 // ── Busca ──────────────────────────────────────────────────────────
 async function onRoadSearch(q) {
   const tipo = getV("obra-tipo");
-  if (!["RAMAL / VICINAL","RODOVIA ESTADUAL"].includes(tipo)) {
+  // MANUTENÇÃO e LIMPEZA reutilizam base de Rodovias Estaduais
+  const tipoSheet = (tipo === "MANUTENÇÃO RODOVIÁRIA" || tipo === "LIMPEZA RODOVIÁRIA")
+    ? "RODOVIA ESTADUAL" : tipo;
+  if (!["RAMAL / VICINAL","RODOVIA ESTADUAL"].includes(tipoSheet)) {
     showRoadDropdown([]);
     return;
   }
-  let data = await loadRoadData(tipo);
+  let data = await loadRoadData(tipoSheet);
 
   // Aplica filtro de município se RAMAL e município selecionado
   if (tipo === "RAMAL / VICINAL") {
@@ -4748,18 +4826,22 @@ function onTipoChange() {
   const wrap = document.getElementById("road-selector-wrap");
   const muniWrap = document.getElementById("muni-filter-wrap");
 
-  if (["RAMAL / VICINAL","RODOVIA ESTADUAL"].includes(tipo)) {
+  // MANUTENÇÃO e LIMPEZA reutilizam a base de Rodovias Estaduais
+  const tipoSheet = (tipo === "MANUTENÇÃO RODOVIÁRIA" || tipo === "LIMPEZA RODOVIÁRIA")
+    ? "RODOVIA ESTADUAL" : tipo;
+
+  if (["RAMAL / VICINAL","RODOVIA ESTADUAL"].includes(tipoSheet)) {
     wrap.style.display = "block";
-    if (lbl) lbl.textContent = tipo === "RAMAL / VICINAL"
+    if (lbl) lbl.textContent = tipoSheet === "RAMAL / VICINAL"
       ? "🔍 Buscar Ramal na base SEINFRA/AM"
       : "🔍 Buscar Rodovia Estadual AM";
 
     // Filtro de município: somente para RAMAL
-    if (muniWrap) muniWrap.style.display = tipo === "RAMAL / VICINAL" ? "block" : "none";
+    if (muniWrap) muniWrap.style.display = tipoSheet === "RAMAL / VICINAL" ? "block" : "none";
 
     // Pre-carrega dados em background e popula municípios se RAMAL
-    loadRoadData(tipo).then(items => {
-      if (tipo === "RAMAL / VICINAL") populateMunicipioSelect(items);
+    loadRoadData(tipoSheet).then(items => {
+      if (tipoSheet === "RAMAL / VICINAL") populateMunicipioSelect(items);
     });
   } else {
     wrap.style.display = "none";
@@ -5067,7 +5149,9 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
 window.addEventListener("load", () => {
   const tipo = getV("obra-tipo");
   onTipoChange();
-  if (["RAMAL / VICINAL","RODOVIA ESTADUAL"].includes(tipo)) loadRoadData(tipo);
+  const _tipoInit = getV("obra-tipo");
+  const _sheetInit = (_tipoInit === "MANUTENÇÃO RODOVIÁRIA" || _tipoInit === "LIMPEZA RODOVIÁRIA") ? "RODOVIA ESTADUAL" : _tipoInit;
+  if (["RAMAL / VICINAL","RODOVIA ESTADUAL"].includes(_sheetInit)) loadRoadData(_sheetInit);
 
   // ── Validação automática de integridade das composições ──
   // previne regressão silenciosa em edições futuras do banco
