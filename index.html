@@ -1482,6 +1482,8 @@ let FRENTES = [];
 let _PDF_GANTT_IMG  = null;   // dataURL do Gantt (canvas renderizado)
 let _PDF_HIST_MO    = null;   // dataURL do histograma MO
 let _PDF_HIST_EQP   = null;   // dataURL do histograma EQP
+let _PDF_CRITICA_IMG = null;  // dataURL do gráfico comparativo análise crítica
+let _PDF_CALOR_IMG   = null;  // dataURL do mapa de calor semanal
 let _PDF_MAPA_IMG   = null;   // dataURL do mapa Leaflet (capturado via leaflet-image)
 // ──────────────────────────────────────────────────────────────
 let chartMO = null, chartEQP = null;
@@ -3072,24 +3074,29 @@ function executarImpressao() {
   const btn = document.querySelector(".btn-pdf-action");
   if (btn) { btn.textContent = "⏳ Capturando gráficos..."; btn.disabled = true; }
 
-  // Captura Gantt, histogramas e mapa em sequência
+  // Captura Gantt, histogramas, gráficos análise crítica e mapa em sequência
   _capturarGanttImg(function(ganttImg) {
     _PDF_GANTT_IMG = ganttImg;
     _capturarHistogramas(function(moImg, eqpImg) {
       _PDF_HIST_MO  = moImg;
       _PDF_HIST_EQP = eqpImg;
-      // Captura mapa se memorial estiver marcado
-      const chkMem = document.getElementById("pcheck-memorial");
-      if (chkMem && chkMem.checked) {
-        if (btn) btn.textContent = "⏳ Capturando mapa...";
-        _capturarMapaImg(function(mapImg) {
-          _PDF_MAPA_IMG = mapImg;
+      // Captura gráficos da análise crítica
+      _capturarCriticaImg(function(criticaImg, calorImg) {
+        _PDF_CRITICA_IMG = criticaImg;
+        _PDF_CALOR_IMG   = calorImg;
+        // Captura mapa se memorial estiver marcado
+        const chkMem = document.getElementById("pcheck-memorial");
+        if (chkMem && chkMem.checked) {
+          if (btn) btn.textContent = "⏳ Capturando mapa...";
+          _capturarMapaImg(function(mapImg) {
+            _PDF_MAPA_IMG = mapImg;
+            _executarGeracaoPDF(btn);
+          });
+        } else {
+          _PDF_MAPA_IMG = null;
           _executarGeracaoPDF(btn);
-        });
-      } else {
-        _PDF_MAPA_IMG = null;
-        _executarGeracaoPDF(btn);
-      }
+        }
+      });
     });
   });
 }
@@ -3209,6 +3216,49 @@ function _capturarHistogramas(cb) {
       } catch(e) {}
       if (wasH && tabH) tabH.style.display = "none";
       cb(moImg, eqpImg);
+    }, 700);
+  } catch(e) { cb(null, null); }
+}
+
+/* ── Captura os dois gráficos Chart.js da Análise Crítica ── */
+function _capturarCriticaImg(cb) {
+  try {
+    const tabA = document.getElementById("tab-analise");
+    const wasH = tabA && tabA.style.display === "none";
+    if (wasH) tabA.style.display = "block";
+    // Força renderização dos gráficos caso não tenham sido abertos ainda
+    try { renderAnaliseCritica(); } catch(e) {}
+    setTimeout(function() {
+      var criticaImg = null, calorImg = null;
+      try {
+        // Gráfico comparativo (barras + linha)
+        var canvC = document.getElementById("chart-critica");
+        if (canvC) {
+          // Tenta via instância Chart.js registrada no canvas
+          if (canvC._chart && typeof canvC._chart.toBase64Image === "function") {
+            criticaImg = canvC._chart.toBase64Image("image/png", 1.0);
+          } else if (typeof Chart !== "undefined" && Chart.getChart) {
+            var inst = Chart.getChart(canvC);
+            if (inst) criticaImg = inst.toBase64Image("image/png", 1.0);
+          }
+          if (!criticaImg) criticaImg = canvC.toDataURL("image/png");
+        }
+      } catch(e) {}
+      try {
+        // Mapa de calor semanal
+        var canvCal = document.getElementById("chart-calor");
+        if (canvCal) {
+          if (canvCal._chart && typeof canvCal._chart.toBase64Image === "function") {
+            calorImg = canvCal._chart.toBase64Image("image/png", 1.0);
+          } else if (typeof Chart !== "undefined" && Chart.getChart) {
+            var inst2 = Chart.getChart(canvCal);
+            if (inst2) calorImg = inst2.toBase64Image("image/png", 1.0);
+          }
+          if (!calorImg) calorImg = canvCal.toDataURL("image/png");
+        }
+      } catch(e) {}
+      if (wasH && tabA) tabA.style.display = "none";
+      cb(criticaImg, calorImg);
     }, 700);
   } catch(e) { cb(null, null); }
 }
@@ -3496,82 +3546,77 @@ function _gerarPDFCompleto() {
     y += 6;
 
     if (_PDF_GANTT_IMG) {
-      /* ── Gantt multipágina: divide a imagem em fatias horizontais de ~CW mm ── */
-      const _sliceGantt = () => new Promise(resolve => {
-        const img = new Image();
-        img.onload = () => {
-          const svgEl    = document.getElementById("gantt-svg");
-          const svgW     = svgEl ? (parseInt(svgEl.getAttribute("width"))  || img.width)  : img.width;
-          const svgH     = svgEl ? (parseInt(svgEl.getAttribute("height")) || img.height) : img.height;
-          // Quantos mm de largura real representa 1 pixel da imagem capturada?
-          // A imagem foi capturada a SCALE=2 → img.width = svgW*2 pixels
-          // No PDF, CW mm deve conter a largura total do SVG
-          // → pxPorMm = img.width / CW
-          const pxPorMm  = img.width / CW;
-          // Altura proporcional que CW mm de largura renderiza
-          const altaMm   = (img.height / img.width) * CW;
-          const espacoDisp = YM - y;   // espaço disponível na página atual
-
-          if (altaMm <= espacoDisp + 2) {
-            // Gantt curto: cabe em uma página, insere normalmente
-            doc.addImage(_PDF_GANTT_IMG, "PNG", ML, y, CW, altaMm);
-            y += altaMm + 4;
-            resolve();
-            return;
-          }
-
-          // Gantt longo: divide em fatias verticais (por tempo, eixo X)
-          // Cada fatia ocupa uma página, deixando headerH para título
-          const headerH  = 14; // mm reservados para título de cada página
-          const altaUtil = YM - Y0 - headerH;  // altura disponível por página
-          const largMm   = altaUtil / (img.height / img.width); // largura da fatia em mm
-          const largPx   = largMm * pxPorMm;   // idem em pixels da imagem
-          const nSlices  = Math.ceil(img.width / largPx);
-
-          const tmpCanvas = document.createElement("canvas");
-          tmpCanvas.width = img.width; tmpCanvas.height = img.height;
-          const tmpCtx = tmpCanvas.getContext("2d");
-          tmpCtx.drawImage(img, 0, 0);
-
-          for (let si = 0; si < nSlices; si++) {
-            if (si > 0) { addPage(); titulo("4. CRONOGRAMA FISICO (parte "+(si+1)+" de "+nSlices+")"); y += 4; }
-            else { if (y + altaUtil > YM) { addPage(); titulo("4. CRONOGRAMA FISICO (cont.)"); y += 4; } }
-
-            const sx     = Math.round(si * largPx);
-            const sw     = Math.min(largPx, img.width - sx);
-            const sliceW = Math.round((sw / img.width) * CW);
-
-            const sc = document.createElement("canvas");
-            sc.width = Math.round(sw); sc.height = img.height;
-            const sctx = sc.getContext("2d");
-            sctx.drawImage(tmpCanvas, sx, 0, sw, img.height, 0, 0, sw, img.height);
-
-            const sliceMmH = (img.height / sw) * sliceW;
-            doc.addImage(sc.toDataURL("image/png"), "PNG", ML, y, sliceW, sliceMmH);
-            y += sliceMmH + 4;
-          }
-          resolve();
-        };
-        img.onerror = () => resolve();
-        img.src = _PDF_GANTT_IMG;
-      });
-      // Executa slicing (síncrono via canvas — não precisa de async real)
-      _sliceGantt().then(() => {});
-      // Fallback imediato se Promise não executar a tempo (jsPDF é síncrono)
-      // A imagem ainda será inserida pelo then() antes do save() pois o event loop termina
-      // Se preferir garantia total, use a versão síncrona abaixo comentada:
-      // (versão síncrona simples como backup)
+      /* ── Gantt multipágina SÍNCRONO — canvas já está em memória no dataURL ── */
+      // jsPDF é 100% síncrono: Promise/then não executa antes de doc.save().
+      // Solução: decodificar a imagem já capturada diretamente via Image+canvas de forma síncrona.
       try {
-        if (y < Y0 + 10) { // slice não rodou ainda — insere versão compacta
-          const svgEl  = document.getElementById("gantt-svg");
-          const svgH2  = svgEl ? parseInt(svgEl.getAttribute("height")||600) : 600;
-          const svgW2  = svgEl ? parseInt(svgEl.getAttribute("width") ||2400): 2400;
-          const imgW2  = CW;
-          const imgH2  = Math.min(imgW2*(svgH2/svgW2), YM-y);
-          doc.addImage(_PDF_GANTT_IMG, "PNG", ML, y, imgW2, imgH2);
-          y += imgH2 + 6;
+        const svgEl  = document.getElementById("gantt-svg");
+        const svgW   = svgEl ? (parseInt(svgEl.getAttribute("width"))  || 2400) : 2400;
+        const svgH   = svgEl ? (parseInt(svgEl.getAttribute("height")) || 600)  : 600;
+
+        // Dimensões no PDF
+        const altaMm    = (svgH / svgW) * CW;   // altura proporcional à largura CW
+        const espacoDisp = YM - y;
+
+        if (altaMm <= espacoDisp + 2) {
+          // Cabe em uma página
+          doc.addImage(_PDF_GANTT_IMG, "PNG", ML, y, CW, altaMm);
+          y += altaMm + 4;
+        } else {
+          // Gantt longo: divide em fatias por linhas (eixo Y — períodos de tempo)
+          const headerH  = 14;
+          const altaUtil = YM - Y0 - headerH;
+          // Quantas mm de altura por pixel?
+          const mmPorPx  = altaMm / svgH;
+          // Quantos pixels de SVG cabem em altaUtil mm?
+          const pxPorFatia = Math.floor(altaUtil / mmPorPx);
+          const nFatias    = Math.ceil(svgH / pxPorFatia);
+
+          // Precisamos de um canvas para cortar fatias — canvas é síncrono
+          const tmpC = document.createElement("canvas");
+          tmpC.width  = svgW * 2;   // SCALE=2 foi usada na captura
+          tmpC.height = svgH * 2;
+          const tmpCtx = tmpC.getContext("2d");
+          const srcImg = new Image();
+          // Carregamento síncrono via blob decode — já está como dataURL
+          srcImg.src = _PDF_GANTT_IMG;
+          // Se a imagem já está em memória (dataURL), onload pode ter disparado
+          // Desenhamos diretamente (funciona se a imagem já estiver decodificada)
+          tmpCtx.drawImage(srcImg, 0, 0, tmpC.width, tmpC.height);
+
+          for (var si = 0; si < nFatias; si++) {
+            if (si > 0) {
+              addPage();
+              titulo("4. CRONOGRAMA FISICO (parte " + (si+1) + " de " + nFatias + ")");
+              y = Y0 + headerH;
+            } else {
+              if (y + altaUtil > YM) { addPage(); titulo("4. CRONOGRAMA FISICO (cont.)"); y = Y0 + headerH; }
+            }
+
+            const sy   = Math.round(si * pxPorFatia * 2);          // em pixels da imagem (SCALE=2)
+            const sh   = Math.min(pxPorFatia * 2, tmpC.height - sy);
+            const fatiaH_mm = (sh / 2) * mmPorPx;
+
+            const fc = document.createElement("canvas");
+            fc.width  = tmpC.width;
+            fc.height = sh;
+            fc.getContext("2d").drawImage(tmpC, 0, sy, tmpC.width, sh, 0, 0, tmpC.width, sh);
+
+            doc.addImage(fc.toDataURL("image/png"), "PNG", ML, y, CW, fatiaH_mm);
+            y += fatiaH_mm + 4;
+          }
         }
-      } catch(e) {}
+      } catch(eGantt) {
+        // Se canvas falhou por qualquer razão, insere a imagem completa comprimida
+        try {
+          const svgEl = document.getElementById("gantt-svg");
+          const svgH2 = svgEl ? parseInt(svgEl.getAttribute("height") || 600) : 600;
+          const svgW2 = svgEl ? parseInt(svgEl.getAttribute("width")  || 2400): 2400;
+          const imgH2 = Math.min((svgH2/svgW2)*CW, YM-y);
+          doc.addImage(_PDF_GANTT_IMG, "PNG", ML, y, CW, imgH2);
+          y += imgH2 + 6;
+        } catch(e2) {}
+      }
     } else {
       /* Fallback: tabela com barras coloridas */
       const _cRGB = function(e) {
@@ -3740,11 +3785,35 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
     }
   }
 
-  /* ── ANÁLISE CRÍTICA ── tabela top-10 dias + conflitos detectados ── */
+  /* ── ANÁLISE CRÍTICA ── gráficos + tabela top-10 dias + conflitos detectados ── */
   if (chk("analise")) {
     addPage(); y = Y0;
     titulo("6. ANALISE CRITICA — VOLUME DE OBRA X RECURSOS");
     y = Y0 + 12;
+
+    // ── Gráfico comparativo (barras MO + linha atividades) ──
+    if (_PDF_CRITICA_IMG) {
+      try {
+        const chartH_c = 65;
+        chkBrk(chartH_c + 4);
+        doc.setFontSize(7); doc.setTextColor(80); doc.setFont("helvetica","normal");
+        doc.text("Comparativo: MO diaria total x atividades simultaneas x equipamentos", ML, y); y += 3;
+        doc.addImage(_PDF_CRITICA_IMG, "PNG", ML, y, CW, chartH_c);
+        y += chartH_c + 4;
+      } catch(e) {}
+    }
+
+    // ── Mapa de calor semanal ──
+    if (_PDF_CALOR_IMG) {
+      try {
+        const chartH_cal = 45;
+        chkBrk(chartH_cal + 4);
+        doc.setFontSize(7); doc.setTextColor(80); doc.setFont("helvetica","normal");
+        doc.text("Mapa de calor — carga semanal de mao de obra", ML, y); y += 3;
+        doc.addImage(_PDF_CALOR_IMG, "PNG", ML, y, CW * 0.5, chartH_cal);
+        y += chartH_cal + 6;
+      } catch(e) {}
+    }
 
     const dados = typeof _gerarDadosDiarios === "function" ? _gerarDadosDiarios() : [];
     if (dados.length) {
@@ -3891,53 +3960,9 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
     linha("Motoniv. (pico)",     String(pico.moto||0));
   }
 
-  /* ── MAPA DE LOCAÇÃO — imagem capturada do Leaflet ── */
-  if (chk("memorial") && (typeof _selectedRoad !== "undefined" && _selectedRoad || _PDF_MAPA_IMG)) {
-    addPage(); y = Y0;
-    titulo("8. LOCALIZACAO DA OBRA");
-    y = Y0 + 12;
-    if (typeof _selectedRoad !== "undefined" && _selectedRoad) {
-      linha("Rodovia / Ramal", _selectedRoad.nome || getV("obra-rodovia") || "—", true);
-      linha("Municipio",       _selectedRoad.municipio || getV("obra-local") || "—");
-      linha("Codigo",          _selectedRoad.codigo || "—");
-      linha("Extensao",        (getV("obra-extensao") || "—") + " km");
-      y += 6;
-    }
-
-    if (_PDF_MAPA_IMG) {
-      try {
-        const props = doc.getImageProperties(_PDF_MAPA_IMG);
-        const imgW  = CW;
-        const imgH  = Math.min((props.height * imgW) / props.width, YM - y - 8);
-        if (y + imgH > YM) { addPage(); titulo("8. LOCALIZACAO DA OBRA (cont.)"); y = Y0 + 6; }
-        doc.addImage(_PDF_MAPA_IMG, "PNG", ML, y, imgW, imgH);
-        y += imgH + 4;
-        doc.setFontSize(6); doc.setTextColor(130); doc.setFont("helvetica","normal");
-        doc.text("Mapa: (c) OpenStreetMap contributors | Capturado da plataforma digital SEINFRA/AM", ML, y);
-        y += 5;
-      } catch(eImg) {
-        doc.setFillColor(232,240,248); doc.rect(ML,y,CW,40,"F");
-        doc.setDrawColor(160,192,216); doc.setLineWidth(0.4); doc.rect(ML,y,CW,40,"S");
-        doc.setFontSize(9); doc.setTextColor(150); doc.setFont("helvetica","normal");
-        doc.text("Mapa disponivel na plataforma digital SEINFRA/AM.", ML+CW/2, y+20, {align:"center"});
-        y += 46;
-      }
-    } else {
-      var mH = 50;
-      if (y + mH > YM) { addPage(); y = Y0; }
-      doc.setFillColor(232,240,248); doc.rect(ML,y,CW,mH,"F");
-      doc.setDrawColor(160,192,216); doc.setLineWidth(0.4); doc.rect(ML,y,CW,mH,"S");
-      doc.setFontSize(9); doc.setTextColor(150); doc.setFont("helvetica","normal");
-      doc.text("Tracado georeferenciado disponivel na plataforma digital.", ML+CW/2, y+mH/2, {align:"center"});
-      doc.setFontSize(7); doc.setTextColor(170);
-      doc.text("(Instale o plugin leaflet-image para exportar o mapa automaticamente)", ML+CW/2, y+mH/2+6, {align:"center"});
-      y += mH + 5;
-    }
-  }
-
   /* ── PÁGINA DE REFERÊNCIAS TÉCNICAS E METODOLOGIA ── */
   addPage();
-  titulo("9. REFERENCIAS TECNICAS E METODOLOGIA DE CALCULO");
+  titulo("8. REFERENCIAS TECNICAS E METODOLOGIA DE CALCULO");
   y = Y0 + 10;
 
   // Introdução
@@ -3997,21 +4022,27 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
   });
   y += 4;
 
-  // Observações
-  chkBrk(24);
-  doc.setFillColor(255,248,225); doc.rect(ML, y-3, CW, 20, "F");
-  doc.setDrawColor(245,168,35); doc.setLineWidth(0.5); doc.rect(ML, y-3, CW, 20, "S");
+  // Observações — caixa amarela: SEMPRE em nova página se não couber
+  var obsBoxH = 26; // altura total da caixa (padding + 3 linhas)
+  if (y + obsBoxH > YM) { addPage(); y = Y0 + 10; }
+  doc.setFillColor(255,248,225); doc.rect(ML, y, CW, obsBoxH, "F");
+  doc.setDrawColor(245,168,35); doc.setLineWidth(0.5); doc.rect(ML, y, CW, obsBoxH, "S");
   doc.setFontSize(7.5); doc.setTextColor(100,70,0); doc.setFont("helvetica","bold");
-  doc.text("OBSERVACOES IMPORTANTES", ML+3, y+1); y += 5;
+  doc.text("OBSERVACOES IMPORTANTES", ML+3, y+5); y += 9;
   doc.setFont("helvetica","normal");
   var obs = [
     "• Os valores sao estimativas para planejamento inicial. Devem ser validados em projeto executivo.",
     "• Condicoes climaticas, logistica regional amazonica e disponibilidade de insumos impactam prazos reais.",
     "• Jornada padrao de 8h/dia; ajuste na plataforma conforme jornada contratada da obra.",
   ];
-  obs.forEach(function(o) { var oL = doc.splitTextToSize(o, CW-6); doc.text(oL, ML+3, y); y += oL.length*4.5 + 1; });
-  y += 8;
-  chkBrk(6);
+  obs.forEach(function(o) {
+    var oL = doc.splitTextToSize(o, CW-6);
+    doc.text(oL, ML+3, y);
+    y += oL.length*4.5 + 1;
+  });
+  y += 6;
+  // Rodapé de elaboração — com chkBrk para não vazar para fora da página
+  if (y + 6 > YM) { addPage(); y = Y0 + 10; }
   doc.setFontSize(7); doc.setTextColor(130); doc.setFont("helvetica","normal");
   doc.text("Elaborado: Plataforma de Planejamento de Obras Rodoviarias · DMOB/SEINFRA/AM · v2.0 · " + new Date().getFullYear(), ML, y);
 
