@@ -6055,15 +6055,47 @@ function _montarProjeto() {
   obra.moTotal  = EAP_CALC.reduce((s,c) => s + (c.moTotal||0), 0).toFixed(1);
   obra.status   = "SALVO";
 
+  // Dados diários para Curva S e Análise Crítica
+  const dadosDiarios = typeof _gerarDadosDiarios === "function" ? _gerarDadosDiarios() : [];
+  const picoMO = dadosDiarios.length ? Math.max(...dadosDiarios.map(d=>d.mo), 1) : 1;
+  const totalMOh = parseFloat(obra.moTotal) || 1;
+  // Curva S: acumulado de MO por dia (% do total)
+  let acumMO = 0;
+  const curvaS = dadosDiarios.map(d => {
+    // MO executada no dia = MO de atividades ativas naquele dia
+    acumMO += d.mo;
+    return {
+      dia: d.dia,
+      mo: d.mo,
+      eqp: d.eqp,
+      ativ: d.ativ,
+      nivel: d.mo > picoMO * 0.70 ? "CRITICO" : d.mo > picoMO * 0.40 ? "ATENCAO" : "NORMAL",
+    };
+  });
+
+  // EAP calculada para a aba de composições
+  const eapCalc = EAP_CALC.map(c => ({
+    km: c.km||"", etapa: c.etapa||"", codigo: c.codigo||"",
+    desc: c.comp?.desc||"", unid: c.comp?.unid||"",
+    qtde: c.qtde||0, qe: c.qe||1,
+    moTotal: +(c.moTotal||0).toFixed(1), dp: c.dp||0, da: c.da||0,
+    servente: c.qmo?.servente||0, pedreiro: c.qmo?.pedreiro||0,
+    operador: c.qmo?.operador||0, carpinteiro: c.qmo?.carpinteiro||0,
+    escavadeira: c.eqp?.escavadeira||0, rolo: c.eqp?.rolo||0,
+    caminhao: c.eqp?.caminhao||0, moto: c.eqp?.moto||0,
+  }));
+
   return {
     obra,
-    servicos: SERVICOS.map(s => ({ ...s })),
-    frentes:  FRENTES.map(f => ({ ...f })),
-    trechos:  TRECHOS.map(t => ({ ...t })),
-    modoMulti: _modoMultiTrecho,
-    gantt:    GANTT_DATA.filter(a => !a.isHeader && !a.isTranslado),
-    histograma: HIST_DATA,
-    timestamp: new Date().toISOString(),
+    servicos:    SERVICOS.map(s => ({ ...s })),
+    frentes:     FRENTES.map(f => ({ ...f })),
+    trechos:     TRECHOS.map(t => ({ ...t })),
+    modoMulti:   _modoMultiTrecho,
+    gantt:       GANTT_DATA.filter(a => !a.isHeader && !a.isTranslado),
+    histograma:  HIST_DATA,
+    curvaS,
+    eapCalc,
+    timestamp:   new Date().toISOString(),
   };
 }
 
