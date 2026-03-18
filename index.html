@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
   <!-- Chart.js para histogramas -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <!-- jsPDF para exportação -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -634,6 +635,27 @@
   </div>
   <div class="header-right">
     <a href="https://leonzordhue.github.io/painel-plan-ferramentas/" style="font-size:0.72rem;font-weight:600;color:var(--cinza-aux);text-decoration:none;padding:0.38em 0.85em;border-radius:6px;border:1.5px solid var(--borda);transition:all 0.18s" onmouseover="this.style.borderColor='var(--azul-borda)';this.style.color='var(--azul)'" onmouseout="this.style.borderColor='var(--borda)';this.style.color='var(--cinza-aux)'">← Central</a>
+    <!-- Botões de persistência -->
+    <div style="display:flex;gap:0.3rem;align-items:center">
+      <button onclick="salvarProjeto()" title="Salvar projeto (local + Sheets)"
+        style="font-size:0.68rem;font-weight:700;padding:0.35em 0.75em;border-radius:6px;border:1.5px solid var(--borda);background:var(--branco);color:var(--cinza-txt);cursor:pointer;transition:all 0.18s"
+        onmouseover="this.style.background='#E8F5E9';this.style.borderColor='#43A047';this.style.color='#2E7D32'"
+        onmouseout="this.style.background='var(--branco)';this.style.borderColor='var(--borda)';this.style.color='var(--cinza-txt)'">
+        💾 Salvar
+      </button>
+      <button onclick="abrirModalProjetos()" title="Carregar projeto salvo"
+        style="font-size:0.68rem;font-weight:700;padding:0.35em 0.75em;border-radius:6px;border:1.5px solid var(--borda);background:var(--branco);color:var(--cinza-txt);cursor:pointer;transition:all 0.18s"
+        onmouseover="this.style.background='#E3F2FD';this.style.borderColor='#1976D2';this.style.color='#0D47A1'"
+        onmouseout="this.style.background='var(--branco)';this.style.borderColor='var(--borda)';this.style.color='var(--cinza-txt)'">
+        📂 Projetos
+      </button>
+      <button onclick="exportarExcel()" title="Exportar para Excel (.xlsx)"
+        style="font-size:0.68rem;font-weight:700;padding:0.35em 0.75em;border-radius:6px;border:1.5px solid var(--borda);background:var(--branco);color:var(--cinza-txt);cursor:pointer;transition:all 0.18s"
+        onmouseover="this.style.background='#F3E5F5';this.style.borderColor='#7B1FA2';this.style.color='#4A148C'"
+        onmouseout="this.style.background='var(--branco)';this.style.borderColor='var(--borda)';this.style.color='var(--cinza-txt)'">
+        📊 Excel
+      </button>
+    </div>
     <div class="header-obra-nome" id="header-obra-nome">Obra não identificada</div>
     <div class="header-badge">v2.0</div>
   </div>
@@ -1301,6 +1323,26 @@
     </div>
   </div>
 </div>
+<!-- ══ MODAL PROJETOS ══ -->
+<div id="projOverlay" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,20,60,0.6);align-items:center;justify-content:center;padding:1rem">
+  <div style="background:var(--branco);border-radius:14px;width:100%;max-width:620px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,20,60,0.3);overflow:hidden">
+    <div style="background:#002D72;padding:.9rem 1.2rem;display:flex;align-items:center;gap:.8rem">
+      <div style="font-size:.95rem;font-weight:800;color:#fff;flex:1">📂 Projetos Salvos</div>
+      <div style="font-size:.68rem;color:rgba(255,255,255,.6)" id="proj-fonte-label">local + Google Sheets</div>
+      <button onclick="fecharModalProjetos()" style="background:rgba(255,255,255,.12);border:none;color:rgba(255,255,255,.8);font-size:1rem;width:28px;height:28px;border-radius:6px;cursor:pointer">✕</button>
+    </div>
+    <div style="padding:.8rem 1.1rem;border-bottom:1px solid var(--borda);display:flex;gap:.5rem">
+      <button onclick="listarProjetos()" style="font-size:.72rem;font-weight:700;padding:.35em .8em;border-radius:6px;border:1.5px solid var(--azul-borda);background:var(--azul-claro);color:var(--azul);cursor:pointer">🔄 Atualizar</button>
+      <span style="font-size:.68rem;color:var(--cinza-aux);align-self:center" id="proj-status-label"></span>
+    </div>
+    <div id="proj-lista" style="overflow-y:auto;flex:1;padding:.6rem .8rem">
+      <div style="text-align:center;padding:2rem;color:var(--cinza-aux);font-size:.82rem">Clique em Atualizar para carregar projetos…</div>
+    </div>
+    <div style="padding:.8rem 1.1rem;border-top:1px solid var(--borda);font-size:.65rem;color:var(--cinza-aux)">
+      Projetos salvos localmente ficam neste navegador. Projetos no Sheets ficam disponíveis em qualquer dispositivo.
+    </div>
+  </div>
+</div>
 
 </main>
 
@@ -1482,6 +1524,7 @@ let FRENTES = [];
 let _PDF_GANTT_IMG  = null;   // dataURL do Gantt (canvas renderizado)
 let _PDF_HIST_MO    = null;   // dataURL do histograma MO
 let _PDF_HIST_EQP   = null;   // dataURL do histograma EQP
+let _PDF_CRITICA_IMG = null;  // dataURL do gráfico combo Análise Crítica
 let _PDF_MAPA_IMG   = null;   // dataURL do mapa Leaflet (capturado via leaflet-image)
 // ──────────────────────────────────────────────────────────────
 let chartMO = null, chartEQP = null;
@@ -3073,24 +3116,18 @@ function executarImpressao() {
   const btn = document.querySelector(".btn-pdf-action");
   if (btn) { btn.textContent = "⏳ Capturando gráficos..."; btn.disabled = true; }
 
-  // Captura Gantt, histogramas e mapa em sequência
+  // Captura Gantt, histogramas e gráfico da Análise Crítica em sequência
   _capturarGanttImg(function(ganttImg) {
     _PDF_GANTT_IMG = ganttImg;
     _capturarHistogramas(function(moImg, eqpImg) {
       _PDF_HIST_MO  = moImg;
       _PDF_HIST_EQP = eqpImg;
-      // Captura mapa se memorial estiver marcado
-      const chkMem = document.getElementById("pcheck-memorial");
-      if (chkMem && chkMem.checked) {
-        if (btn) btn.textContent = "⏳ Capturando mapa...";
-        _capturarMapaImg(function(mapImg) {
-          _PDF_MAPA_IMG = mapImg;
-          _executarGeracaoPDF(btn);
-        });
-      } else {
+      if (btn) btn.textContent = "⏳ Capturando análise crítica...";
+      _capturarCriticaImg(function(criticaImg) {
+        _PDF_CRITICA_IMG = criticaImg;
         _PDF_MAPA_IMG = null;
         _executarGeracaoPDF(btn);
-      }
+      });
     });
   });
 }
@@ -3223,6 +3260,30 @@ function _capturarHistogramas(cb) {
       cb(moImg, eqpImg);
     }, 700);
   } catch(e) { cb(null, null); }
+}
+
+/* ── Captura o gráfico combo da Análise Crítica (chart-critica) ── */
+function _capturarCriticaImg(cb) {
+  try {
+    const tabA = document.getElementById("tab-analise");
+    const wasH = tabA && tabA.style.display === "none";
+    if (wasH) tabA.style.display = "block";
+    try { renderAnaliseCritica(); } catch(e) {}
+    try { if (_chartCritica) _chartCritica.resize(); } catch(e) {}
+    setTimeout(function() {
+      var img = null;
+      try {
+        if (_chartCritica && typeof _chartCritica.toBase64Image === "function") {
+          img = _chartCritica.toBase64Image("image/png", 1.0);
+        } else {
+          var canv = document.getElementById("chart-critica");
+          if (canv) img = canv.toDataURL("image/png");
+        }
+      } catch(e) {}
+      if (wasH && tabA) tabA.style.display = "none";
+      cb(img);
+    }, 700);
+  } catch(e) { cb(null); }
 }
 
 /* ── Captura o mapa Leaflet como PNG via leaflet-image ── */
@@ -3520,29 +3581,28 @@ async function _gerarPDFCompleto() {
           const svgEl    = document.getElementById("gantt-svg");
           const svgW     = svgEl ? (parseInt(svgEl.getAttribute("width"))  || img.width)  : img.width;
           const svgH     = svgEl ? (parseInt(svgEl.getAttribute("height")) || img.height) : img.height;
-          // Quantos mm de largura real representa 1 pixel da imagem capturada?
-          // A imagem foi capturada a SCALE=2 → img.width = svgW*2 pixels
-          // No PDF, CW mm deve conter a largura total do SVG
-          // → pxPorMm = img.width / CW
           const pxPorMm  = img.width / CW;
-          // Altura proporcional que CW mm de largura renderiza
+          // Altura que o Gantt completo ocuparia se inserido em CW mm de largura
           const altaMm   = (img.height / img.width) * CW;
-          const espacoDisp = YM - y;   // espaço disponível na página atual
+          const espacoDisp = YM - y;
 
           if (altaMm <= espacoDisp + 2) {
-            // Gantt curto: cabe em uma página, insere normalmente
+            // Cabe em uma página — insere normalmente
             doc.addImage(_PDF_GANTT_IMG, "PNG", ML, y, CW, altaMm);
             y += altaMm + 4;
             resolve();
             return;
           }
 
-          // Gantt longo: divide em fatias verticais (por tempo, eixo X)
-          // Cada fatia ocupa uma página, deixando headerH para título
-          const headerH  = 14; // mm reservados para título de cada página
-          const altaUtil = YM - Y0 - headerH;  // altura disponível por página
-          const largMm   = altaUtil / (img.height / img.width); // largura da fatia em mm
-          const largPx   = largMm * pxPorMm;   // idem em pixels da imagem
+          // Gantt longo: divide em fatias pelo eixo X (tempo)
+          // altaUtil = espaço disponível por página descontando cabeçalho de seção (14mm)
+          // IMPORTANTE: limitar a altaUtil para nunca exceder YM - Y0 - 14
+          const headerH  = 18; // mm para título + folga
+          const altaUtil = Math.min(YM - Y0 - headerH, YM - y - 4); // nunca excede página
+
+          // Largura (em mm) que produz altaUtil mm de altura, mantendo proporção
+          const largMm   = altaUtil * (img.width / img.height);
+          const largPx   = largMm * pxPorMm;
           const nSlices  = Math.ceil(img.width / largPx);
 
           const tmpCanvas = document.createElement("canvas");
@@ -3551,19 +3611,33 @@ async function _gerarPDFCompleto() {
           tmpCtx.drawImage(img, 0, 0);
 
           for (let si = 0; si < nSlices; si++) {
-            if (si > 0) { addPage(); titulo("4. CRONOGRAMA FISICO (parte "+(si+1)+" de "+nSlices+")"); y += 4; }
-            else { if (y + altaUtil > YM) { addPage(); titulo("4. CRONOGRAMA FISICO (cont.)"); y += 4; } }
+            if (si > 0) {
+              addPage();
+              titulo("4. CRONOGRAMA FISICO (parte "+(si+1)+" de "+nSlices+")");
+              y += 4;
+            } else {
+              // Primeira fatia: verifica se cabe na página atual
+              if (y + altaUtil > YM) {
+                addPage();
+                titulo("4. CRONOGRAMA FISICO (cont.)");
+                y += 4;
+              }
+            }
 
-            const sx     = Math.round(si * largPx);
-            const sw     = Math.min(largPx, img.width - sx);
-            const sliceW = Math.round((sw / img.width) * CW);
+            const sx  = Math.round(si * largPx);
+            const sw  = Math.min(Math.ceil(largPx), img.width - sx);
+            if (sw <= 0) continue;
+
+            // largura proporcional desta fatia em mm (última fatia pode ser menor)
+            const sliceW   = Math.round((sw / img.width) * CW);
+            // altura proporcional mantendo aspect ratio da fatia
+            const sliceMmH = Math.min((img.height / sw) * sliceW, YM - y - 4);
 
             const sc = document.createElement("canvas");
-            sc.width = Math.round(sw); sc.height = img.height;
+            sc.width = sw; sc.height = img.height;
             const sctx = sc.getContext("2d");
             sctx.drawImage(tmpCanvas, sx, 0, sw, img.height, 0, 0, sw, img.height);
 
-            const sliceMmH = (img.height / sw) * sliceW;
             doc.addImage(sc.toDataURL("image/png"), "PNG", ML, y, sliceW, sliceMmH);
             y += sliceMmH + 4;
           }
@@ -3776,6 +3850,18 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
       });
       y += 18;
 
+      // Gráfico combo da Análise Crítica (capturado antes da geração do PDF)
+      if (_PDF_CRITICA_IMG) {
+        chkBrk(55);
+        try {
+          const props  = doc.getImageProperties(_PDF_CRITICA_IMG);
+          const imgW   = CW;
+          const imgH   = Math.min((props.height * imgW) / props.width, 55);
+          doc.addImage(_PDF_CRITICA_IMG, "PNG", ML, y, imgW, imgH);
+          y += imgH + 5;
+        } catch(e) {}
+      }
+
       // Tabela top-10 dias críticos
       chkBrk(30);
       doc.setFontSize(7.5); doc.setTextColor(0,45,114); doc.setFont("helvetica","bold");
@@ -3895,49 +3981,8 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
     linha("Motoniv. (pico)",     String(pico.moto||0));
   }
 
-  /* ── MAPA DE LOCAÇÃO — imagem capturada do Leaflet ── */
-  if (chk("memorial") && (typeof _selectedRoad !== "undefined" && _selectedRoad || _PDF_MAPA_IMG)) {
-    addPage(); y = Y0;
-    titulo("8. LOCALIZACAO DA OBRA");
-    y = Y0 + 12;
-    if (typeof _selectedRoad !== "undefined" && _selectedRoad) {
-      linha("Rodovia / Ramal", _selectedRoad.nome || getV("obra-rodovia") || "—", true);
-      linha("Municipio",       _selectedRoad.municipio || getV("obra-local") || "—");
-      linha("Codigo",          _selectedRoad.codigo || "—");
-      linha("Extensao",        (getV("obra-extensao") || "—") + " km");
-      y += 6;
-    }
-
-    if (_PDF_MAPA_IMG) {
-      try {
-        const props = doc.getImageProperties(_PDF_MAPA_IMG);
-        const imgW  = CW;
-        const imgH  = Math.min((props.height * imgW) / props.width, YM - y - 8);
-        if (y + imgH > YM) { addPage(); titulo("8. LOCALIZACAO DA OBRA (cont.)"); y = Y0 + 6; }
-        doc.addImage(_PDF_MAPA_IMG, "PNG", ML, y, imgW, imgH);
-        y += imgH + 4;
-        doc.setFontSize(6); doc.setTextColor(130); doc.setFont("helvetica","normal");
-        doc.text("Mapa: (c) OpenStreetMap contributors | Capturado da plataforma digital SEINFRA/AM", ML, y);
-        y += 5;
-      } catch(eImg) {
-        doc.setFillColor(232,240,248); doc.rect(ML,y,CW,40,"F");
-        doc.setDrawColor(160,192,216); doc.setLineWidth(0.4); doc.rect(ML,y,CW,40,"S");
-        doc.setFontSize(9); doc.setTextColor(150); doc.setFont("helvetica","normal");
-        doc.text("Mapa disponivel na plataforma digital SEINFRA/AM.", ML+CW/2, y+20, {align:"center"});
-        y += 46;
-      }
-    } else {
-      var mH = 50;
-      if (y + mH > YM) { addPage(); y = Y0; }
-      doc.setFillColor(232,240,248); doc.rect(ML,y,CW,mH,"F");
-      doc.setDrawColor(160,192,216); doc.setLineWidth(0.4); doc.rect(ML,y,CW,mH,"S");
-      doc.setFontSize(9); doc.setTextColor(150); doc.setFont("helvetica","normal");
-      doc.text("Tracado georeferenciado disponivel na plataforma digital.", ML+CW/2, y+mH/2, {align:"center"});
-      doc.setFontSize(7); doc.setTextColor(170);
-      doc.text("(Instale o plugin leaflet-image para exportar o mapa automaticamente)", ML+CW/2, y+mH/2+6, {align:"center"});
-      y += mH + 5;
-    }
-  }
+  /* ── MAPA DE LOCAÇÃO — REMOVIDO A PEDIDO DO USUÁRIO ── */
+  // Seção de mapa removida permanentemente da exportação PDF
 
   /* ── PÁGINA DE REFERÊNCIAS TÉCNICAS E METODOLOGIA ── */
   addPage();
@@ -3991,8 +4036,8 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
   ];
   doc.setFontSize(7.5);
   metodos.forEach(function(m) {
-    // 16mm = label (4.5) + até 2 linhas de texto (9) + espaço (3) — evita título solto
-    chkBrk(16);
+    // 24mm = label (4.5) + até 3 linhas de texto (13.5) + espaço (3) + folga (3)
+    chkBrk(24);
     doc.setFont("helvetica","bold"); doc.setTextColor(0,45,114);
     doc.text(m[0]+":", ML+2, y); y += 4.5;
     doc.setFont("helvetica","normal"); doc.setTextColor(80);
@@ -4002,19 +4047,23 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
   });
   y += 4;
 
-  // Observações
-  chkBrk(24);
-  doc.setFillColor(255,248,225); doc.rect(ML, y-3, CW, 20, "F");
-  doc.setDrawColor(245,168,35); doc.setLineWidth(0.5); doc.rect(ML, y-3, CW, 20, "S");
-  doc.setFontSize(7.5); doc.setTextColor(100,70,0); doc.setFont("helvetica","bold");
-  doc.text("OBSERVACOES IMPORTANTES", ML+3, y+1); y += 5;
-  doc.setFont("helvetica","normal");
+  // Observações — altura calculada dinamicamente para não invadir o rodapé
   var obs = [
     "• Os valores sao estimativas para planejamento inicial. Devem ser validados em projeto executivo.",
     "• Condicoes climaticas, logistica regional amazonica e disponibilidade de insumos impactam prazos reais.",
     "• Jornada padrao de 8h/dia; ajuste na plataforma conforme jornada contratada da obra.",
   ];
-  obs.forEach(function(o) { var oL = doc.splitTextToSize(o, CW-6); doc.text(oL, ML+3, y); y += oL.length*4.5 + 1; });
+  // Calcular altura total do bloco antes de desenhar
+  var obsLinhas = obs.map(function(o){ return doc.splitTextToSize(o, CW-6); });
+  var obsH = obsLinhas.reduce(function(s,l){ return s + l.length*4.5 + 1; }, 0) + 12; // 12 = título + margens
+  // Garante que cabe na página — se não, quebra
+  if (y + obsH > YM) { addPage(); y = Y0; }
+  doc.setFillColor(255,248,225); doc.rect(ML, y-3, CW, obsH, "F");
+  doc.setDrawColor(245,168,35); doc.setLineWidth(0.5); doc.rect(ML, y-3, CW, obsH, "S");
+  doc.setFontSize(7.5); doc.setTextColor(100,70,0); doc.setFont("helvetica","bold");
+  doc.text("OBSERVACOES IMPORTANTES", ML+3, y+1); y += 5;
+  doc.setFont("helvetica","normal");
+  obsLinhas.forEach(function(oL) { doc.text(oL, ML+3, y); y += oL.length*4.5 + 1; });
   y += 8;
   chkBrk(6);
   doc.setFontSize(7); doc.setTextColor(130); doc.setFont("helvetica","normal");
@@ -5960,6 +6009,367 @@ function _mostrarFeedbackNiv(estrategia, n, msg) {
   document.body.appendChild(toast);
   setTimeout(() => toast.remove(), 5000);
 }
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// MÓDULO DE PERSISTÊNCIA — localStorage + Google Sheets + Excel
+// Salva: campos UI + SERVICOS + FRENTES + TRECHOS
+// Não salva dados calculados (EAP_CALC, GANTT_DATA, HIST_DATA)
+// pois são regenerados ao calcular
+// ═══════════════════════════════════════════════════════
+
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzLIE7o6217Yxm7OzdKYTau6mev29UyRApR0G3KdUP2lEqkDrIdYohtoO5AtsHjs4dB/exec";
+const LS_KEY_PREFIX   = "PLAN_";
+const LS_INDEX_KEY    = "PLAN_INDEX";
+
+// ── Coleta todos os campos da UI ──────────────────────
+function _coletarUI() {
+  const ids = ["nome","tipo","orcamento","local","rodovia","extensao",
+               "canteiro","frentes","inicio","jornada","defasagem",
+               "valor","translado","responsavel","crea","cargo","email"];
+  const obj = {};
+  ids.forEach(id => {
+    const el = document.getElementById("obra-" + id);
+    if (el) obj[id] = el.value || "";
+  });
+  return obj;
+}
+
+// ── Restaura campos da UI ────────────────────────────
+function _restaurarUI(dados) {
+  if (!dados) return;
+  Object.entries(dados).forEach(([k, v]) => {
+    const el = document.getElementById("obra-" + k);
+    if (el && el.type !== "number" || (el && !isNaN(v))) {
+      try { el.value = v; } catch(e) {}
+    }
+  });
+}
+
+// ── Monta o objeto completo do projeto ───────────────
+function _montarProjeto() {
+  const obra = _coletarUI();
+  const maxDia = GANTT_DATA.reduce((m,a) => Math.max(m,a.termino), 0);
+  obra.duracao  = maxDia;
+  obra.moTotal  = EAP_CALC.reduce((s,c) => s + (c.moTotal||0), 0).toFixed(1);
+  obra.status   = "SALVO";
+
+  return {
+    obra,
+    servicos: SERVICOS.map(s => ({ ...s })),
+    frentes:  FRENTES.map(f => ({ ...f })),
+    trechos:  TRECHOS.map(t => ({ ...t })),
+    modoMulti: _modoMultiTrecho,
+    gantt:    GANTT_DATA.filter(a => !a.isHeader && !a.isTranslado),
+    histograma: HIST_DATA,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+// SALVAR
+// ═══════════════════════════════════════════════════════
+async function salvarProjeto() {
+  if (!SERVICOS.length) {
+    alert("⚠️ Nenhum serviço cadastrado. Adicione serviços antes de salvar.");
+    return;
+  }
+  _calcularTudoExec(); // garante dados atualizados
+  const projeto = _montarProjeto();
+  const id = LS_KEY_PREFIX + Date.now();
+  const nomObra = projeto.obra.nome || "Sem nome";
+
+  // 1 — Salvar localmente
+  try {
+    localStorage.setItem(id, JSON.stringify(projeto));
+    // Atualiza índice
+    const idx = JSON.parse(localStorage.getItem(LS_INDEX_KEY) || "[]");
+    idx.unshift({ id, nome: nomObra, timestamp: projeto.timestamp,
+                  tipo: projeto.obra.tipo, extensao: projeto.obra.extensao });
+    // Mantém máximo 30 projetos locais
+    if (idx.length > 30) {
+      const removido = idx.pop();
+      try { localStorage.removeItem(removido.id); } catch(e) {}
+    }
+    localStorage.setItem(LS_INDEX_KEY, JSON.stringify(idx));
+  } catch(e) {
+    console.warn("localStorage cheio ou bloqueado:", e);
+  }
+
+  // 2 — Salvar no Google Sheets (se URL configurada)
+  let sheetsOk = false;
+  if (APPS_SCRIPT_URL) {
+    try {
+      const r = await fetch(APPS_SCRIPT_URL, {
+        method: "POST",
+        body: JSON.stringify({ acao: "salvar", dados: projeto }),
+      });
+      const res = await r.json();
+      sheetsOk = res.ok;
+    } catch(e) {
+      console.warn("Sheets indisponível:", e);
+    }
+  }
+
+  _toastSalvar(nomObra, sheetsOk);
+}
+
+function _toastSalvar(nome, sheets) {
+  const t = document.createElement("div");
+  t.style.cssText = `position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);z-index:3000;
+    background:#1B5E20;color:#fff;border-radius:10px;padding:.7rem 1.4rem;font-size:.82rem;
+    font-weight:600;box-shadow:0 6px 24px rgba(0,20,60,.3);display:flex;align-items:center;
+    gap:.6rem;white-space:nowrap;pointer-events:none;animation:fadeInUp .2s ease`;
+  const sheetsMsg = APPS_SCRIPT_URL
+    ? (sheets ? " · ☁️ Sheets ✓" : " · ☁️ Sheets offline")
+    : "";
+  t.innerHTML = `<span style="font-size:1rem">💾</span> "${nome}" salvo 💻 Local${sheetsMsg}`;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.transition="opacity .4s"; t.style.opacity="0";
+                     setTimeout(()=>t.remove(),450); }, 4000);
+}
+
+// ═══════════════════════════════════════════════════════
+// CARREGAR
+// ═══════════════════════════════════════════════════════
+async function listarProjetos() {
+  const label = document.getElementById("proj-status-label");
+  const lista = document.getElementById("proj-lista");
+  if (label) label.textContent = "Carregando…";
+  if (lista) lista.innerHTML = "";
+
+  // Projetos locais
+  let locais = [];
+  try {
+    locais = JSON.parse(localStorage.getItem(LS_INDEX_KEY) || "[]");
+  } catch(e) {}
+
+  // Projetos do Sheets (se configurado)
+  let sheets = [];
+  if (APPS_SCRIPT_URL) {
+    try {
+      const r = await fetch(APPS_SCRIPT_URL, {
+        method: "POST",
+        body: JSON.stringify({ acao: "listar" }),
+      });
+      const res = await r.json();
+      if (res.ok) sheets = res.projetos || [];
+    } catch(e) {}
+  }
+
+  // Marca origem
+  const todos = [
+    ...locais.map(p => ({ ...p, _origem: "local" })),
+    ...sheets.filter(s => !locais.some(l => l.id === s.id))
+              .map(p => ({ ...p, _origem: "sheets" })),
+  ].sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+  if (label) label.textContent = `${todos.length} projeto(s)`;
+
+  if (!todos.length) {
+    if (lista) lista.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--cinza-aux);font-size:.82rem">
+      Nenhum projeto salvo ainda. Clique em 💾 Salvar para começar.</div>`;
+    return;
+  }
+
+  if (lista) {
+    lista.innerHTML = todos.map(p => {
+      const dt = p.timestamp ? new Date(p.timestamp).toLocaleString("pt-BR") : "—";
+      const badge = p._origem === "sheets"
+        ? `<span style="background:#E3F2FD;color:#1976D2;font-size:.58rem;font-weight:700;padding:.1rem .4rem;border-radius:4px">☁️ Sheets</span>`
+        : `<span style="background:#E8F5E9;color:#2E7D32;font-size:.58rem;font-weight:700;padding:.1rem .4rem;border-radius:4px">💻 Local</span>`;
+      return `<div style="display:flex;align-items:center;gap:.6rem;padding:.55rem .6rem;border-radius:8px;border:1px solid var(--borda);margin-bottom:.35rem;background:var(--branco)">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.8rem;font-weight:700;color:var(--azul);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.nome || "Sem nome"}</div>
+          <div style="font-size:.65rem;color:var(--cinza-aux)">${p.tipo||""} · ${p.extensao||""}km · ${dt} ${badge}</div>
+        </div>
+        <button onclick="carregarProjeto('${p.id}','${p._origem}')"
+          style="font-size:.68rem;font-weight:700;padding:.3em .7em;border-radius:6px;border:1.5px solid var(--azul-borda);background:var(--azul-claro);color:var(--azul);cursor:pointer;white-space:nowrap">
+          ↩ Carregar
+        </button>
+        <button onclick="deletarProjeto('${p.id}','${p._origem}',this)"
+          style="font-size:.68rem;font-weight:700;padding:.3em .5em;border-radius:6px;border:1.5px solid #fcc;background:#fff5f5;color:#c00;cursor:pointer">
+          🗑
+        </button>
+      </div>`;
+    }).join("");
+  }
+}
+
+async function carregarProjeto(id, origem) {
+  let projeto = null;
+
+  if (origem === "local") {
+    try { projeto = JSON.parse(localStorage.getItem(id) || "null"); } catch(e) {}
+  } else if (APPS_SCRIPT_URL) {
+    try {
+      const r = await fetch(APPS_SCRIPT_URL, {
+        method: "POST",
+        body: JSON.stringify({ acao: "carregar", idProjeto: id }),
+      });
+      const res = await r.json();
+      if (res.ok) projeto = res;
+    } catch(e) {}
+  }
+
+  if (!projeto) { alert("⚠️ Projeto não encontrado."); return; }
+
+  // Restaura dados
+  if (projeto.obra) _restaurarUI(projeto.obra);
+  if (projeto.servicos) {
+    SERVICOS = projeto.servicos;
+    _SERV_ID_CTR = Math.max(...SERVICOS.map(s => s.id || 0), 0) + 1;
+  }
+  if (projeto.frentes) {
+    FRENTES = projeto.frentes;
+    _frenteIdCtr = Math.max(...FRENTES.map(f => f.id || 0), 0) + 1;
+  }
+  if (Array.isArray(projeto.trechos) && projeto.trechos.length) {
+    TRECHOS = projeto.trechos;
+    if (projeto.modoMulti && !_modoMultiTrecho) toggleModoTrechos();
+    renderTrechos();
+    syncExtensaoFromTrechos();
+  }
+
+  fecharModalProjetos();
+  calcularTudo();
+
+  // Toast
+  const t = document.createElement("div");
+  t.style.cssText = `position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);z-index:3000;
+    background:#002D72;color:#fff;border-radius:10px;padding:.7rem 1.4rem;font-size:.82rem;
+    font-weight:600;box-shadow:0 6px 24px rgba(0,20,60,.3);display:flex;align-items:center;
+    gap:.6rem;white-space:nowrap;pointer-events:none;animation:fadeInUp .2s ease`;
+  t.innerHTML = `<span style="font-size:1rem">📂</span> Projeto carregado — calcule para atualizar os gráficos`;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.transition="opacity .4s";t.style.opacity="0";setTimeout(()=>t.remove(),450); }, 4500);
+}
+
+async function deletarProjeto(id, origem, btn) {
+  if (!confirm("Remover este projeto?")) return;
+  if (origem === "local") {
+    localStorage.removeItem(id);
+    const idx = JSON.parse(localStorage.getItem(LS_INDEX_KEY) || "[]");
+    localStorage.setItem(LS_INDEX_KEY, JSON.stringify(idx.filter(p => p.id !== id)));
+  } else if (APPS_SCRIPT_URL) {
+    try {
+      await fetch(APPS_SCRIPT_URL, {
+        method: "POST",
+        body: JSON.stringify({ acao: "deletar", idProjeto: id }),
+      });
+    } catch(e) {}
+  }
+  if (btn) btn.closest("div[style]").remove();
+}
+
+function abrirModalProjetos() {
+  const el = document.getElementById("projOverlay");
+  if (el) { el.style.display = "flex"; listarProjetos(); }
+}
+function fecharModalProjetos() {
+  const el = document.getElementById("projOverlay");
+  if (el) el.style.display = "none";
+}
+
+// ═══════════════════════════════════════════════════════
+// EXPORTAR EXCEL (SheetJS)
+// ═══════════════════════════════════════════════════════
+function exportarExcel() {
+  if (!window.XLSX) { alert("⚠️ Biblioteca Excel não carregou. Verifique a conexão."); return; }
+  if (!EAP_CALC.length) { alert("⚠️ Calcule o cronograma primeiro."); return; }
+  _calcularTudoExec();
+
+  const wb = XLSX.utils.book_new();
+  const nomObra = getV("obra-nome") || "obra";
+
+  // ── Aba 1: Identificação ──────────────────────────
+  const ui = _coletarUI();
+  const maxDia = GANTT_DATA.reduce((m,a) => Math.max(m,a.termino), 0);
+  const wsId = XLSX.utils.aoa_to_sheet([
+    ["PLANEJAMENTO DE OBRAS — SEINFRA/AM"],
+    [],
+    ["Campo", "Valor"],
+    ["Nome da Obra", ui.nome], ["Tipo de Modal", ui.tipo],
+    ["Nº Orçamento", ui.orcamento], ["Localização", ui.local],
+    ["Rodovia / KM Ref.", ui.rodovia], ["Extensão Total (km)", ui.extensao],
+    ["Responsável Técnico", ui.responsavel], ["CREA-AM", ui.crea],
+    ["Data de Início", ui.inicio], ["Jornada (h/dia)", ui.jornada],
+    ["Defasagem (dias)", ui.defasagem], ["Duração Total (dias)", maxDia],
+    ["MO Total (h·h)", EAP_CALC.reduce((s,c)=>s+(c.moTotal||0),0).toFixed(1)],
+  ]);
+  wsId["!cols"] = [{ wch: 28 }, { wch: 40 }];
+  XLSX.utils.book_append_sheet(wb, wsId, "Identificação");
+
+  // ── Aba 2: EAP ────────────────────────────────────
+  const eapRows = [
+    ["#","KM","Etapa","Código","Descrição","Unid","Qtde","Produt","MO Total (h)","DP (dias)","QE","DA (dias)",
+     "Serventes","Pedreiros","Operadores","Carpinteiros","Escavadeiras","Rolos","Caminhões","Motonier."]
+  ];
+  EAP_CALC.forEach((c,i) => {
+    eapRows.push([
+      i+1, c.km||"—", c.etapa||"—", c.codigo||"—", c.comp?.desc||"—", c.comp?.unid||"—",
+      c.qtde||0, c.comp?.produt||0, +(c.moTotal||0).toFixed(1), c.dp||0, c.qe||1, c.da||0,
+      c.qmo?.servente||0, c.qmo?.pedreiro||0, c.qmo?.operador||0, c.qmo?.carpinteiro||0,
+      c.eqp?.escavadeira||0, c.eqp?.rolo||0, c.eqp?.caminhao||0, c.eqp?.moto||0,
+    ]);
+  });
+  const wsEap = XLSX.utils.aoa_to_sheet(eapRows);
+  wsEap["!cols"] = [2,6,16,8,45,6,8,6,10,8,4,8,8,8,8,10,10,6,8,8].map(w=>({wch:w}));
+  XLSX.utils.book_append_sheet(wb, wsEap, "EAP");
+
+  // ── Aba 3: Cronograma ─────────────────────────────
+  const ganttRows = [["KM","Etapa","Atividade","Frente","Dia Início","Dia Término","Duração (dias)"]];
+  GANTT_DATA.filter(a => !a.isHeader && !a.isTranslado).forEach(a => {
+    ganttRows.push([a.km||"—", a.etapaFull||a.etapa||"—", a.atividade||"—",
+                   a.frente||"—", a.inicio||0, a.termino||0, a.duracao||0]);
+  });
+  const wsGantt = XLSX.utils.aoa_to_sheet(ganttRows);
+  wsGantt["!cols"] = [8,20,24,12,10,10,12].map(w=>({wch:w}));
+  XLSX.utils.book_append_sheet(wb, wsGantt, "Cronograma");
+
+  // ── Aba 4: Histograma Mensal ──────────────────────
+  if (HIST_DATA.length) {
+    const histRows = [["Mês","Serventes","Pedreiros","Operadores","Carpinteiros","Total MO",
+                       "Escavadeiras","Rolos","Caminhões","Motonier.","Total EQP"]];
+    HIST_DATA.forEach(m => {
+      const totMO  = (m.servente||0)+(m.pedreiro||0)+(m.operador||0)+(m.carpinteiro||0);
+      const totEqp = (m.escavadeira||0)+(m.rolo||0)+(m.caminhao||0)+(m.moto||0);
+      histRows.push([m.mes||"—", m.servente||0, m.pedreiro||0, m.operador||0, m.carpinteiro||0,
+                     totMO, m.escavadeira||0, m.rolo||0, m.caminhao||0, m.moto||0, totEqp]);
+    });
+    const wsHist = XLSX.utils.aoa_to_sheet(histRows);
+    wsHist["!cols"] = [8,9,9,9,10,8,10,6,9,9,8].map(w=>({wch:w}));
+    XLSX.utils.book_append_sheet(wb, wsHist, "Histograma");
+  }
+
+  // ── Aba 5: Frentes ────────────────────────────────
+  if (FRENTES.length) {
+    const fRows = [["Nome","KM Início","KM Fim","Tipo"]];
+    FRENTES.forEach(f => fRows.push([f.nome||"—", f.kmInicio||0, f.kmFim||0,
+                                      f.paralelo?"PARALELA":"SEQUENCIAL"]));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(fRows), "Frentes");
+  }
+
+  // ── Aba 6: Trechos (multi-trecho) ────────────────
+  if (_modoMultiTrecho && TRECHOS.length) {
+    const tRows = [["Nome","KM Início","KM Fim","Extensão (km)","Município","Translado (dias)"]];
+    TRECHOS.forEach(t => tRows.push([t.nome||"—", t.kmInicio||0, t.kmFim||0,
+                                      t.extensao||0, t.municipio||"—", t.translado||0]));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(tRows), "Trechos");
+  }
+
+  // ── Gerar arquivo ─────────────────────────────────
+  const nomeArq = nomObra.normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+                          .replace(/[^a-zA-Z0-9 _-]/g,"").replace(/\s+/g,"_").toUpperCase();
+  XLSX.writeFile(wb, `EAP_${nomeArq}_${new Date().toISOString().split("T")[0]}.xlsx`);
+}
+
+// ── Fechar modal ao clicar fora ────────────────────
+document.addEventListener("click", e => {
+  const ov = document.getElementById("projOverlay");
+  if (ov && e.target === ov) fecharModalProjetos();
+});
 </script>
 
 <script>
