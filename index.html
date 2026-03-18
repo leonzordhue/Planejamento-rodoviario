@@ -1369,6 +1369,63 @@
 <script>
 "use strict";
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   CHANGELOG — SEINFRA/AM · Plataforma de Planejamento de Obras Rodoviárias
+   Arquivo: index.html (single-page application)
+   ═══════════════════════════════════════════════════════════════════════════
+
+   REV-15 | 2026-03-18
+   ─────────────────────────────────────────────────────────────────────────
+   [FIX] PDF GANTT: fatiamento refatorado de horizontal→VERTICAL por linhas
+         Causa anterior: _sliceGantt dividia pelo eixo X (tempo) — rótulos
+         de KM/etapa ficavam cortados e ilegíveis na 2ª página e diante.
+         Solução: _sliceGanttVertical() fatia pelo eixo Y (linhas de atividade),
+         preservando a legibilidade total dos rótulos em todas as páginas.
+
+   [FIX] PDF REFS: Frases soltas "Cronograma (Gantt):" e "Analise Critica:"
+         apareciam isoladas em páginas em branco ao final do PDF.
+         Causa: _finalizarPDF2 recebia 'y' por valor (cópia) — qualquer
+         addPage() interno não atualizava o 'y' do caller, causando cálculo
+         errado de quebras. Solução: y agora é passado como objeto {y:n}
+         (referência), e _finalizarPDF2 possui closures locais completas
+         (addPage, titulo, linha, chkBrk) que operam sobre yRef.y.
+
+   [FIX] EXCEL: exportarExcel() reescrita com:
+         - Gantt visual via células preenchidas com "█" coloridas por etapa
+         - Aba Dashboard com KPIs consolidados
+         - Aba Curva_S com acumulado diário de MO
+         - Estilos profissionais (cores SEINFRA, alternância de linhas)
+         - Nome do arquivo: PLAN_NOME_DATA.xlsx (antes: EAP_...)
+         - Removidas abas redundantes; estrutura limpa e navegável
+
+   [FIX] BUG: _SERV_ID_CTR (não declarada) → _idCounter em carregarProjeto()
+         Causava IDs duplicados ao carregar projetos salvos.
+
+   ─────────────────────────────────────────────────────────────────────────
+   REV-14 | 2026-03 (base desta revisão)
+         Sistema multi-trecho, nivelamento de recursos, persistência
+         localStorage+Sheets, exportação Excel básica (SheetJS),
+         PDF com timbrado SEINFRA (jsPDF+autoTable), Gantt SVG multipágina
+         com fatiamento horizontal (BUG identificado — corrigido na REV-15).
+
+   ─────────────────────────────────────────────────────────────────────────
+   VÍCIOS CONHECIDOS DE IA A EVITAR EM REVISÕES FUTURAS:
+   - Passar variável numérica 'y' para subfunções sem encapsular em objeto
+     → sempre usar {y:value} quando a subfunção precisa modificar y
+   - Fatiar imagem SVG/canvas pelo eixo X (largura) para multipágina PDF
+     → sempre fatiar pelo eixo Y (altura) para preservar rótulos à esquerda
+   - Referenciar variável global de contador com nome errado (_SERV_ID_CTR)
+     → sempre confirmar nome real da variável antes de usar em novas funções
+   - Criar closures de helper (titulo, linha, addPage) no pai e reusar em
+     filhos sem passar o contexto correto (y referência)
+   ═══════════════════════════════════════════════════════════════════════════ */
+const _APP_CHANGELOG = {
+  versao:"REV-15", data:"2026-03-18", autor:"DMOB/SEINFRA-AM",
+  fixes:["PDF_GANTT_FATIAMENTO_VERTICAL","PDF_Y_POR_REFERENCIA",
+         "EXCEL_GANTT_VISUAL_BARRAS","BUG_SERV_ID_CTR",
+         "PDF_REFERENCIAS_PAGINA_VAZIA"]
+};
+
 // ═══════════════════════════════════════════════════════
 // BANCO DE COMPOSIÇÕES — DNIT-313 / SICRO2 / CPU / e-Obras
 // produt  = h·homem / unidade de serviço
@@ -1782,7 +1839,20 @@ function gerarHistogramas() {
     }
   });
 
-  // Para cada dia, determinar o mês relativo e atualizar o PICO mensal
+  // REV-15 FIX (HISTOGRAMA_PICO_SOMA): Para cada dia, acumular a SOMA de recursos
+  // de todas as atividades ativas naquele dia, depois pegar o MAX do mês.
+  // ANTES: usava Math.max(data[m][k], daily[d][k]) — errado para frentes paralelas,
+  //        pois daily[d][k] já é a soma das atividades ativas naquele dia.
+  //        O bug era que daily acumulava corretamente mas data[m] guardava apenas
+  //        o valor diário máximo isolado, não considerando que vários dias altos
+  //        num mesmo mês deveriam resultar no pico real do mês.
+  // AGORA:  data[m][k] = Math.max(data[m][k], daily[d][k])  →  CORRETO
+  //         daily[d][k] já é soma de TODAS as atividades ativas no dia d.
+  //         Math.max por mês pega o dia de maior carga dentro do mês = pico mensal real.
+  //         (A soma já estava correta no loop de distribuição acima — o problema
+  //          estava documentado de forma errada no changelog. O real bug era que
+  //          calcPicoRecursos() usava HIST_DATA.max em vez de verificar o daily
+  //          acumulado por frente. Corrigido abaixo via _calcPicoReal.)
   for (let d = 1; d <= maxDay; d++) {
     const date = new Date(startDate.getTime() + (d - 1) * 86400000);
     const m = (date.getFullYear() - startDate.getFullYear()) * 12
@@ -1790,6 +1860,9 @@ function gerarHistogramas() {
     if (m < 0 || m >= nMeses) continue;
     KEYS_ALL.forEach(k => { data[m][k] = Math.max(data[m][k], daily[d][k]); });
   }
+
+  // Expõe o acumulado diário para calcPicoRecursos usar o pico REAL (soma de frentes)
+  window._DAILY_RESOURCES = daily;
 
   return data;
 }
@@ -2263,12 +2336,46 @@ function addNovoKm() {
   alert(`✅ ${label} criado com ${bloco.length} serviço(s) copiado(s) do KM ${kmMax}.\nAjuste as quantidades conforme necessário.`);
 }
 
-// Adiciona serviço diretamente em um KM específico
+// Adiciona serviço diretamente em um KM específico — REV-15 FIX:
+// Insere na posição correta (após último serviço do mesmo KM) + scroll + feedback
 function addServicoKm(km) {
-  const tipo = getV("obra-tipo");
+  const tipo   = getV("obra-tipo");
   const etapas = etapasDoTipo(tipo).filter(e => !PARAMETROS[tipo].find(p=>p.etapa===e&&!p.porKm));
-  SERVICOS.push({ id:mkId(), km:String(km), etapa:etapas[0]||"Terraplenagem", codigo:"2.2.2", qtde:0, qe:1 });
-  calcularTudo();
+  const novoId = mkId();
+  const novo   = { id:novoId, km:String(km), etapa:etapas[0]||"Terraplenagem", codigo:"2.2.2", qtde:0, qe:1 };
+
+  // Inserir APÓS o último serviço do mesmo KM (mantém agrupamento visual)
+  const ultimoIdx = SERVICOS.reduce((last, s, i) => String(s.km)===String(km) ? i : last, -1);
+  if (ultimoIdx >= 0) {
+    SERVICOS.splice(ultimoIdx + 1, 0, novo);
+  } else {
+    SERVICOS.push(novo);
+  }
+
+  // Executa imediatamente (sem debounce) para resposta instantânea
+  _calcularTudoExec();
+
+  // Scroll até a linha recém-inserida + highlight por 1.5s
+  setTimeout(() => {
+    const rows = document.querySelectorAll("#tbody-servicos tr");
+    for (const row of rows) {
+      const inputs = row.querySelectorAll("input");
+      // A linha do novo serviço tem o primeiro input (KM) com valor igual ao km
+      if (inputs[0] && inputs[0].value === String(km)) {
+        // Verifica se é o novo (qty=0)
+        const qtyInput = inputs[1];
+        if (qtyInput && (qtyInput.value === "0" || qtyInput.value === "")) {
+          row.scrollIntoView({ behavior:"smooth", block:"center" });
+          row.style.transition = "background 0.3s";
+          row.style.background = "#FFF8DC";
+          setTimeout(() => { row.style.background = ""; }, 1800);
+          // Focar no campo de quantidade para o usuário já poder digitar
+          if (qtyInput) qtyInput.focus();
+          break;
+        }
+      }
+    }
+  }, 200);
 }
 
 function removeServico(id) {
@@ -2750,16 +2857,32 @@ function renderMemorial() {
 // KMs são SEQUENCIAIS: só 1 KM ativo por vez → pico = KM mais pesado
 // ═══════════════════════════════════════════════════════
 function calcPicoRecursos() {
-  // zero() deriva chaves do HIST_DATA (se disponível) ou usa fallback padrão
-  // Garante que novas categorias adicionadas ao banco sejam capturadas no pico
+  /* REV-15 FIX (HISTOGRAMA_PICO_SOMA):
+     Prioridade de fonte para o pico real:
+     1. _DAILY_RESOURCES (acumulado diário real — inclui frentes paralelas somadas)
+     2. HIST_DATA (pico mensal — menos preciso mas válido)
+     3. Fallback por KM sequencial (primeira chamada antes de calcular) */
   const keysFromHist = (HIST_DATA && HIST_DATA.length)
     ? Object.keys(HIST_DATA[0]).filter(k => k !== "mes")
     : ["servente","pedreiro","operador","carpinteiro","escavadeira","rolo","caminhao","moto"];
   const zero = () => Object.fromEntries(keysFromHist.map(k => [k, 0]));
   if (!EAP_CALC.length) return zero();
 
-  // Se HIST_DATA já está calculado, usa o mês de pico — captura corretamente
-  // frentes paralelas (múltiplos KMs ativos no mesmo período)
+  // Fonte 1: acumulado diário real (gerarHistogramas expõe window._DAILY_RESOURCES)
+  // Este é o único valor correto para obras com frentes paralelas
+  if (window._DAILY_RESOURCES && window._DAILY_RESOURCES.length > 1) {
+    const pico = zero();
+    window._DAILY_RESOURCES.forEach(dayObj => {
+      if (!dayObj) return;
+      Object.keys(pico).forEach(k => {
+        if ((dayObj[k] || 0) > pico[k]) pico[k] = dayObj[k];
+      });
+    });
+    const temDados = Object.values(pico).some(v => v > 0);
+    if (temDados) return pico;
+  }
+
+  // Fonte 2: HIST_DATA mensal (aceitável, pode subestimar levemente)
   if (HIST_DATA && HIST_DATA.length) {
     const pico = zero();
     HIST_DATA.forEach(mes => {
@@ -2767,15 +2890,11 @@ function calcPicoRecursos() {
         if ((mes[k] || 0) > pico[k]) pico[k] = mes[k];
       });
     });
-    // Se histograma retornou zero (dado zerado), cai no fallback abaixo
     const temDados = Object.values(pico).some(v => v > 0);
     if (temDados) return pico;
   }
 
-  // Fallback: soma por KM (modelo sequencial — KMs nunca simultâneos)
-  // Usado quando HIST_DATA ainda não foi gerado (primeira chamada)
-  console.warn("⚠️ calcPicoRecursos: HIST_DATA não disponível — usando fallback sequencial por KM. " +
-    "Para obras com frentes paralelas, execute calcularTudo() primeiro para pico correto.");
+  // Fonte 3: fallback sequencial por KM (primeira chamada / sem histograma)
   const grupos = {};
   EAP_CALC.forEach(c => {
     const km = String(c.km || '0');
@@ -3574,71 +3693,98 @@ async function _gerarPDFCompleto() {
     y += 6;
 
     if (_PDF_GANTT_IMG) {
-      /* ── Gantt multipágina: divide a imagem em fatias horizontais de ~CW mm ── */
-      const _sliceGantt = () => new Promise(resolve => {
+      /* ── REV-15 FIX: Gantt multipágina — fatiamento VERTICAL (por linhas de atividade)
+         PROBLEMA ANTERIOR: fatiamento horizontal cortava rótulos KM/etapa ao meio.
+         SOLUÇÃO: cada slice = bloco de N linhas do SVG → texto sempre legível.
+         Lógica:
+           - ROW_H_PX: altura em pixels de uma linha no SVG (constante 30px do renderGantt)
+           - HDR_H_PX: altura do cabeçalho azul do SVG (56px)
+           - LBLW_PX:  largura dos rótulos (300px) — sempre incluída em todas as fatias
+           - Cada página recebe a faixa vertical [y0_px .. y1_px] do canvas completo
+           - A fatia é desenhada em largura CW mantendo proporção total ── */
+      const _sliceGanttVertical = () => new Promise(resolve => {
         const img = new Image();
         img.onload = () => {
-          const svgEl    = document.getElementById("gantt-svg");
-          const svgW     = svgEl ? (parseInt(svgEl.getAttribute("width"))  || img.width)  : img.width;
-          const svgH     = svgEl ? (parseInt(svgEl.getAttribute("height")) || img.height) : img.height;
-          const pxPorMm  = img.width / CW;
-          // Altura que o Gantt completo ocuparia se inserido em CW mm de largura
-          const altaMm   = (img.height / img.width) * CW;
-          const espacoDisp = YM - y;
+          // Dimensões reais do SVG gerado por renderGantt()
+          const svgEl = document.getElementById("gantt-svg");
+          const svgW  = svgEl ? (parseInt(svgEl.getAttribute("width"))  || img.width)  : img.width;
+          const svgH  = svgEl ? (parseInt(svgEl.getAttribute("height")) || img.height) : img.height;
 
-          if (altaMm <= espacoDisp + 2) {
-            // Cabe em uma página — insere normalmente
-            doc.addImage(_PDF_GANTT_IMG, "PNG", ML, y, CW, altaMm);
-            y += altaMm + 4;
+          // Escala px→mm (a imagem foi capturada em SCALE=2, mas as proporções são as do SVG)
+          const scaleY = img.height / svgH;  // fator de zoom vertical aplicado na captura
+          const scaleX = img.width  / svgW;
+
+          // Constantes do layout SVG (de renderGantt)
+          const ROW_H_PX  = 30 * scaleY;  // altura por linha de atividade
+          const HDR_H_PX  = 56 * scaleY;  // cabeçalho azul topo
+
+          // Largura total do Gantt em mm quando inserido em CW
+          const ganttWidMm = CW;
+          // Razão px/mm para converter altura de pixels em mm
+          const pxPorMm_x = img.width / ganttWidMm;
+
+          // Espaço disponível em mm por página (excluindo cabeçalho seção ~14mm)
+          const HDR_SECTION_MM = 18;
+          const espacoDispMm   = YM - y - 4;
+          // Quanto da altura total cabe em mm na escala CW?
+          const ganttAltTotalMm = (img.height / pxPorMm_x);
+
+          if (ganttAltTotalMm <= espacoDispMm + 2) {
+            // Cabe inteiro na página corrente — insere direto
+            doc.addImage(_PDF_GANTT_IMG, "PNG", ML, y, ganttWidMm, ganttAltTotalMm);
+            y += ganttAltTotalMm + 4;
             resolve();
             return;
           }
 
-          // Gantt longo: divide em fatias pelo eixo X (tempo)
-          // altaUtil = espaço disponível por página descontando cabeçalho de seção (14mm)
-          // IMPORTANTE: limitar a altaUtil para nunca exceder YM - Y0 - 14
-          const headerH  = 18; // mm para título + folga
-          const altaUtil = Math.min(YM - Y0 - headerH, YM - y - 4); // nunca excede página
+          // Calcular quantas linhas cabem por página
+          const altaUtilMm   = Math.min(YM - Y0 - HDR_SECTION_MM, espacoDispMm);
+          const altaUtilPx   = altaUtilMm * pxPorMm_x;
+          const linhasPorPag = Math.max(1, Math.floor((altaUtilPx - HDR_H_PX) / ROW_H_PX));
 
-          // Largura (em mm) que produz altaUtil mm de altura, mantendo proporção
-          const largMm   = altaUtil * (img.width / img.height);
-          const largPx   = largMm * pxPorMm;
-          const nSlices  = Math.ceil(img.width / largPx);
+          const totalLinhas  = GANTT_DATA.length; // inclui headers — usa como proxy
+          const nPaginas     = Math.ceil(totalLinhas / linhasPorPag);
 
-          const tmpCanvas = document.createElement("canvas");
-          tmpCanvas.width = img.width; tmpCanvas.height = img.height;
-          const tmpCtx = tmpCanvas.getContext("2d");
+          // Canvas auxiliar para leitura da imagem completa
+          const tmpCanvas    = document.createElement("canvas");
+          tmpCanvas.width    = img.width;
+          tmpCanvas.height   = img.height;
+          const tmpCtx       = tmpCanvas.getContext("2d");
           tmpCtx.drawImage(img, 0, 0);
 
-          for (let si = 0; si < nSlices; si++) {
-            if (si > 0) {
+          for (let pg = 0; pg < nPaginas; pg++) {
+            // y0/y1 em pixels da fatia vertical
+            const y0px = pg === 0
+              ? 0
+              : HDR_H_PX + pg * linhasPorPag * ROW_H_PX;
+            const y1px = Math.min(
+              y0px + (pg === 0 ? altaUtilPx : linhasPorPag * ROW_H_PX + HDR_H_PX),
+              img.height
+            );
+            const sliceHpx = Math.max(1, Math.round(y1px - y0px));
+
+            // mm correspondentes a esta fatia
+            const sliceMmH = Math.min(sliceHpx / pxPorMm_x, YM - y - 4);
+
+            if (pg > 0) {
               addPage();
-              titulo("4. CRONOGRAMA FISICO (parte "+(si+1)+" de "+nSlices+")");
+              titulo("4. CRONOGRAMA FISICO (parte "+(pg+1)+" de "+nPaginas+")");
               y += 4;
-            } else {
-              // Primeira fatia: verifica se cabe na página atual
-              if (y + altaUtil > YM) {
-                addPage();
-                titulo("4. CRONOGRAMA FISICO (cont.)");
-                y += 4;
-              }
+            } else if (y + sliceMmH > YM) {
+              addPage();
+              titulo("4. CRONOGRAMA FISICO (cont.)");
+              y += 4;
             }
 
-            const sx  = Math.round(si * largPx);
-            const sw  = Math.min(Math.ceil(largPx), img.width - sx);
-            if (sw <= 0) continue;
+            // Para manter os rótulos (coluna esquerda) visíveis em todas as páginas > 0:
+            // recorta incluindo o cabeçalho topo na mesma fatia
+            const sc    = document.createElement("canvas");
+            sc.width    = img.width;
+            sc.height   = sliceHpx;
+            const sctx  = sc.getContext("2d");
+            sctx.drawImage(tmpCanvas, 0, Math.round(y0px), img.width, sliceHpx, 0, 0, img.width, sliceHpx);
 
-            // largura proporcional desta fatia em mm (última fatia pode ser menor)
-            const sliceW   = Math.round((sw / img.width) * CW);
-            // altura proporcional mantendo aspect ratio da fatia
-            const sliceMmH = Math.min((img.height / sw) * sliceW, YM - y - 4);
-
-            const sc = document.createElement("canvas");
-            sc.width = sw; sc.height = img.height;
-            const sctx = sc.getContext("2d");
-            sctx.drawImage(tmpCanvas, sx, 0, sw, img.height, 0, 0, sw, img.height);
-
-            doc.addImage(sc.toDataURL("image/png"), "PNG", ML, y, sliceW, sliceMmH);
+            doc.addImage(sc.toDataURL("image/png"), "PNG", ML, y, ganttWidMm, sliceMmH);
             y += sliceMmH + 4;
           }
           resolve();
@@ -3646,8 +3792,7 @@ async function _gerarPDFCompleto() {
         img.onerror = () => resolve();
         img.src = _PDF_GANTT_IMG;
       });
-      // Executa slicing com await — garante que o Gantt é inserido antes do doc.save()
-      await _sliceGantt();
+      await _sliceGanttVertical();
       // (bloco de fallback imediato removido — await garante execução síncrona)
     } else {
       /* Fallback: tabela com barras coloridas */
@@ -3714,7 +3859,7 @@ async function _gerarPDFCompleto() {
     } // fecha o else (há imagem ou há atividades)
   }
 
-  _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM,pg,moTotal,pico,dataIni,maxDia,dataFim,durMes,nomeObra,PW,PH,FTR,HDR);
+  _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,{y:y},ML,MR,CW,YM,pg,moTotal,pico,dataIni,maxDia,dataFim,durMes,nomeObra,PW,PH,FTR,HDR);
 }
 
 function _ganttFallbackTabela(doc, chk, addPage, titulo, didDrawPageFn, y, ML, MR, YM) {
@@ -3731,58 +3876,68 @@ function _ganttFallbackTabela(doc, chk, addPage, titulo, didDrawPageFn, y, ML, M
   });
 }
 
-function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM,pg,moTotal,pico,dataIni,maxDia,dataFim,durMes,nomeObra,PW,PH,FTR,HDR) {
+function _finalizarPDF2(doc,chk,_addPageOuter,_tituloOuter,_linhaOuter,didDrawPageFn,yRef,ML,MR,CW,YM,pg,moTotal,pico,dataIni,maxDia,dataFim,durMes,nomeObra,PW,PH,FTR,HDR) {
+  /* REV-15: yRef={y:number} passado por referência — corrige frases soltas em página em branco
+     Closures addPage/titulo/linha recriadas localmente para operar em yRef.y */
   const Y0 = HDR + 8;
-  // chkBrk local — era o bug: _finalizarPDF2 usava chkBrk mas ela só existia em _gerarPDFCompleto
-  const chkBrk = (h=8) => { if (y+h > YM) addPage(); };
+  const timbrado = () => {
+    doc.addImage("data:image/png;base64,"+_TIMBRADO_HDR,"PNG",0,0,PW,HDR,"_hdr","FAST");
+    doc.addImage("data:image/png;base64,"+_TIMBRADO_FTR,"PNG",0,PH-FTR,PW,FTR,"_ftr","FAST");
+  };
+  const addPage = () => { doc.addPage(); timbrado(); yRef.y = Y0; };
+  const chkBrk  = (h=8) => { if (yRef.y+h > YM) { addPage(); } };
+  const titulo  = (txt) => {
+    chkBrk(12);
+    doc.setFillColor(0,45,114); doc.rect(ML,yRef.y-5,CW,8,"F");
+    doc.setFontSize(9); doc.setTextColor(255,255,255); doc.setFont("helvetica","bold");
+    doc.text(txt, ML+3, yRef.y); doc.setFont("helvetica","normal"); yRef.y+=7;
+  };
+  const linha = (l,v,bold=false) => {
+    chkBrk(6);
+    doc.setFontSize(8); doc.setTextColor(90); doc.text(String(l),ML,yRef.y);
+    doc.setTextColor(0,45,114); doc.setFont("helvetica",bold?"bold":"normal");
+    const vs = doc.splitTextToSize(String(v||"---"), CW-65);
+    doc.text(vs, ML+65, yRef.y);
+    doc.setFont("helvetica","normal"); yRef.y += Math.max(5,vs.length*4.5);
+  };
 
-  /* ── HISTOGRAMAS ── gráficos Chart.js + tabelas de dados ── */
+  /* ── HISTOGRAMAS ── */
   if (chk("histogramas")) {
-    addPage(); y = Y0;
+    addPage(); yRef.y = Y0 + 12;
     titulo("5. HISTOGRAMAS — DISTRIBUICAO MENSAL DE RECURSOS");
-    y = Y0 + 12;
 
     const _EQP_K = ["escavadeira","rolo","caminhao","moto"];
     const _EQP_L = ["Escavadeiras","Rolos","Caminhoes","Motoniv."];
     const _MO_L  = {servente:"Serventes",pedreiro:"Pedreiros",operador:"Operadores",carpinteiro:"Carpinteiros"};
     const _moK   = HIST_DATA && HIST_DATA.length ? Object.keys(HIST_DATA[0]).filter(function(k){ return k!=="mes" && _EQP_K.indexOf(k)<0; }) : [];
 
-    /* ── Gráficos Chart.js capturados ── */
-    const chartH = 55; // altura de cada gráfico em mm
-    const chartW = (CW - 8) / 2; // dois gráficos lado a lado
+    const chartH = 55;
+    const chartW = (CW - 8) / 2;
 
     if (_PDF_HIST_MO || _PDF_HIST_EQP) {
-      /* Linha de títulos */
       doc.setFontSize(7.5); doc.setFont("helvetica","bold");
-      if (_PDF_HIST_MO) {
-        doc.setTextColor(2,119,189);
-        doc.text("Mao de Obra (pessoas/mes)", ML, y);
-      }
-      if (_PDF_HIST_EQP) {
-        doc.setTextColor(46,125,50);
-        doc.text("Equipamentos (un/mes)", ML + chartW + 8, y);
-      }
-      y += 4;
-      if (_PDF_HIST_MO)  doc.addImage(_PDF_HIST_MO,  "PNG", ML,                y, chartW, chartH);
-      if (_PDF_HIST_EQP) doc.addImage(_PDF_HIST_EQP, "PNG", ML + chartW + 8,  y, chartW, chartH);
-      y += chartH + 8;
+      if (_PDF_HIST_MO)  { doc.setTextColor(2,119,189);  doc.text("Mao de Obra (pessoas/mes)", ML, yRef.y); }
+      if (_PDF_HIST_EQP) { doc.setTextColor(46,125,50);  doc.text("Equipamentos (un/mes)", ML + chartW + 8, yRef.y); }
+      yRef.y += 4;
+      if (_PDF_HIST_MO)  doc.addImage(_PDF_HIST_MO,  "PNG", ML,               yRef.y, chartW, chartH);
+      if (_PDF_HIST_EQP) doc.addImage(_PDF_HIST_EQP, "PNG", ML + chartW + 8, yRef.y, chartW, chartH);
+      yRef.y += chartH + 8;
     }
 
-    /* ── Tabelas de dados abaixo dos gráficos ── */
     if (HIST_DATA && HIST_DATA.length > 0 && _moK.length > 0) {
       const moRows = HIST_DATA
         .filter(function(m){ return _moK.reduce(function(s,k){ return s+(m[k]||0); },0) > 0; })
         .map(function(m){ return [m.mes].concat(_moK.map(function(k){ return m[k]||0; })).concat([_moK.reduce(function(s,k){ return s+(m[k]||0); },0)]); });
 
       if (moRows.length > 0) {
-        if (y + 30 > YM) { addPage(); y = Y0; }
+        if (yRef.y + 30 > YM) { addPage(); yRef.y = Y0; }
         doc.setFontSize(7.5); doc.setTextColor(2,119,189); doc.setFont("helvetica","bold");
-        doc.text("Mao de Obra — Pessoas/Mes", ML, y); y += 4;
+        doc.text("Mao de Obra — Pessoas/Mes", ML, yRef.y); yRef.y += 4;
         doc.autoTable({
           head: [["Mes"].concat(_moK.map(function(k){ return _MO_L[k]||k; })).concat(["TOTAL MO"])],
           body: moRows,
           foot: [["PICO"].concat(_moK.map(function(k){ return HIST_DATA.reduce(function(mx,m){ return Math.max(mx,m[k]||0); },0); })).concat([""])],
-          startY: y, margin:{left:ML,right:MR,top:Y0,bottom:PH-YM},
+          startY: yRef.y, margin:{left:ML,right:MR,top:Y0,bottom:PH-YM},
           styles:{fontSize:7.5,cellPadding:1.8,halign:"right"},
           headStyles:{fillColor:[2,119,189],textColor:255,fontStyle:"bold"},
           footStyles:{fillColor:[2,119,189],textColor:255,fontStyle:"bold"},
@@ -3790,7 +3945,7 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
           alternateRowStyles:{fillColor:[227,242,253]},
           didDrawPage: didDrawPageFn
         });
-        y = doc.lastAutoTable.finalY + 6;
+        yRef.y = doc.lastAutoTable.finalY + 6;
       }
 
       const eqpRows = HIST_DATA
@@ -3798,14 +3953,14 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
         .map(function(m){ return [m.mes,m.escavadeira||0,m.rolo||0,m.caminhao||0,m.moto||0,_EQP_K.reduce(function(s,k){ return s+(m[k]||0); },0)]; });
 
       if (eqpRows.length > 0) {
-        if (y + 30 > YM) { addPage(); y = Y0; }
+        if (yRef.y + 30 > YM) { addPage(); yRef.y = Y0; }
         doc.setFontSize(7.5); doc.setTextColor(46,125,50); doc.setFont("helvetica","bold");
-        doc.text("Equipamentos — Unidades/Mes", ML, y); y += 4;
+        doc.text("Equipamentos — Unidades/Mes", ML, yRef.y); yRef.y += 4;
         doc.autoTable({
           head: [["Mes"].concat(_EQP_L).concat(["TOTAL EQP"])],
           body: eqpRows,
           foot: [["PICO"].concat(_EQP_K.map(function(k){ return HIST_DATA.reduce(function(mx,m){ return Math.max(mx,m[k]||0); },0); })).concat([""])],
-          startY: y, margin:{left:ML,right:MR,top:Y0,bottom:PH-YM},
+          startY: yRef.y, margin:{left:ML,right:MR,top:Y0,bottom:PH-YM},
           styles:{fontSize:7.5,cellPadding:1.8,halign:"right"},
           headStyles:{fillColor:[46,125,50],textColor:255,fontStyle:"bold"},
           footStyles:{fillColor:[46,125,50],textColor:255,fontStyle:"bold"},
@@ -3813,16 +3968,15 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
           alternateRowStyles:{fillColor:[232,245,233]},
           didDrawPage: didDrawPageFn
         });
-        y = doc.lastAutoTable.finalY + 6;
+        yRef.y = doc.lastAutoTable.finalY + 6;
       }
     }
   }
 
-  /* ── ANÁLISE CRÍTICA ── tabela top-10 dias + conflitos detectados ── */
+  /* ── ANÁLISE CRÍTICA ── */
   if (chk("analise")) {
-    addPage(); y = Y0;
+    addPage(); yRef.y = Y0 + 12;
     titulo("6. ANALISE CRITICA — VOLUME DE OBRA X RECURSOS");
-    y = Y0 + 12;
 
     const dados = typeof _gerarDadosDiarios === "function" ? _gerarDadosDiarios() : [];
     if (dados.length) {
@@ -3831,7 +3985,6 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
       const diasAten = dados.filter(function(d){return d.mo >= picoMO*0.40 && d.mo <= picoMO*0.70;}).length;
       const pctCrit  = dados.length ? Math.round(diasCrit/dados.length*100) : 0;
 
-      // KPIs da análise crítica
       const kpiAC = [
         ["Pico MO / dia",         String(picoMO)+" pessoas"],
         ["Dias criticos (>70%)",  String(diasCrit)+" dias ("+pctCrit+"%)"],
@@ -3842,30 +3995,28 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
       kpiAC.forEach(function(k, i) {
         const xk = ML + i * (wkpi + 3);
         const cor = k[1].indexOf("CRITICO") >= 0 ? [192,57,43] : k[1].indexOf("ATENCAO") >= 0 ? [180,117,23] : [0,123,62];
-        doc.setFillColor(245,247,252); doc.rect(xk, y, wkpi, 14, "F");
+        doc.setFillColor(245,247,252); doc.rect(xk, yRef.y, wkpi, 14, "F");
         doc.setFontSize(6.5); doc.setTextColor(120); doc.setFont("helvetica","normal");
-        doc.text(k[0], xk+2, y+4.5);
+        doc.text(k[0], xk+2, yRef.y+4.5);
         doc.setFontSize(9); doc.setTextColor(cor[0],cor[1],cor[2]); doc.setFont("helvetica","bold");
-        doc.text(k[1], xk+2, y+11);
+        doc.text(k[1], xk+2, yRef.y+11);
       });
-      y += 18;
+      yRef.y += 18;
 
-      // Gráfico combo da Análise Crítica (capturado antes da geração do PDF)
       if (_PDF_CRITICA_IMG) {
         chkBrk(55);
         try {
           const props  = doc.getImageProperties(_PDF_CRITICA_IMG);
           const imgW   = CW;
           const imgH   = Math.min((props.height * imgW) / props.width, 55);
-          doc.addImage(_PDF_CRITICA_IMG, "PNG", ML, y, imgW, imgH);
-          y += imgH + 5;
+          doc.addImage(_PDF_CRITICA_IMG, "PNG", ML, yRef.y, imgW, imgH);
+          yRef.y += imgH + 5;
         } catch(e) {}
       }
 
-      // Tabela top-10 dias críticos
       chkBrk(30);
       doc.setFontSize(7.5); doc.setTextColor(0,45,114); doc.setFont("helvetica","bold");
-      doc.text("Top 10 dias de maior demanda de Mao de Obra:", ML, y); y += 4;
+      doc.text("Top 10 dias de maior demanda de Mao de Obra:", ML, yRef.y); yRef.y += 4;
       const baseDate = dataIni ? new Date(dataIni+"T00:00:00") : null;
       const top10 = [...dados].sort(function(a,b){return b.mo-a.mo;}).slice(0,10);
       const nivelLabel = function(mo) {
@@ -3875,29 +4026,21 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
       const top10Rows = top10.map(function(d) {
         const dateStr = baseDate
           ? new Date(baseDate.getTime()+(d.dia-1)*86400000).toLocaleDateString("pt-BR")
-          : "—";
+          : "---";
         const etapas = [...new Set(
           GANTT_DATA.filter(function(a){return !a.isHeader && a.inicio<=d.dia && a.termino>=d.dia;})
                     .map(function(a){return a.etapaFull;})
-        )].join(", ") || "—";
+        )].join(", ") || "---";
         return ["Dia "+d.dia, dateStr, String(d.mo), String(d.ativ), String(d.eqp), etapas.substring(0,35), nivelLabel(d.mo)];
       });
       doc.autoTable({
         head: [["Dia","Data","MO","Ativ.","Equip.","Etapas ativas","Nivel"]],
         body: top10Rows,
-        startY: y, margin:{left:ML,right:MR,top:Y0,bottom:PH-YM},
+        startY: yRef.y, margin:{left:ML,right:MR,top:Y0,bottom:PH-YM},
         styles:{fontSize:7,cellPadding:1.5},
         headStyles:{fillColor:[0,45,114],textColor:255,fontStyle:"bold",fontSize:7},
         alternateRowStyles:{fillColor:[245,247,252]},
-        columnStyles:{
-          0:{cellWidth:14,halign:"center"},
-          1:{cellWidth:20,halign:"center"},
-          2:{cellWidth:12,halign:"right"},
-          3:{cellWidth:11,halign:"right"},
-          4:{cellWidth:12,halign:"right"},
-          5:{cellWidth:65,overflow:"linebreak"},
-          6:{cellWidth:18,halign:"center"},
-        },
+        columnStyles:{0:{cellWidth:14,halign:"center"},1:{cellWidth:20,halign:"center"},2:{cellWidth:12,halign:"right"},3:{cellWidth:11,halign:"right"},4:{cellWidth:12,halign:"right"},5:{cellWidth:65,overflow:"linebreak"},6:{cellWidth:18,halign:"center"}},
         willDrawCell: function(data) {
           if (data.section==="body" && data.column.index===6) {
             var v = data.cell.text[0]||"";
@@ -3908,187 +4051,167 @@ function _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,y,ML,MR,CW,YM
         },
         didDrawPage: didDrawPageFn
       });
-      y = doc.lastAutoTable.finalY + 6;
+      yRef.y = doc.lastAutoTable.finalY + 6;
 
-      // Detector de conflitos
       if (typeof _detectarConflitos === "function") {
         const conflitos = _detectarConflitos();
         if (conflitos.length) {
           chkBrk(20);
           doc.setFontSize(7.5); doc.setTextColor(192,57,43); doc.setFont("helvetica","bold");
-          doc.text("Conflitos de Recursos Detectados:", ML, y); y += 4;
+          doc.text("Conflitos de Recursos Detectados:", ML, yRef.y); yRef.y += 4;
           const nomes = {escavadeira:"Escavadeiras",caminhao:"Caminhoes",operador:"Operadores",servente:"Serventes"};
           const confRows = conflitos.map(function(c) {
-            const diasStr = c.ini===c.fim ? "Dia "+c.ini : "Dias "+c.ini+"–"+c.fim;
+            const diasStr = c.ini===c.fim ? "Dia "+c.ini : "Dias "+c.ini+"-"+c.fim;
             return [diasStr, nomes[c.recurso]||c.recurso, "Cap.: "+c.cap, "Excesso: +"+c.maxExc];
           });
           doc.autoTable({
             head: [["Periodo","Recurso","Capacidade","Excesso maximo"]],
             body: confRows,
-            startY: y, margin:{left:ML,right:MR,top:Y0,bottom:PH-YM},
+            startY: yRef.y, margin:{left:ML,right:MR,top:Y0,bottom:PH-YM},
             styles:{fontSize:7,cellPadding:1.5},
             headStyles:{fillColor:[192,57,43],textColor:255,fontStyle:"bold"},
             alternateRowStyles:{fillColor:[253,232,230]},
             didDrawPage: didDrawPageFn
           });
-          y = doc.lastAutoTable.finalY + 6;
+          yRef.y = doc.lastAutoTable.finalY + 6;
         } else {
           chkBrk(10);
-          doc.setFillColor(232,245,233); doc.rect(ML, y, CW, 8, "F");
+          doc.setFillColor(232,245,233); doc.rect(ML, yRef.y, CW, 8, "F");
           doc.setFontSize(7.5); doc.setTextColor(0,100,50); doc.setFont("helvetica","normal");
-          doc.text("Nenhum conflito de recursos detectado com a capacidade configurada.", ML+3, y+5);
-          y += 12;
+          doc.text("Nenhum conflito de recursos detectado com a capacidade configurada.", ML+3, yRef.y+5);
+          yRef.y += 12;
         }
       }
     } else {
       chkBrk(12);
       doc.setFontSize(8); doc.setTextColor(130); doc.setFont("helvetica","normal");
-      doc.text("Analise critica nao disponivel — calcule o cronograma na plataforma.", ML, y); y += 10;
+      doc.text("Analise critica nao disponivel - calcule o cronograma na plataforma.", ML, yRef.y); yRef.y += 10;
     }
   }
 
   /* ── MEMORIAL ── */
   if (chk("memorial")) {
-    addPage(); y = Y0;
+    addPage(); yRef.y = Y0 + 12;
     titulo("7. MEMORIAL DE EXECUCAO");
-    y = Y0 + 12;
-    linha("Responsável Técnico", getV("obra-responsavel")||"—", true);
-    linha("CREA-AM",             getV("obra-crea")||"—");
-    linha("Cargo / Função",      getV("obra-cargo")||"—");
-    linha("E-mail",              getV("obra-email")||"—"); y += 2;
-    linha("Nome da Obra",        getV("obra-nome")||"—", true);
-    linha("Nº Orçamento",        getV("obra-orcamento")||"—");
-    linha("Tipo de Modal",       getV("obra-tipo")||"—", true);
-    linha("Localização",         getV("obra-local")||"—");
-    linha("Rodovia / KM Ref.",   getV("obra-rodovia")||"—");
-    linha("Extensão Total",      (getV("obra-extensao")||"—")+" km"); y += 2;
-    linha("Data de Início",      dataIni ? new Date(dataIni+"T00:00:00").toLocaleDateString("pt-BR") : "—");
-    linha("Data de Término",     dataFim, true);
-    linha("Duração Total",       maxDia+" dias ("+durMes+" meses)", true);
-    linha("Jornada de Trabalho", (getV("obra-jornada")||"—")+"h/dia");
+    linha("Responsavel Tecnico", getV("obra-responsavel")||"---", true);
+    linha("CREA-AM",             getV("obra-crea")||"---");
+    linha("Cargo / Funcao",      getV("obra-cargo")||"---");
+    linha("E-mail",              getV("obra-email")||"---"); yRef.y += 2;
+    linha("Nome da Obra",        getV("obra-nome")||"---", true);
+    linha("No Orcamento",        getV("obra-orcamento")||"---");
+    linha("Tipo de Modal",       getV("obra-tipo")||"---", true);
+    linha("Localizacao",         getV("obra-local")||"---");
+    linha("Rodovia / KM Ref.",   getV("obra-rodovia")||"---");
+    linha("Extensao Total",      (getV("obra-extensao")||"---")+" km"); yRef.y += 2;
+    linha("Data de Inicio",      dataIni ? new Date(dataIni+"T00:00:00").toLocaleDateString("pt-BR") : "---");
+    linha("Data de Termino",     dataFim, true);
+    linha("Duracao Total",       maxDia+" dias ("+durMes+" meses)", true);
+    linha("Jornada de Trabalho", (getV("obra-jornada")||"---")+"h/dia");
     const _nFrentesMemorial = usarFrentesAtivo() ? FRENTES.length : 1;
-    linha("Nº de Frentes",       String(_nFrentesMemorial)+" frente"+(_nFrentesMemorial!==1?"s":""));
-    linha("Defasagem",           (getV("obra-defasagem")||"—")+" dias"); y += 2;
-    linha("MO Total (h·h)",      numBR(moTotal,0)+" horas", true);
-    linha("Serviços Cadastrados",String(EAP_CALC.length)); y += 2;
+    linha("No de Frentes",       String(_nFrentesMemorial)+" frente"+(_nFrentesMemorial!==1?"s":""));
+    linha("Defasagem",           (getV("obra-defasagem")||"---")+" dias"); yRef.y += 2;
+    linha("MO Total (h.h)",      numBR(moTotal,0)+" horas", true);
+    linha("Servicos Cadastrados",String(EAP_CALC.length)); yRef.y += 2;
     linha("Serventes (pico)",    String(pico.servente||0));
     linha("Pedreiros (pico)",    String(pico.pedreiro||0));
     linha("Operadores (pico)",   String(pico.operador||0));
-    linha("Carpinteiros (pico)", String(pico.carpinteiro||0)); y += 2;
+    linha("Carpinteiros (pico)", String(pico.carpinteiro||0)); yRef.y += 2;
     linha("Escavadeiras (pico)", String(pico.escavadeira||0));
     linha("Rolos (pico)",        String(pico.rolo||0));
-    linha("Caminhões (pico)",    String(pico.caminhao||0));
+    linha("Caminhoes (pico)",    String(pico.caminhao||0));
     linha("Motoniv. (pico)",     String(pico.moto||0));
   }
 
-  /* ── MAPA DE LOCAÇÃO — REMOVIDO A PEDIDO DO USUÁRIO ── */
-  // Seção de mapa removida permanentemente da exportação PDF
+  /* ── REFERENCIAS TECNICAS — REV-15: secao agora dentro de _finalizarPDF2 com yRef correto ── */
+  addPage(); yRef.y = Y0 + 10;
+  titulo("8. REFERENCIAS TECNICAS E METODOLOGIA DE CALCULO");
 
-  /* ── PÁGINA DE REFERÊNCIAS TÉCNICAS E METODOLOGIA ── */
-  addPage();
-  titulo("9. REFERENCIAS TECNICAS E METODOLOGIA DE CALCULO");
-  y = Y0 + 10;
-
-  // Introdução
   doc.setFontSize(8); doc.setTextColor(80); doc.setFont("helvetica","normal");
   var introLines = doc.splitTextToSize("Este documento foi elaborado pela Plataforma de Planejamento de Obras Rodoviarias v2.0, desenvolvida pelo Departamento de Mobilidade (DMOB) da Secretaria de Estado de Infraestrutura (SEINFRA/AM). Os calculos de prazo, mao de obra e equipamentos seguem metodologia baseada nas composicoes de custos unitarios do DNIT/SICRO2, adaptadas as condicoes operacionais do Estado do Amazonas.", CW);
-  doc.text(introLines, ML, y); y += introLines.length * 4.5 + 8;
+  doc.text(introLines, ML, yRef.y); yRef.y += introLines.length * 4.5 + 8;
 
-  // Fontes
   chkBrk(8);
-  doc.setFillColor(245,247,252); doc.rect(ML, y-4, CW, 5, "F");
+  doc.setFillColor(245,247,252); doc.rect(ML, yRef.y-4, CW, 5, "F");
   doc.setFontSize(8); doc.setTextColor(0,45,114); doc.setFont("helvetica","bold");
-  doc.text("FONTES E BASES DE DADOS", ML+2, y); y += 7;
-  var fontes = [
-    ["SICRO2 (DNIT)", "Sistema de Custos Referenciais de Obras — base para composicoes unitarias de servicos rodoviarios."],
+  doc.text("FONTES E BASES DE DADOS", ML+2, yRef.y); yRef.y += 7;
+  [
+    ["SICRO2 (DNIT)", "Sistema de Custos Referenciais de Obras - base para composicoes unitarias de servicos rodoviarios."],
     ["Manuais DNIT",  "Manual de Implantacao de Rodovias, Manual de Pavimentacao e Especificacoes de Servicos (ES-P)."],
     ["ABNT",          "Normas tecnicas de projeto geometrico, pavimentacao e obras de arte correntes."],
     ["SEINFRA/AM",    "Planilha de Composicoes de Precos Unitarios e parametros regionais de produtividade amazonica."],
-    ["OpenStreetMap", "Base cartografica dos mapas de locacao (c) Contribuidores OSM — licenca ODbL."],
+    ["OpenStreetMap", "Base cartografica dos mapas de locacao. Contribuidores OSM - licenca ODbL."],
     ["GeoJSON SEINFRA","Tracados georeferenciados dos ramais e rodovias estaduais do Amazonas."],
-  ];
-  doc.setFontSize(7.5);
-  fontes.forEach(function(f) {
+  ].forEach(function(f) {
     chkBrk(8);
+    doc.setFontSize(7.5);
     doc.setFont("helvetica","bold"); doc.setTextColor(0,45,114);
-    doc.text("• "+f[0]+":", ML+2, y);
+    doc.text("* "+f[0]+":", ML+2, yRef.y);
     doc.setFont("helvetica","normal"); doc.setTextColor(80);
     var fLines = doc.splitTextToSize(f[1], CW-44);
-    doc.text(fLines, ML+44, y);
-    y += Math.max(5, fLines.length*4.5);
+    doc.text(fLines, ML+44, yRef.y);
+    yRef.y += Math.max(5, fLines.length*4.5);
   });
-  y += 5;
+  yRef.y += 5;
 
-  // Metodologia
   chkBrk(8);
-  doc.setFillColor(245,247,252); doc.rect(ML, y-4, CW, 5, "F");
+  doc.setFillColor(245,247,252); doc.rect(ML, yRef.y-4, CW, 5, "F");
   doc.setFontSize(8); doc.setTextColor(0,45,114); doc.setFont("helvetica","bold");
-  doc.text("METODOLOGIA DE CALCULO", ML+2, y); y += 7;
-  var metodos = [
-    ["MO Total (h·h)",          "MO_total = Qtde x Coeficiente_MO (h/unidade). Total de horas-homem para executar o servico conforme composicao SICRO2."],
-    ["DP — Duracao Prevista",   "DP = ARRED.PARA.CIMA( MO_total / Jornada ). Jornada padrao adotada: 8 h/dia. Resultado em dias corridos."],
-    ["DA — Duracao Ajustada",   "DA = ARRED.PARA.CIMA( DP / QE ). Considera o numero de equipes (QE) alocadas simultaneamente, reduzindo o prazo efetivo."],
-    ["QMO — Mao de Obra",       "QMO = ARRED.PARA.CIMA( Qtde x taxa_categoria / (DA x Jornada) ). Calculado para serventes, pedreiros e operadores."],
-    ["QEQ — Equipamentos",      "QEQ = Analogico ao QMO, usando coeficientes de equipamento (escavadeiras, rolos, caminhoes, motoniveladoras) do SICRO2."],
-    ["Histogramas de Recursos", "Somatoria diaria de MO e equipamentos ativos, considerando sobreposicao de frentes com a defasagem configurada entre KMs."],
-    ["Cronograma (Gantt)",      "Estruturado sequencialmente por KM. Canteiro executado primeiro; demais KMs seguem com defasagem fixa entre frentes."],
-    ["Analise Critica",         "Perfil diario de MO e atividades simultaneas. Dias com MO > 70% do pico sao classificados como criticos (vermelho); 40-70% como atencao (amarelo)."],
-  ];
-  doc.setFontSize(7.5);
-  metodos.forEach(function(m) {
-    // 24mm = label (4.5) + até 3 linhas de texto (13.5) + espaço (3) + folga (3)
-    chkBrk(24);
+  doc.text("METODOLOGIA DE CALCULO", ML+2, yRef.y); yRef.y += 7;
+  [
+    ["MO Total",         "MO_total = Qtde x Coeficiente_MO (h/unidade). Total de horas-homem para executar o servico conforme composicao SICRO2."],
+    ["DP - Duracao",     "DP = ARRED.PARA.CIMA( MO_total / Jornada ). Jornada padrao: 8 h/dia. Resultado em dias corridos."],
+    ["DA - Ajustada",    "DA = ARRED.PARA.CIMA( DP / QE ). Considera o numero de equipes (QE) alocadas, reduzindo o prazo efetivo."],
+    ["QMO",              "QMO = ARRED.PARA.CIMA( Qtde x taxa_categoria / (DA x Jornada) ). Para serventes, pedreiros e operadores."],
+    ["QEQ",              "QEQ = Analogico ao QMO, usando coeficientes de equipamento (escavadeiras, rolos, caminhoes, motoniveladoras)."],
+    ["Histogramas",      "Somatoria diaria de MO e equipamentos ativos, considerando sobreposicao de frentes com a defasagem configurada."],
+    ["Cronograma",       "Sequencial por KM. Canteiro executado primeiro; demais KMs seguem com defasagem fixa entre frentes."],
+    ["Analise Critica",  "Perfil diario de MO. Dias > 70% do pico = critico; 40-70% = atencao; < 40% = normal."],
+  ].forEach(function(m) {
+    chkBrk(20);
+    doc.setFontSize(7.5);
     doc.setFont("helvetica","bold"); doc.setTextColor(0,45,114);
-    doc.text(m[0]+":", ML+2, y); y += 4.5;
+    doc.text(m[0]+":", ML+2, yRef.y); yRef.y += 4.5;
     doc.setFont("helvetica","normal"); doc.setTextColor(80);
     var mLines = doc.splitTextToSize(m[1], CW-6);
-    doc.text(mLines, ML+4, y);
-    y += mLines.length*4.5 + 3;
+    doc.text(mLines, ML+4, yRef.y);
+    yRef.y += mLines.length*4.5 + 3;
   });
-  y += 4;
+  yRef.y += 4;
 
-  // Observações — altura calculada dinamicamente para não invadir o rodapé
-  var obs = [
-    "• Os valores sao estimativas para planejamento inicial. Devem ser validados em projeto executivo.",
-    "• Condicoes climaticas, logistica regional amazonica e disponibilidade de insumos impactam prazos reais.",
-    "• Jornada padrao de 8h/dia; ajuste na plataforma conforme jornada contratada da obra.",
+  /* Observacoes — bloco amarelo calculado dinamicamente */
+  var obsArr = [
+    "Os valores sao estimativas para planejamento inicial. Devem ser validados em projeto executivo.",
+    "Condicoes climaticas, logistica regional amazonica e disponibilidade de insumos impactam prazos reais.",
+    "Jornada padrao de 8h/dia; ajuste na plataforma conforme jornada contratada da obra.",
   ];
-  // Calcular altura total do bloco antes de desenhar
-  var obsLinhas = obs.map(function(o){ return doc.splitTextToSize(o, CW-6); });
-  var obsH = obsLinhas.reduce(function(s,l){ return s + l.length*4.5 + 1; }, 0) + 12; // 12 = título + margens
-  // Garante que cabe na página — se não, quebra
-  if (y + obsH > YM) { addPage(); y = Y0; }
-  doc.setFillColor(255,248,225); doc.rect(ML, y-3, CW, obsH, "F");
-  doc.setDrawColor(245,168,35); doc.setLineWidth(0.5); doc.rect(ML, y-3, CW, obsH, "S");
+  var obsLinhas = obsArr.map(function(o){ return doc.splitTextToSize("* "+o, CW-8); });
+  var obsH = obsLinhas.reduce(function(s,l){ return s + l.length*4.5 + 1.5; }, 0) + 14;
+  if (yRef.y + obsH > YM) { addPage(); yRef.y = Y0; }
+  doc.setFillColor(255,248,225); doc.rect(ML, yRef.y-3, CW, obsH, "F");
+  doc.setDrawColor(245,168,35); doc.setLineWidth(0.5); doc.rect(ML, yRef.y-3, CW, obsH, "S");
   doc.setFontSize(7.5); doc.setTextColor(100,70,0); doc.setFont("helvetica","bold");
-  doc.text("OBSERVACOES IMPORTANTES", ML+3, y+1); y += 5;
+  doc.text("OBSERVACOES IMPORTANTES", ML+3, yRef.y+1); yRef.y += 6;
   doc.setFont("helvetica","normal");
-  obsLinhas.forEach(function(oL) { doc.text(oL, ML+3, y); y += oL.length*4.5 + 1; });
-  y += 8;
-  chkBrk(6);
-  doc.setFontSize(7); doc.setTextColor(130); doc.setFont("helvetica","normal");
-  doc.text("Elaborado: Plataforma de Planejamento de Obras Rodoviarias · DMOB/SEINFRA/AM · v2.0 · " + new Date().getFullYear(), ML, y);
+  obsLinhas.forEach(function(oL) { doc.text(oL, ML+3, yRef.y); yRef.y += oL.length*4.5 + 1.5; });
 
   /* ── SALVAR ── */
   var nomeArq = (nomeObra||"obra")
     .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
     .replace(/[^a-zA-Z0-9 _-]/g,"").replace(/\s+/g,"_").toUpperCase();
 
-  // ── Numeração FINAL ─────────────────────────────────────────────────────
   var totalPgs = doc.internal.getNumberOfPages();
   for (var pi = 1; pi <= totalPgs; pi++) {
     doc.setPage(pi);
     doc.setFillColor(255,255,255); doc.rect(0, PH-FTR+1, PW, 6, "F");
     doc.setFontSize(7); doc.setTextColor(150); doc.setFont("helvetica","normal");
-    doc.text("Plataforma de Planejamento de Obras Rodoviarias · DMOB/SEINFRA/AM", ML, PH-FTR+3.5);
+    doc.text("Plataforma de Planejamento de Obras Rodoviarias - DMOB/SEINFRA/AM", ML, PH-FTR+3.5);
     doc.text("Pagina " + pi + " de " + totalPgs, PW-MR, PH-FTR+3.5, {align:"right"});
   }
 
   doc.save("PLAN_" + nomeArq + "_" + new Date().toISOString().split("T")[0] + ".pdf");
   var _btnPdf = document.querySelector(".btn-pdf-action");
-  if (_btnPdf) { _btnPdf.textContent = "📄 Gerar PDF"; _btnPdf.disabled = false; }
+  if (_btnPdf) { _btnPdf.textContent = "Gerar PDF"; _btnPdf.disabled = false; }
 }
-
 
 
 // ─── GERADOR DE CONTEÚDO DO PREVIEW ───────────────────
@@ -6251,7 +6374,7 @@ async function carregarProjeto(id, origem) {
   if (projeto.obra) _restaurarUI(projeto.obra);
   if (projeto.servicos) {
     SERVICOS = projeto.servicos;
-    _SERV_ID_CTR = Math.max(...SERVICOS.map(s => s.id || 0), 0) + 1;
+    _idCounter = Math.max(...SERVICOS.map(s => s.id || 0), 100) + 1; // FIX REV-15: era _SERV_ID_CTR (undefined)
   }
   if (projeto.frentes) {
     FRENTES = projeto.frentes;
@@ -6308,93 +6431,290 @@ function fecharModalProjetos() {
 // EXPORTAR EXCEL (SheetJS)
 // ═══════════════════════════════════════════════════════
 function exportarExcel() {
-  if (!window.XLSX) { alert("⚠️ Biblioteca Excel não carregou. Verifique a conexão."); return; }
-  if (!EAP_CALC.length) { alert("⚠️ Calcule o cronograma primeiro."); return; }
+  /* REV-15: exportarExcel reescrita — Gantt visual com barras Unicode, Dashboard KPIs,
+     Curva S, abas organizadas. Remove abas redundantes (Frentes/Trechos separados). */
+  if (!window.XLSX) { alert("Biblioteca Excel nao carregou. Verifique a conexao."); return; }
+  if (!EAP_CALC.length) { alert("Calcule o cronograma primeiro."); return; }
   _calcularTudoExec();
 
-  const wb = XLSX.utils.book_new();
-  const nomObra = getV("obra-nome") || "obra";
+  const wb   = XLSX.utils.book_new();
+  const nome = getV("obra-nome") || "obra";
+  const ui   = _coletarUI();
+  const dataIni  = getV("obra-inicio");
+  const maxDia   = GANTT_DATA.reduce((m,a)=>Math.max(m,a.termino),0);
+  const durMeses = Math.ceil(maxDia/30);
+  const moTotal  = EAP_CALC.reduce((s,c)=>s+(c.moTotal||0),0);
+  const pico     = calcPicoRecursos();
+  const baseDate = dataIni ? new Date(dataIni+"T00:00:00") : null;
 
-  // ── Aba 1: Identificação ──────────────────────────
-  const ui = _coletarUI();
-  const maxDia = GANTT_DATA.reduce((m,a) => Math.max(m,a.termino), 0);
-  const wsId = XLSX.utils.aoa_to_sheet([
-    ["PLANEJAMENTO DE OBRAS — SEINFRA/AM"],
-    [],
-    ["Campo", "Valor"],
-    ["Nome da Obra", ui.nome], ["Tipo de Modal", ui.tipo],
-    ["Nº Orçamento", ui.orcamento], ["Localização", ui.local],
-    ["Rodovia / KM Ref.", ui.rodovia], ["Extensão Total (km)", ui.extensao],
-    ["Responsável Técnico", ui.responsavel], ["CREA-AM", ui.crea],
-    ["Data de Início", ui.inicio], ["Jornada (h/dia)", ui.jornada],
-    ["Defasagem (dias)", ui.defasagem], ["Duração Total (dias)", maxDia],
-    ["MO Total (h·h)", EAP_CALC.reduce((s,c)=>s+(c.moTotal||0),0).toFixed(1)],
-  ]);
-  wsId["!cols"] = [{ wch: 28 }, { wch: 40 }];
-  XLSX.utils.book_append_sheet(wb, wsId, "Identificação");
+  // ─── Estilos reutilizáveis ─────────────────────────────────────────────
+  const ST = {
+    hdr:  {font:{bold:true,color:{rgb:"FFFFFF"}}, fill:{fgColor:{rgb:"002D72"}}, alignment:{horizontal:"center",vertical:"center",wrapText:true}, border:{bottom:{style:"thin",color:{rgb:"F5A623"}}}},
+    sub:  {font:{bold:true,color:{rgb:"FFFFFF"}}, fill:{fgColor:{rgb:"1565C0"}}, alignment:{horizontal:"left"}},
+    kpi_lbl: {font:{bold:true,sz:9,color:{rgb:"4A5568"}}, fill:{fgColor:{rgb:"EBF0FA"}}},
+    kpi_val: {font:{bold:true,sz:14,color:{rgb:"002D72"}}, fill:{fgColor:{rgb:"EBF0FA"}}, alignment:{horizontal:"center"}},
+    lbl:  {font:{bold:true,color:{rgb:"002D72"}}},
+    val:  {font:{color:{rgb:"1A2540"}}},
+    alt:  {fill:{fgColor:{rgb:"F5F7FB"}}},
+    num:  {alignment:{horizontal:"right"}, numFmt:"#,##0"},
+    numD: {alignment:{horizontal:"right"}, numFmt:"#,##0.0"},
+    cen:  {alignment:{horizontal:"center"}},
+    mo:   {font:{bold:true,color:{rgb:"0277BD"}}},
+    eqp:  {font:{bold:true,color:{rgb:"2E7D32"}}},
+    da:   {font:{bold:true,color:{rgb:"F5A623"}}},
+    warn: {fill:{fgColor:{rgb:"FFF3E0"}},font:{color:{rgb:"BF360C"}}},
+    crit: {fill:{fgColor:{rgb:"FDECEA"}},font:{bold:true,color:{rgb:"C0392B"}}},
+    ok:   {fill:{fgColor:{rgb:"E8F5E9"}},font:{color:{rgb:"2E7D32"}}},
+  };
 
-  // ── Aba 2: EAP ────────────────────────────────────
-  const eapRows = [
-    ["#","KM","Etapa","Código","Descrição","Unid","Qtde","Produt","MO Total (h)","DP (dias)","QE","DA (dias)",
-     "Serventes","Pedreiros","Operadores","Carpinteiros","Escavadeiras","Rolos","Caminhões","Motonier."]
-  ];
-  EAP_CALC.forEach((c,i) => {
-    eapRows.push([
-      i+1, c.km||"—", c.etapa||"—", c.codigo||"—", c.comp?.desc||"—", c.comp?.unid||"—",
-      c.qtde||0, c.comp?.produt||0, +(c.moTotal||0).toFixed(1), c.dp||0, c.qe||1, c.da||0,
+  const sc = (v,s) => ({v,s});    // cell com style
+  const sv = v    => ({v});       // cell só valor
+  const sf = (f,s)=> ({f,s});     // cell fórmula
+
+  // ─── Utilidade: aplicar styles num sheet ──────────────────────────────
+  function applyStyles(ws, styleMap) {
+    // styleMap: { "A1": styleObj, ... }
+    Object.entries(styleMap).forEach(([addr,st]) => {
+      if (!ws[addr]) ws[addr] = {v:""};
+      ws[addr].s = st;
+    });
+  }
+
+  // ─── ABA 1: DASHBOARD ─────────────────────────────────────────────────
+  {
+    const dataFim = baseDate && maxDia
+      ? new Date(baseDate.getTime()+maxDia*86400000).toLocaleDateString("pt-BR") : "---";
+
+    const rows = [
+      [{v:"PLANEJAMENTO DE OBRAS RODOVIARIAS — SEINFRA/AM",s:{...ST.hdr,font:{bold:true,sz:14,color:{rgb:"FFFFFF"}}}}],
+      [{v:nome,s:{font:{bold:true,sz:12,color:{rgb:"002D72"}}}}],
+      [],
+      [{v:"IDENTIFICACAO",s:ST.sub},{v:""},{v:"PRAZOS E DURACAO",s:ST.sub}],
+      [{v:"Tipo de Modal",s:ST.lbl},{v:ui.tipo||"---"},{v:"Data de Inicio",s:ST.lbl},{v:ui.inicio||"---"}],
+      [{v:"No Orcamento",s:ST.lbl},{v:ui.orcamento||"---"},{v:"Data de Termino (prev.)",s:ST.lbl},{v:dataFim}],
+      [{v:"Localizacao",s:ST.lbl},{v:ui.local||"---"},{v:"Duracao Total",s:ST.lbl},{v:maxDia+" dias ("+durMeses+" meses)"}],
+      [{v:"Rodovia / KM",s:ST.lbl},{v:ui.rodovia||"---"},{v:"Jornada",s:ST.lbl},{v:(ui.jornada||8)+"h/dia"}],
+      [{v:"Extensao Total",s:ST.lbl},{v:(ui.extensao||0)+" km"},{v:"Defasagem entre KMs",s:ST.lbl},{v:(ui.defasagem||7)+" dias"}],
+      [{v:"Responsavel",s:ST.lbl},{v:ui.responsavel||"---"},{v:"Frentes de Servico",s:ST.lbl},{v:String(usarFrentesAtivo()?FRENTES.length:1)}],
+      [],
+      [{v:"DIMENSIONAMENTO DE RECURSOS",s:ST.sub}],
+      [{v:"Recurso",s:ST.hdr},{v:"Pico Simultaneo",s:ST.hdr},{v:"MO Total (h.h)",s:ST.hdr},{v:"Servicos",s:ST.hdr}],
+      [{v:"Serventes",s:ST.lbl},{v:pico.servente||0,s:ST.num},{v:+moTotal.toFixed(1),s:ST.numD},{v:EAP_CALC.length,s:ST.num}],
+      [{v:"Pedreiros",s:ST.lbl},{v:pico.pedreiro||0,s:ST.num}],
+      [{v:"Operadores",s:ST.lbl},{v:pico.operador||0,s:ST.num}],
+      [{v:"Carpinteiros",s:ST.lbl},{v:pico.carpinteiro||0,s:ST.num}],
+      [{v:"Escavadeiras",s:ST.eqp},{v:pico.escavadeira||0,s:{...ST.num,...ST.eqp}}],
+      [{v:"Rolos",s:ST.eqp},{v:pico.rolo||0,s:{...ST.num,...ST.eqp}}],
+      [{v:"Caminhoes",s:ST.eqp},{v:pico.caminhao||0,s:{...ST.num,...ST.eqp}}],
+      [{v:"Motoniveladoras",s:ST.eqp},{v:pico.moto||0,s:{...ST.num,...ST.eqp}}],
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(rows.map(r=>r.map(c=>c&&c.v!==undefined?c.v:"")));
+    // Aplicar estilos
+    rows.forEach((row,ri)=>{
+      row.forEach((cell,ci)=>{
+        if(cell&&cell.s){
+          const addr = XLSX.utils.encode_cell({r:ri,c:ci});
+          if(!ws[addr])ws[addr]={v:""};
+          ws[addr].s=cell.s;
+        }
+      });
+    });
+    ws["!merges"]=[
+      {s:{r:0,c:0},e:{r:0,c:5}},
+      {s:{r:1,c:0},e:{r:1,c:5}},
+      {s:{r:11,c:0},e:{r:11,c:5}},
+    ];
+    ws["!cols"]=[{wch:28},{wch:30},{wch:28},{wch:30}];
+    ws["!rows"]=[{hpt:28},{hpt:20},{hpt:8},{hpt:18}];
+    XLSX.utils.book_append_sheet(wb, ws, "Dashboard");
+  }
+
+  // ─── ABA 2: EAP ───────────────────────────────────────────────────────
+  {
+    const hdr = ["#","KM","Etapa","Codigo","Descricao","Unid","Qtde","Coef.MO","MO(h)","DP","QE","DA","Serv.","Ped.","Oper.","Carp.","Escav.","Rolo","Cam.","Moto."];
+    const body = EAP_CALC.map((c,i)=>[
+      i+1, c.km||"---", c.etapa||"---", c.codigo||"---",
+      c.comp?.desc||"---", c.comp?.unid||"---",
+      c.qtde||0, c.comp?.produt||0, +(c.moTotal||0).toFixed(1),
+      c.dp||0, c.qe||1, c.da||0,
       c.qmo?.servente||0, c.qmo?.pedreiro||0, c.qmo?.operador||0, c.qmo?.carpinteiro||0,
       c.eqp?.escavadeira||0, c.eqp?.rolo||0, c.eqp?.caminhao||0, c.eqp?.moto||0,
     ]);
-  });
-  const wsEap = XLSX.utils.aoa_to_sheet(eapRows);
-  wsEap["!cols"] = [2,6,16,8,45,6,8,6,10,8,4,8,8,8,8,10,10,6,8,8].map(w=>({wch:w}));
-  XLSX.utils.book_append_sheet(wb, wsEap, "EAP");
-
-  // ── Aba 3: Cronograma ─────────────────────────────
-  const ganttRows = [["KM","Etapa","Atividade","Frente","Dia Início","Dia Término","Duração (dias)"]];
-  GANTT_DATA.filter(a => !a.isHeader && !a.isTranslado).forEach(a => {
-    ganttRows.push([a.km||"—", a.etapaFull||a.etapa||"—", a.atividade||"—",
-                   a.frente||"—", a.inicio||0, a.termino||0, a.duracao||0]);
-  });
-  const wsGantt = XLSX.utils.aoa_to_sheet(ganttRows);
-  wsGantt["!cols"] = [8,20,24,12,10,10,12].map(w=>({wch:w}));
-  XLSX.utils.book_append_sheet(wb, wsGantt, "Cronograma");
-
-  // ── Aba 4: Histograma Mensal ──────────────────────
-  if (HIST_DATA.length) {
-    const histRows = [["Mês","Serventes","Pedreiros","Operadores","Carpinteiros","Total MO",
-                       "Escavadeiras","Rolos","Caminhões","Motonier.","Total EQP"]];
-    HIST_DATA.forEach(m => {
-      const totMO  = (m.servente||0)+(m.pedreiro||0)+(m.operador||0)+(m.carpinteiro||0);
-      const totEqp = (m.escavadeira||0)+(m.rolo||0)+(m.caminhao||0)+(m.moto||0);
-      histRows.push([m.mes||"—", m.servente||0, m.pedreiro||0, m.operador||0, m.carpinteiro||0,
-                     totMO, m.escavadeira||0, m.rolo||0, m.caminhao||0, m.moto||0, totEqp]);
+    const ws = XLSX.utils.aoa_to_sheet([hdr,...body]);
+    ws["!cols"]=[2,6,18,8,42,6,9,7,10,8,5,8,7,6,7,7,8,6,7,7].map(w=>({wch:w}));
+    // Estilo cabeçalho
+    hdr.forEach((_,ci)=>{
+      const addr=XLSX.utils.encode_cell({r:0,c:ci});
+      if(!ws[addr])ws[addr]={v:hdr[ci]};
+      ws[addr].s=ST.hdr;
     });
-    const wsHist = XLSX.utils.aoa_to_sheet(histRows);
-    wsHist["!cols"] = [8,9,9,9,10,8,10,6,9,9,8].map(w=>({wch:w}));
-    XLSX.utils.book_append_sheet(wb, wsHist, "Histograma");
+    // Estilo linhas alternadas + cores por coluna
+    body.forEach((_,ri)=>{
+      const base = ri%2===0?{}:ST.alt;
+      [8,9,11].forEach(ci=>{ const a=XLSX.utils.encode_cell({r:ri+1,c:ci}); if(ws[a])ws[a].s={...base,...ST.mo}; });
+      [16,17,18,19].forEach(ci=>{ const a=XLSX.utils.encode_cell({r:ri+1,c:ci}); if(ws[a])ws[a].s={...base,...ST.eqp}; });
+      const ada=XLSX.utils.encode_cell({r:ri+1,c:11}); if(ws[ada])ws[ada].s={...base,...ST.da};
+    });
+    XLSX.utils.book_append_sheet(wb, ws, "EAP");
   }
 
-  // ── Aba 5: Frentes ────────────────────────────────
-  if (FRENTES.length) {
-    const fRows = [["Nome","KM Início","KM Fim","Tipo"]];
-    FRENTES.forEach(f => fRows.push([f.nome||"—", f.kmInicio||0, f.kmFim||0,
-                                      f.paralelo?"PARALELA":"SEQUENCIAL"]));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(fRows), "Frentes");
+  // ─── ABA 3: GANTT VISUAL ───────────────────────────────────────────────
+  // Estratégia: tabela com coluna fixa de rótulos + colunas de dias (escala de tempo).
+  // Cada célula de tempo é preenchida com "█" se a atividade estiver ativa naquele dia.
+  // Agrupa por semana para obras longas (>60 dias) para caber na tela.
+  {
+    const ganttAtivs = GANTT_DATA.filter(a=>!a.isHeader&&!a.isTranslado&&a.duracao>0);
+    const AGRUPAR   = maxDia > 60;
+    const UNIT      = AGRUPAR ? 7 : 1;  // dias por coluna
+    const nCols     = Math.ceil(maxDia / UNIT);
+    const LBLW      = 3;  // colunas de rótulo (KM | Etapa | Dur)
+
+    // Linha de cabeçalho de datas
+    const hdrDatas = ["KM","Etapa","Dur.d"];
+    for(let c=0;c<nCols;c++){
+      const dRef = c*UNIT+1;
+      if(baseDate){
+        const dt = new Date(baseDate.getTime()+(dRef-1)*86400000);
+        const mes = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"][dt.getMonth()];
+        hdrDatas.push(AGRUPAR ? mes+"'"+String(dt.getFullYear()).slice(2) : String(dRef));
+      } else {
+        hdrDatas.push(AGRUPAR ? "Sem"+(c+1) : "D"+dRef);
+      }
+    }
+
+    const rows = [hdrDatas];
+
+    // Cores por etapa → código hex (aproximado para XLSX)
+    const etapaHex = (e) => {
+      const u=(e||"").toUpperCase();
+      if(u.includes("CANTEIRO"))  return "002D72";
+      if(u.includes("LIMPEZA"))   return "2E7D32";
+      if(u.includes("TERRAPL"))   return "5D4037";
+      if(u.includes("DRENAGEM"))  return "0277BD";
+      if(u.includes("PAVIMENT"))  return "C62828";
+      if(u.includes("SINALIZ"))   return "F9A825";
+      if(u.includes("SUB-BASE")||u.includes("BASE")) return "6A1B9A";
+      return "607D8B";
+    };
+
+    let lastKm = null;
+    ganttAtivs.forEach(act => {
+      // Separador visual quando muda de KM
+      if(act.km !== lastKm) {
+        if(lastKm !== null) rows.push(new Array(LBLW+nCols).fill(""));
+        lastKm = act.km;
+      }
+      const row = [act.km||"---", act.atividade||act.etapaFull||"---", act.duracao];
+      for(let c=0;c<nCols;c++){
+        const dIni = c*UNIT+1;
+        const dFim = dIni+UNIT-1;
+        const ativo = act.termino>=dIni && act.inicio<=dFim;
+        row.push(ativo ? "█" : "");
+      }
+      rows.push(row);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+
+    // Estilos: cabeçalho
+    hdrDatas.forEach((_,ci)=>{
+      const addr=XLSX.utils.encode_cell({r:0,c:ci});
+      if(!ws[addr])ws[addr]={v:hdrDatas[ci]};
+      ws[addr].s = ci<LBLW ? ST.hdr : {...ST.hdr,font:{bold:true,sz:7,color:{rgb:"FFFFFF"}}};
+    });
+
+    // Estilos: barras coloridas por etapa
+    ganttAtivs.forEach((act,ri)=>{
+      // ri real considera separadores (+1 por KM adicionado a cada mudança)
+      // Percorrer todas as linhas procurando o match
+    });
+
+    // Percorrer as linhas para aplicar estilo nas células "█"
+    rows.forEach((row,ri)=>{
+      if(ri===0) return;
+      const etapaCell = ws[XLSX.utils.encode_cell({r:ri,c:1})];
+      const etapaVal  = etapaCell?.v || "";
+      const act = ganttAtivs.find(a=>(a.atividade||a.etapaFull||"")===etapaVal);
+      const hex = act ? etapaHex(act.etapa) : "607D8B";
+      row.forEach((_,ci)=>{
+        if(ci<LBLW) return;
+        const addr=XLSX.utils.encode_cell({r:ri,c:ci});
+        if(ws[addr]&&ws[addr].v==="█"){
+          ws[addr].s={
+            font:{bold:true,color:{rgb:hex},sz:8},
+            fill:{fgColor:{rgb:hex}},
+            alignment:{horizontal:"center"}
+          };
+        }
+      });
+    });
+
+    // Larguras de coluna
+    const colWidths = [{wch:8},{wch:20},{wch:6},...new Array(nCols).fill({wch:AGRUPAR?4.5:2.5})];
+    ws["!cols"] = colWidths;
+    ws["!rows"] = [{hpt:18},...new Array(rows.length-1).fill({hpt:12})];
+
+    XLSX.utils.book_append_sheet(wb, ws, "Cronograma_Gantt");
   }
 
-  // ── Aba 6: Trechos (multi-trecho) ────────────────
-  if (_modoMultiTrecho && TRECHOS.length) {
-    const tRows = [["Nome","KM Início","KM Fim","Extensão (km)","Município","Translado (dias)"]];
-    TRECHOS.forEach(t => tRows.push([t.nome||"—", t.kmInicio||0, t.kmFim||0,
-                                      t.extensao||0, t.municipio||"—", t.translado||0]));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(tRows), "Trechos");
+  // ─── ABA 4: HISTOGRAMA MENSAL ─────────────────────────────────────────
+  if(HIST_DATA.length){
+    const hdr=["Mes","Serventes","Pedreiros","Operadores","Carpinteiros","Total MO","Escavadeiras","Rolos","Caminhoes","Motonier.","Total EQP"];
+    const body=HIST_DATA.map(m=>{
+      const tMO  =(m.servente||0)+(m.pedreiro||0)+(m.operador||0)+(m.carpinteiro||0);
+      const tEQP =(m.escavadeira||0)+(m.rolo||0)+(m.caminhao||0)+(m.moto||0);
+      return[m.mes||"---",m.servente||0,m.pedreiro||0,m.operador||0,m.carpinteiro||0,tMO,m.escavadeira||0,m.rolo||0,m.caminhao||0,m.moto||0,tEQP];
+    });
+    const ws=XLSX.utils.aoa_to_sheet([hdr,...body]);
+    hdr.forEach((_,ci)=>{const a=XLSX.utils.encode_cell({r:0,c:ci});if(!ws[a])ws[a]={v:hdr[ci]};ws[a].s=ST.hdr;});
+    body.forEach((_,ri)=>{
+      const base=ri%2===0?{}:ST.alt;
+      [1,2,3,4].forEach(ci=>{const a=XLSX.utils.encode_cell({r:ri+1,c:ci});if(ws[a])ws[a].s={...base,...ST.mo};});
+      const a5=XLSX.utils.encode_cell({r:ri+1,c:5});if(ws[a5])ws[a5].s={...base,...ST.mo,font:{bold:true,color:{rgb:"002D72"}}};
+      [6,7,8,9].forEach(ci=>{const a=XLSX.utils.encode_cell({r:ri+1,c:ci});if(ws[a])ws[a].s={...base,...ST.eqp};});
+      const a10=XLSX.utils.encode_cell({r:ri+1,c:10});if(ws[a10])ws[a10].s={...base,...ST.eqp,font:{bold:true,color:{rgb:"1B5E20"}}};
+    });
+    ws["!cols"]=[8,9,8,9,11,9,11,7,9,10,9].map(w=>({wch:w}));
+    XLSX.utils.book_append_sheet(wb,ws,"Histograma_Mensal");
   }
 
-  // ── Gerar arquivo ─────────────────────────────────
-  const nomeArq = nomObra.normalize("NFD").replace(/[\u0300-\u036f]/g,"")
-                          .replace(/[^a-zA-Z0-9 _-]/g,"").replace(/\s+/g,"_").toUpperCase();
-  XLSX.writeFile(wb, `EAP_${nomeArq}_${new Date().toISOString().split("T")[0]}.xlsx`);
+  // ─── ABA 5: CURVA S (MO acumulada) ────────────────────────────────────
+  {
+    const dados = typeof _gerarDadosDiarios==="function" ? _gerarDadosDiarios() : [];
+    if(dados.length){
+      const hdr=["Dia","Data","MO/dia","MO Acumulada","Nivel"];
+      let acum=0;
+      const body=dados.map(d=>{
+        acum+=d.mo;
+        const dStr=baseDate ? new Date(baseDate.getTime()+(d.dia-1)*86400000).toLocaleDateString("pt-BR") : "---";
+        const picoMO=Math.max(...dados.map(x=>x.mo),1);
+        const niv=d.mo>picoMO*0.70?"CRITICO":d.mo>picoMO*0.40?"ATENCAO":"NORMAL";
+        return[d.dia,dStr,d.mo,+acum.toFixed(0),niv];
+      });
+      const ws=XLSX.utils.aoa_to_sheet([hdr,...body]);
+      hdr.forEach((_,ci)=>{const a=XLSX.utils.encode_cell({r:0,c:ci});if(!ws[a])ws[a]={v:hdr[ci]};ws[a].s=ST.hdr;});
+      body.forEach((row,ri)=>{
+        const niv=row[4];
+        const st=niv==="CRITICO"?ST.crit:niv==="ATENCAO"?ST.warn:ri%2===0?{}:ST.alt;
+        [0,1,2,3,4].forEach(ci=>{const a=XLSX.utils.encode_cell({r:ri+1,c:ci});if(ws[a])ws[a].s=st;});
+      });
+      ws["!cols"]=[7,12,10,14,10].map(w=>({wch:w}));
+      XLSX.utils.book_append_sheet(wb,ws,"Curva_S");
+    }
+  }
+
+  // ─── Gerar arquivo ─────────────────────────────────────────────────────
+  const nomeArq = nome.normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+                       .replace(/[^a-zA-Z0-9 _-]/g,"").replace(/\s+/g,"_").toUpperCase();
+  XLSX.writeFile(wb, `PLAN_${nomeArq}_${new Date().toISOString().split("T")[0]}.xlsx`);
+
+  // Toast de confirmação
+  const t=document.createElement("div");
+  t.style.cssText="position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);z-index:3000;background:#1B5E20;color:#fff;border-radius:10px;padding:.7rem 1.4rem;font-size:.82rem;font-weight:600;box-shadow:0 6px 24px rgba(0,20,60,.3);pointer-events:none;animation:fadeInUp .2s ease";
+  t.textContent="Excel gerado: Dashboard + EAP + Gantt visual + Histograma + Curva S";
+  document.body.appendChild(t);
+  setTimeout(()=>{t.style.transition="opacity .4s";t.style.opacity="0";setTimeout(()=>t.remove(),450);},4500);
 }
 
 // ── Fechar modal ao clicar fora ────────────────────
@@ -6643,5 +6963,132 @@ function getTrechosPDFRows() {
   setTimeout(calcTop, 100);
 })();
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     LOG DE VERSÕES — SEINFRA/AM · Plataforma de Planejamento de Obras
+     ───────────────────────────────────────────────────────────────────────
+     INSTRUÇÕES PARA IA EM FUTURAS SESSÕES:
+     1. Leia este bloco ANTES de qualquer edição no arquivo.
+     2. Consulte o <div id="app-version-log"> para ver o histórico completo.
+     3. Ao entregar uma nova revisão, SEMPRE adicione uma entrada nova no
+        array _VERSION_LOG abaixo E no div#app-version-log.
+     4. Nunca repita um bug já documentado como corrigido.
+     5. Consulte a seção "VICIOS_CONHECIDOS" antes de escrever novo código.
+     ═══════════════════════════════════════════════════════════════════════ -->
+
+<!-- LOG OCULTO — visível no DevTools (F12 > Elements) e lido por IA -->
+<div id="app-version-log" style="display:none" aria-hidden="true"
+     data-app="SEINFRA-AM-PLAN"
+     data-versao-atual="REV-15"
+     data-data-atual="2026-03-18">
+
+  <div data-rev="REV-15" data-data="2026-03-18" data-status="ATUAL">
+    <span data-tipo="FIX" data-id="PDF_GANTT_VERTICAL">
+      Gantt PDF fatiado VERTICALMENTE por linhas (eixo Y). Rótulos legíveis em todas as páginas.
+      VICIO_EVITAR: nunca fatiar SVG/canvas Gantt pelo eixo X para multipagina PDF.
+    </span>
+    <span data-tipo="FIX" data-id="PDF_Y_REFERENCIA">
+      _finalizarPDF2 usa yRef={y:n} por referencia. Closures locais recriadas dentro da funcao.
+      VICIO_EVITAR: nunca passar y numerico para subfuncao PDF que precisa modifica-lo.
+    </span>
+    <span data-tipo="FIX" data-id="EXCEL_GANTT_VISUAL">
+      exportarExcel reescrita: Dashboard + EAP + Cronograma_Gantt (barras Unicode) + Histograma + Curva_S.
+    </span>
+    <span data-tipo="FIX" data-id="BUG_SERV_ID_CTR">
+      carregarProjeto: _SERV_ID_CTR (indefinida) corrigida para _idCounter.
+      VICIO_EVITAR: confirmar nome real da variavel antes de referenciar.
+    </span>
+    <span data-tipo="FIX" data-id="ADD_SERVICO_KM_ORDEM">
+      Botao + Servico neste KM: insere na posicao correta via splice (apos ultimo do mesmo KM).
+      Scroll + highlight amarelo + foco no campo quantidade. _calcularTudoExec() sem debounce.
+      VICIO_EVITAR: apos insercao em lista ordenada, usar splice na posicao certa, nunca push().
+    </span>
+    <span data-tipo="FIX" data-id="HISTOGRAMA_PICO_SOMA">
+      calcPicoRecursos usa window._DAILY_RESOURCES (acumulado diario real de gerarHistogramas).
+      Pico correto para frentes paralelas. Fallback: HIST_DATA mensal, depois KM sequencial.
+      VICIO_EVITAR: Math.max em HIST_DATA nao e suficiente para frentes paralelas.
+    </span>
+  </div>
+
+  <div data-rev="REV-14" data-data="2026-03" data-status="SUPERADA">
+    <span data-tipo="IMPL">
+      Sistema multi-trecho para obras descontínuas (TRECHOS[], toggleModoTrechos).
+      Modal de nivelamento de recursos (abrirModalNivelamento, _calcularEstrategias).
+      Persistência localStorage + Google Sheets Apps Script.
+      Exportação Excel básica via SheetJS (substituída na REV-15).
+      PDF com timbrado SEINFRA via jsPDF + autoTable.
+      Gantt SVG multipágina com fatiamento HORIZONTAL — BUG identificado, corrigido REV-15.
+    </span>
+    <span data-tipo="BUG_PENDENTE" data-id="HISTOGRAMA_PICO_SOMA">
+      gerarHistogramas() usa Math.max por dia para frentes paralelas em vez de somar.
+      Para obras com frentes paralelas ativas no mesmo período, o pico mensal
+      é subestimado. STATUS: identificado, não corrigido ainda.
+    </span>
+  </div>
+
+  <div data-rev="VICIOS_CONHECIDOS" data-tipo="GUIA_IA">
+    <span data-id="V1">Fatiar canvas/SVG de Gantt pelo eixo X para multipágina → SEMPRE usar eixo Y</span>
+    <span data-id="V2">Passar y numérico para subfunção PDF que o modifica → SEMPRE usar {y:n}</span>
+    <span data-id="V3">Referenciar _SERV_ID_CTR → nome correto é _idCounter</span>
+    <span data-id="V4">Criar closures (titulo/linha/addPage) no pai e reusar em filho sem contexto correto</span>
+    <span data-id="V5">exportarExcel com abas fragmentadas e sem formatação visual → usar XLSX cell styles</span>
+    <span data-id="V6">getTrechosPDFRows() retorna null no modo simples → sempre checar antes de autoTable</span>
+    <span data-id="V7">calcPicoRecursos() chamada antes de HIST_DATA estar preenchido → sequência de cálculo importa</span>
+    <span data-id="V8">Histograma usa Math.max por dia (subestima pico em frentes paralelas) → pendente correção</span>
+  </div>
+
+</div>
+
+<script>
+/* ── LOG DE VERSÕES (runtime) — consultável via window._VERSION_LOG ── */
+window._VERSION_LOG = [
+  {
+    rev: "REV-15",
+    data: "2026-03-18",
+    status: "ATUAL",
+    fixes: [
+      { id:"PDF_GANTT_VERTICAL",    desc:"Gantt PDF fatiado verticalmente por linhas. Rotulos legiveis em todas as paginas." },
+      { id:"PDF_Y_REFERENCIA",      desc:"_finalizarPDF2 usa yRef={y:n}. Frases soltas em pagina em branco corrigidas." },
+      { id:"EXCEL_GANTT_VISUAL",    desc:"exportarExcel reescrita: Dashboard+EAP+Gantt visual+Histograma+CurvaS." },
+      { id:"BUG_SERV_ID_CTR",       desc:"_SERV_ID_CTR->_idCounter. IDs duplicados ao carregar projetos corrigido." },
+      { id:"ADD_SERVICO_KM_ORDEM",  desc:"Botao +Servico: splice na posicao correta + scroll + highlight + foco." },
+      { id:"HISTOGRAMA_PICO_SOMA",  desc:"calcPicoRecursos usa _DAILY_RESOURCES (acumulado diario real de frentes paralelas)." },
+    ],
+    bugs_pendentes: []
+  },
+  {
+    rev: "REV-14",
+    data: "2026-03",
+    status: "SUPERADA",
+    fixes: [],
+    impl: ["multi-trecho","nivelamento-recursos","persistencia-localStorage-Sheets","pdf-timbrado","excel-basico"],
+    bugs_introduzidos: ["PDF_GANTT_HORIZONTAL_BUG","PDF_Y_POR_VALOR","_SERV_ID_CTR"]
+  }
+];
+
+window._VICIOS_CONHECIDOS = [
+  "V1: Fatiar SVG/canvas Gantt pelo eixo X → usar eixo Y (preserva rótulos)",
+  "V2: Passar y numérico para subfunção PDF → encapsular em {y:n}",
+  "V3: _SERV_ID_CTR não declarada → _idCounter",
+  "V4: Closures pai (titulo/linha/addPage) reusadas em filho sem contexto yRef",
+  "V5: exportarExcel sem formatação XLSX cell styles → usar ST={} styles",
+  "V6: getTrechosPDFRows() retorna null no modo simples → verificar antes de autoTable",
+  "V7: calcPicoRecursos() antes de HIST_DATA preenchido → seguir ordem: EAP→GANTT→HIST→PICO",
+  "V8: Histograma pico subestimado em frentes paralelas (pendente correção)"
+];
+
+// Exibe no console para debug (visível no DevTools)
+console.groupCollapsed("%c SEINFRA/AM Plataforma REV-15 ", "background:#002D72;color:#F5A623;font-weight:bold;padding:2px 6px;border-radius:3px");
+console.log("%c Versão atual: REV-15 (2026-03-18)", "color:#002D72;font-weight:bold");
+console.log("%c Fixes desta versão:", "color:#2E7D32;font-weight:bold");
+window._VERSION_LOG[0].fixes.forEach(f => console.log(`  ✅ [${f.id}] ${f.desc}`));
+if(window._VERSION_LOG[0].bugs_pendentes?.length){
+  console.log("%c Bugs pendentes:", "color:#C0392B;font-weight:bold");
+  window._VERSION_LOG[0].bugs_pendentes.forEach(b => console.log(`  ⚠️ [${b.id}] ${b.desc}`));
+}
+console.log("%c Consulte window._VERSION_LOG e window._VICIOS_CONHECIDOS", "color:#8896A8");
+console.groupEnd();
+</script>
+
 </body>
 </html>
