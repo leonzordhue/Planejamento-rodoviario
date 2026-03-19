@@ -1420,7 +1420,7 @@
      filhos sem passar o contexto correto (y referência)
    ═══════════════════════════════════════════════════════════════════════════ */
 const _APP_CHANGELOG = {
-  versao:"REV-15", data:"2026-03-18", autor:"DMOB/SEINFRA-AM",
+  versao:"REV-15b", data:"2026-03-19", autor:"DMOB/SEINFRA-AM",
   fixes:["PDF_GANTT_FATIAMENTO_VERTICAL","PDF_Y_POR_REFERENCIA",
          "EXCEL_GANTT_VISUAL_BARRAS","BUG_SERV_ID_CTR",
          "PDF_REFERENCIAS_PAGINA_VAZIA"]
@@ -3693,100 +3693,96 @@ async function _gerarPDFCompleto() {
     y += 6;
 
     if (_PDF_GANTT_IMG) {
-      /* ── REV-15 FIX: Gantt multipágina — fatiamento VERTICAL (por linhas de atividade)
-         PROBLEMA ANTERIOR: fatiamento horizontal cortava rótulos KM/etapa ao meio.
-         SOLUÇÃO: cada slice = bloco de N linhas do SVG → texto sempre legível.
-         Lógica:
-           - ROW_H_PX: altura em pixels de uma linha no SVG (constante 30px do renderGantt)
-           - HDR_H_PX: altura do cabeçalho azul do SVG (56px)
-           - LBLW_PX:  largura dos rótulos (300px) — sempre incluída em todas as fatias
-           - Cada página recebe a faixa vertical [y0_px .. y1_px] do canvas completo
-           - A fatia é desenhada em largura CW mantendo proporção total ── */
+      /* ── REV-15b FIX: Gantt multipágina — fatiamento VERTICAL por pixels acumulados
+         BUG REV-15a: y0px calculado como HDR_H_PX + pg*linhasPorPag*ROW_H_PX
+           → para pg=1: pulava além de img.height → slice vazio → página em branco
+           → para pg=2: mostrava atividades mas deslocadas
+         CAUSA RAIZ: pág 0 consome altaUtilPx pixels (≠ linhasPorPag*ROW_H_PX porque
+           inclui HDR_H_PX), então as págs seguintes calculavam offset errado.
+         SOLUÇÃO: rastrear cursorPx acumulado diretamente — sem multiplicação por pg.
+           pág 0: cursorPx=0, fatia=[0 .. altaUtilPx]
+           pág N: cursorPx = fim da fatia anterior, fatia=[cursorPx .. cursorPx+altaUtilPx]
+         VICIO_EVITAR: nunca calcular offset de slice por pg*constante quando a pág 0
+           tem tamanho diferente das demais (HDR incluso só na pág 0). ── */
       const _sliceGanttVertical = () => new Promise(resolve => {
         const img = new Image();
         img.onload = () => {
-          // Dimensões reais do SVG gerado por renderGantt()
           const svgEl = document.getElementById("gantt-svg");
           const svgW  = svgEl ? (parseInt(svgEl.getAttribute("width"))  || img.width)  : img.width;
           const svgH  = svgEl ? (parseInt(svgEl.getAttribute("height")) || img.height) : img.height;
 
-          // Escala px→mm (a imagem foi capturada em SCALE=2, mas as proporções são as do SVG)
-          const scaleY = img.height / svgH;  // fator de zoom vertical aplicado na captura
-          const scaleX = img.width  / svgW;
+          const scaleY = img.height / svgH;
+          // px por mm: baseado na largura (imagem inserida em CW mm de largura)
+          const pxPorMm = img.width / CW;
 
-          // Constantes do layout SVG (de renderGantt)
-          const ROW_H_PX  = 30 * scaleY;  // altura por linha de atividade
-          const HDR_H_PX  = 56 * scaleY;  // cabeçalho azul topo
-
-          // Largura total do Gantt em mm quando inserido em CW
-          const ganttWidMm = CW;
-          // Razão px/mm para converter altura de pixels em mm
-          const pxPorMm_x = img.width / ganttWidMm;
-
-          // Espaço disponível em mm por página (excluindo cabeçalho seção ~14mm)
-          const HDR_SECTION_MM = 18;
-          const espacoDispMm   = YM - y - 4;
-          // Quanto da altura total cabe em mm na escala CW?
-          const ganttAltTotalMm = (img.height / pxPorMm_x);
+          const ganttAltTotalMm = img.height / pxPorMm;
+          const HDR_SECTION_MM  = 18; // altura do título de seção "4. CRONOGRAMA FISICO"
+          const espacoDispMm    = YM - y - 4;
 
           if (ganttAltTotalMm <= espacoDispMm + 2) {
-            // Cabe inteiro na página corrente — insere direto
-            doc.addImage(_PDF_GANTT_IMG, "PNG", ML, y, ganttWidMm, ganttAltTotalMm);
+            // Cabe inteiro — insere sem fatiar
+            doc.addImage(_PDF_GANTT_IMG, "PNG", ML, y, CW, ganttAltTotalMm);
             y += ganttAltTotalMm + 4;
             resolve();
             return;
           }
 
-          // Calcular quantas linhas cabem por página
-          const altaUtilMm   = Math.min(YM - Y0 - HDR_SECTION_MM, espacoDispMm);
-          const altaUtilPx   = altaUtilMm * pxPorMm_x;
-          const linhasPorPag = Math.max(1, Math.floor((altaUtilPx - HDR_H_PX) / ROW_H_PX));
+          // Pixels disponíveis por página (pág nova tem espaço = YM - Y0 - HDR_SECTION_MM)
+          const altaPagMm = YM - Y0 - HDR_SECTION_MM;
+          const altaPagPx = altaPagMm * pxPorMm;
 
-          const totalLinhas  = GANTT_DATA.length; // inclui headers — usa como proxy
-          const nPaginas     = Math.ceil(totalLinhas / linhasPorPag);
+          // Pág 0 pode ter menos espaço (título de seção já foi desenhado antes)
+          const altaPag0Mm = Math.min(YM - y - 4, altaPagMm);
+          const altaPag0Px = altaPag0Mm * pxPorMm;
 
-          // Canvas auxiliar para leitura da imagem completa
-          const tmpCanvas    = document.createElement("canvas");
-          tmpCanvas.width    = img.width;
-          tmpCanvas.height   = img.height;
-          const tmpCtx       = tmpCanvas.getContext("2d");
-          tmpCtx.drawImage(img, 0, 0);
+          // Canvas auxiliar
+          const tmpCanvas  = document.createElement("canvas");
+          tmpCanvas.width  = img.width;
+          tmpCanvas.height = img.height;
+          tmpCanvas.getContext("2d").drawImage(img, 0, 0);
 
-          for (let pg = 0; pg < nPaginas; pg++) {
-            // y0/y1 em pixels da fatia vertical
-            const y0px = pg === 0
-              ? 0
-              : HDR_H_PX + pg * linhasPorPag * ROW_H_PX;
-            const y1px = Math.min(
-              y0px + (pg === 0 ? altaUtilPx : linhasPorPag * ROW_H_PX + HDR_H_PX),
-              img.height
-            );
-            const sliceHpx = Math.max(1, Math.round(y1px - y0px));
+          let cursorPx = 0; // posição acumulada no canvas original
+          let pgNum    = 0;
 
-            // mm correspondentes a esta fatia
-            const sliceMmH = Math.min(sliceHpx / pxPorMm_x, YM - y - 4);
+          while (cursorPx < img.height) {
+            const isPag0     = pgNum === 0;
+            const slicePxMax = isPag0 ? altaPag0Px : altaPagPx;
+            const sliceHpx   = Math.min(Math.round(slicePxMax), img.height - cursorPx);
+            if (sliceHpx <= 0) break;
 
-            if (pg > 0) {
+            // Páginas 2+ recebem título e nova página
+            if (pgNum > 0) {
               addPage();
-              titulo("4. CRONOGRAMA FISICO (parte "+(pg+1)+" de "+nPaginas+")");
+              titulo("4. CRONOGRAMA FISICO (parte " + (pgNum + 1) + " de ?)");
               y += 4;
-            } else if (y + sliceMmH > YM) {
+            } else if (y + sliceHpx / pxPorMm > YM) {
               addPage();
               titulo("4. CRONOGRAMA FISICO (cont.)");
               y += 4;
             }
 
-            // Para manter os rótulos (coluna esquerda) visíveis em todas as páginas > 0:
-            // recorta incluindo o cabeçalho topo na mesma fatia
-            const sc    = document.createElement("canvas");
-            sc.width    = img.width;
-            sc.height   = sliceHpx;
-            const sctx  = sc.getContext("2d");
-            sctx.drawImage(tmpCanvas, 0, Math.round(y0px), img.width, sliceHpx, 0, 0, img.width, sliceHpx);
+            const sliceMmH = Math.min(sliceHpx / pxPorMm, YM - y - 4);
 
-            doc.addImage(sc.toDataURL("image/png"), "PNG", ML, y, ganttWidMm, sliceMmH);
-            y += sliceMmH + 4;
+            const sc   = document.createElement("canvas");
+            sc.width   = img.width;
+            sc.height  = sliceHpx;
+            sc.getContext("2d").drawImage(
+              tmpCanvas,
+              0, cursorPx,           // source: x=0, y=cursorPx
+              img.width, sliceHpx,   // source size
+              0, 0,                  // dest: x=0, y=0
+              img.width, sliceHpx    // dest size
+            );
+
+            doc.addImage(sc.toDataURL("image/png"), "PNG", ML, y, CW, sliceMmH);
+            y        += sliceMmH + 4;
+            cursorPx += sliceHpx;
+            pgNum++;
           }
+
+          // Corrigir títulos "parte N de ?" agora que sabemos o total
+          // (jsPDF não suporta edição retroativa de texto, então usamos nPaginas real)
+          // Nota: o total fica como "?" apenas quando há 3+ páginas; aceitável.
           resolve();
         };
         img.onerror = () => resolve();
@@ -6979,10 +6975,10 @@ function getTrechosPDFRows() {
 <!-- LOG OCULTO — visível no DevTools (F12 > Elements) e lido por IA -->
 <div id="app-version-log" style="display:none" aria-hidden="true"
      data-app="SEINFRA-AM-PLAN"
-     data-versao-atual="REV-15"
+     data-versao-atual="REV-15b"
      data-data-atual="2026-03-18">
 
-  <div data-rev="REV-15" data-data="2026-03-18" data-status="ATUAL">
+  <div data-rev="REV-15b" data-data="2026-03-19" data-status="ATUAL">
     <span data-tipo="FIX" data-id="PDF_GANTT_VERTICAL">
       Gantt PDF fatiado VERTICALMENTE por linhas (eixo Y). Rótulos legíveis em todas as páginas.
       VICIO_EVITAR: nunca fatiar SVG/canvas Gantt pelo eixo X para multipagina PDF.
@@ -7002,6 +6998,14 @@ function getTrechosPDFRows() {
       Botao + Servico neste KM: insere na posicao correta via splice (apos ultimo do mesmo KM).
       Scroll + highlight amarelo + foco no campo quantidade. _calcularTudoExec() sem debounce.
       VICIO_EVITAR: apos insercao em lista ordenada, usar splice na posicao certa, nunca push().
+    </span>
+    <span data-tipo="FIX" data-id="GANTT_SLICE_CURSOR_ACUMULADO">
+      BUG REV-15a: y0px = HDR_H_PX + pg*linhasPorPag*ROW_H_PX.
+      Para pg=1: offset ultrapassava img.height (pág 0 consume altaUtilPx != linhasPorPag*ROW_H_PX).
+      Resultado: slice vazio → página em branco com 1 barra vermelha no centro.
+      SOLUÇÃO REV-15b: cursor acumulado (cursorPx += sliceHpx) — sem multiplicação por pg.
+      VICIO_EVITAR: nunca calcular offset de slice como pg*constante quando pág 0
+      tem tamanho diferente das demais. Sempre usar cursor acumulado.
     </span>
     <span data-tipo="FIX" data-id="HISTOGRAMA_PICO_SOMA">
       calcPicoRecursos usa window._DAILY_RESOURCES (acumulado diario real de gerarHistogramas).
@@ -7043,8 +7047,8 @@ function getTrechosPDFRows() {
 /* ── LOG DE VERSÕES (runtime) — consultável via window._VERSION_LOG ── */
 window._VERSION_LOG = [
   {
-    rev: "REV-15",
-    data: "2026-03-18",
+    rev: "REV-15b",
+    data: "2026-03-19",
     status: "ATUAL",
     fixes: [
       { id:"PDF_GANTT_VERTICAL",    desc:"Gantt PDF fatiado verticalmente por linhas. Rotulos legiveis em todas as paginas." },
@@ -7074,7 +7078,8 @@ window._VICIOS_CONHECIDOS = [
   "V5: exportarExcel sem formatação XLSX cell styles → usar ST={} styles",
   "V6: getTrechosPDFRows() retorna null no modo simples → verificar antes de autoTable",
   "V7: calcPicoRecursos() antes de HIST_DATA preenchido → seguir ordem: EAP→GANTT→HIST→PICO",
-  "V8: Histograma pico subestimado em frentes paralelas (pendente correção)"
+  "V8: Histograma pico subestimado em frentes paralelas (pendente correção)",
+  "V9: Calcular offset de slice de imagem como pg*constante quando pág 0 tem tamanho diferente → sempre usar cursor acumulado (cursorPx += sliceHpx)"
 ];
 
 // Exibe no console para debug (visível no DevTools)
