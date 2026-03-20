@@ -1420,7 +1420,7 @@
      filhos sem passar o contexto correto (y referência)
    ═══════════════════════════════════════════════════════════════════════════ */
 const _APP_CHANGELOG = {
-  versao:"REV-15b", data:"2026-03-19", autor:"DMOB/SEINFRA-AM",
+  versao:"REV-17", data:"2026-03-19", autor:"DMOB/SEINFRA-AM",
   fixes:["PDF_GANTT_FATIAMENTO_VERTICAL","PDF_Y_POR_REFERENCIA",
          "EXCEL_GANTT_VISUAL_BARRAS","BUG_SERV_ID_CTR",
          "PDF_REFERENCIAS_PAGINA_VAZIA"]
@@ -1478,6 +1478,7 @@ const COMPOSICOES = [
 const PARAMETROS = {
   "RAMAL / VICINAL": [
     { etapa:"Canteiro de Obras",       prazo:10, porKm:false },
+    { etapa:"Administração Local",     prazo:0,  porKm:false, adminLocal:true },
     { etapa:"Limpeza de Faixa",        prazo:5,  porKm:true  },
     { etapa:"Terraplenagem",           prazo:16, porKm:true  },
     { etapa:"Drenagem",                prazo:18, porKm:true  },
@@ -1486,6 +1487,7 @@ const PARAMETROS = {
   ],
   "RODOVIA ESTADUAL": [
     { etapa:"Canteiro de Obras",       prazo:20, porKm:false },
+    { etapa:"Administração Local",     prazo:0,  porKm:false, adminLocal:true },
     { etapa:"Limpeza de Faixa",        prazo:7,  porKm:true  },
     { etapa:"Terraplenagem",           prazo:20, porKm:true  },
     { etapa:"Drenagem",                prazo:22, porKm:true  },
@@ -1495,6 +1497,7 @@ const PARAMETROS = {
   ],
   "VIÁRIO URBANO": [
     { etapa:"Canteiro de Obras",          prazo:10, porKm:false },
+    { etapa:"Administração Local",        prazo:0,  porKm:false, adminLocal:true },
     { etapa:"Terraplenagem / Regularização", prazo:8, porKm:true },
     { etapa:"Drenagem Pluvial",           prazo:15, porKm:true  },
     { etapa:"Meio-fio e Sarjeta",         prazo:10, porKm:true  },
@@ -1504,6 +1507,7 @@ const PARAMETROS = {
   ],
   "MANUTENÇÃO RODOVIÁRIA": [
     { etapa:"Canteiro / Sinalização de Obra", prazo:10, porKm:false },
+    { etapa:"Administração Local",             prazo:0,  porKm:false, adminLocal:true },
     { etapa:"Roçada e Limpeza",           prazo:3,  porKm:true  },
     { etapa:"Recuperação de Drenagem",    prazo:4,  porKm:true  },
     { etapa:"Guarda-corpo e Defensas",    prazo:2,  porKm:true  },
@@ -1512,6 +1516,7 @@ const PARAMETROS = {
   ],
   "LIMPEZA RODOVIÁRIA": [
     { etapa:"Canteiro / Mobilização",     prazo:5,  porKm:false },
+    { etapa:"Administração Local",        prazo:0,  porKm:false, adminLocal:true },
     { etapa:"Roçada Lateral",             prazo:2,  porKm:true  },
     { etapa:"Limpeza de Dispositivos",    prazo:2,  porKm:true  },
     { etapa:"Desobstrução de Bueiros",    prazo:1,  porKm:true  },
@@ -1539,6 +1544,8 @@ const ETAPA_CORES = {
   "DESOBSTR":    "#0288D1",
   "REMOÇÃO":     "#6D4C41",
   "DISPOSITIV":  "#0288D1",
+  "ADMINIST":    "#455A64",  // Administração Local — cinza-azulado
+  "TRANSLADO":   "#F5A623",  // Translado/Mobilização — âmbar
 };
 
 function etapaCor(etapa) {
@@ -1642,19 +1649,28 @@ function gerarCronograma() {
   };
 
   // ── Sequência de KMs a partir do canteiro ──────────────
-  // Se canteiro=6 e nKm=16: executa 6,7,8..16, depois 5,4,3,2,1
-  const canteiroKm = Math.round(canteiro); // referência inteira do km
-  const buildKmSeq = (ini, fim) => {
+  // REV-17: cada frente pode ter seu próprio canteiro (canteiroKm).
+  // Se canteiroKm da frente for null, usa o canteiro global da obra.
+  // Sentido: avança do canteiro até o fim, depois retorna do canteiro-1 até o início.
+  const canteiroKmGlobal = Math.round(canteiro); // canteiro global (campo da obra)
+  const buildKmSeq = (ini, fim, canteiroKmFrente) => {
     const all = Array.from({length: fim - ini + 1}, (_, i) => ini + i);
-    if (canteiroKm <= 0 || canteiroKm < ini || canteiroKm > fim) return all;
-    // Parte da frente: do canteiro até o fim, depois do canteiro-1 até o início
-    const forward  = all.filter(k => k >= canteiroKm);
-    const backward = all.filter(k => k < canteiroKm).reverse();
+    // Prioridade: canteiro da frente → canteiro global → ordem natural
+    const ckm = (canteiroKmFrente != null)
+      ? Math.round(canteiroKmFrente)
+      : canteiroKmGlobal;
+    if (ckm <= 0 || ckm < ini || ckm > fim) return all;
+    const forward  = all.filter(k => k >= ckm);
+    const backward = all.filter(k => k < ckm).reverse();
     return [...forward, ...backward];
   };
 
   // Canteiro global (KM 0)
-  const canteiroLabel = canteiroKm > 0 ? `${canteiroParam.etapa} (KM ${canteiroKm})` : canteiroParam.etapa;
+  // REV-17: label do canteiro global — menciona canteiros por frente se existirem
+  const _frentesComCanteiro = usarFrentesAtivo() ? FRENTES.filter(f => f.canteiroKm != null) : [];
+  const canteiroLabel = canteiroKmGlobal > 0
+    ? `${canteiroParam.etapa} (KM ${canteiroKmGlobal}${_frentesComCanteiro.length ? ' + ' + _frentesComCanteiro.length + ' frente(s) c/ cant. próprio' : ''})`
+    : canteiroParam.etapa;
   acts.push({
     id:"C", etapa:"CANTEIRO DE OBRAS", etapaFull:canteiroParam.etapa,
     atividade: canteiroLabel,
@@ -1662,6 +1678,29 @@ function gerarCronograma() {
     frente: null, frenteCor: "#8896A8",
   });
   const fimCanteiro = canteiroParam.prazo;
+
+  // REV-17: Administração Local — atividade global que cobre toda a duração da obra
+  // Duração calculada no final (após GANTT_DATA estar completo) via _ajustarAdminLocal()
+  // Por ora, inserimos com duração provisória = maxDia estimado pelos serviços
+  const _adminParam = params.find(p => p.adminLocal);
+  if (_adminParam) {
+    const _maxDiaEstimado = EAP_CALC.length
+      ? Math.max(...EAP_CALC.map(c => c.da || 0)) * Math.ceil(nKm / 2)
+      : 90; // fallback razoável se EAP ainda não calculada
+    acts.push({
+      id: "ADMIN",
+      etapa: "ADMINISTRAÇÃO",
+      etapaFull: "Administração Local",
+      atividade: "Administração Local (duração da obra)",
+      km: "GERAL",
+      duracao: 0, // será ajustado em _ajustarAdminLocal
+      inicio: 1,
+      termino: 0, // será ajustado em _ajustarAdminLocal
+      frente: null,
+      frenteCor: "#455A64",
+      isAdmin: true,
+    });
+  }
 
   // Se não há frentes configuradas → sequenciamento simples por KM
   const usarFrentes = usarFrentesAtivo();
@@ -1696,7 +1735,7 @@ function gerarCronograma() {
 
     const iniMap = {}, fimMap = {};
     let fimFrenteDia = inicioFrente;
-    const kmSeq = buildKmSeq(kmIni, kmFim); // sequência reordenada pelo canteiro
+    const kmSeq = buildKmSeq(kmIni, kmFim, frente.canteiroKm); // REV-17: canteiro da frente (null = global)
 
     kmSeq.forEach((km, kmIdx) => {
       // ── Detecta mudança de trecho e injeta atividade de translado ──
@@ -1770,6 +1809,16 @@ function gerarCronograma() {
     if (!frente.paralelo) fimUltimaFrenteSequencial = fimFrenteDia;
   });
 
+  // REV-17: ajustar duração da Administração Local = duração total real da obra
+  const _adminAto = acts.find(a => a.isAdmin);
+  if (_adminAto) {
+    const _maxDiaReal = acts.reduce((mx, a) => Math.max(mx, a.termino || 0), 0);
+    _adminAto.inicio   = 1;
+    _adminAto.termino  = _maxDiaReal;
+    _adminAto.duracao  = _maxDiaReal;
+    _adminAto.atividade = "Administração Local (" + _maxDiaReal + " dias)";
+  }
+
   return acts;
 }
 
@@ -1816,7 +1865,7 @@ function gerarHistogramas() {
 
   // Distribuir o QMO de cada atividade nos dias em que está ativa (inicio..termino)
   GANTT_DATA.forEach(act => {
-    if (act.isHeader) return; // ignorar linhas de cabeçalho (frentes)
+    if (act.isHeader || act.isAdmin) return; // ignorar cabeçalhos e Administração Local
     const kmNum = act.km === "GERAL" ? null : parseInt(act.km.replace("KM ",""));
     const svcs  = EAP_CALC.filter(s => {
       const sk = s.km ? parseInt(s.km) : null;
@@ -2177,6 +2226,7 @@ function addFrente(kmIni, kmFim, paralelo) {
     kmInicio: _kmIni,
     kmFim:    _kmFim != null ? _kmFim : nKm,
     paralelo: paralelo || false,
+    canteiroKm: null,  // REV-17: null = usa canteiro global; número = canteiro próprio desta frente
   };
   const candidatas = [...FRENTES, nova];
   const overlap = _checkFrenteOverlap(candidatas);
@@ -2277,7 +2327,7 @@ function renderFrentes() {
 
   const nKm = parseInt(getV("obra-frentes")) || 1;
   lista.innerHTML = FRENTES.map((f, i) => `
-    <div style="background:var(--cinza-bg);border-radius:8px;padding:0.8rem 1rem;border-left:4px solid ${f.cor};display:grid;grid-template-columns:auto 1fr 1fr 1fr auto auto;gap:0.6rem;align-items:center">
+    <div style="background:var(--cinza-bg);border-radius:8px;padding:0.8rem 1rem;border-left:4px solid ${f.cor};display:grid;grid-template-columns:auto 1fr 1fr 1fr auto auto auto;gap:0.6rem;align-items:center">
       <div style="width:14px;height:14px;border-radius:50%;background:${f.cor};flex-shrink:0"></div>
       <input class="input-inline" value="${f.nome}"
         onchange="updateFrente(${f.id},'nome',this.value)"
@@ -2296,6 +2346,16 @@ function renderFrentes() {
             ${f.paralelo ? "PARALELA" : "SEQUENCIAL"}
           </span>
         </label>`}
+      </div>
+      <div style="font-size:0.68rem;display:flex;align-items:center;gap:4px">
+        <span style="color:var(--cinza-aux)">📍</span>
+        <input class="input-inline w50" type="number" step="0.1" min="0"
+          value="${f.canteiroKm != null ? f.canteiroKm : ''}"
+          placeholder="KM cant."
+          title="KM do canteiro desta frente. Vazio = usa canteiro global da obra."
+          onchange="updateFrente(${f.id},'canteiroKm', this.value===''?null:parseFloat(this.value))"
+          style="width:62px;font-size:0.68rem"/>
+        <span style="color:var(--cinza-aux);font-size:0.6rem">cant.</span>
       </div>
       <div style="font-size:0.68rem;color:var(--cinza-aux)">${f.kmFim - f.kmInicio + 1} KM${f.kmFim-f.kmInicio>0?"s":""}</div>
       <button class="btn btn-danger btn-sm" style="padding:0.15rem 0.5rem;font-size:0.65rem" onclick="removeFrente(${f.id})">✕</button>
@@ -2627,6 +2687,19 @@ function renderGantt() {
       svg += `<text x="12" y="${y+ROW_H/2+4}" font-size="9" fill="${corFrente}" font-weight="800">${act.atividade}</text>`;
       svg += `<text x="248" y="${y+ROW_H/2+4}" font-size="8" fill="${corFrente}" text-anchor="middle">${act.inicio}</text>`;
       svg += `<line x1="${LBLW+(act.inicio-1)*PPD}" y1="${y}" x2="${LBLW+(act.inicio-1)*PPD}" y2="${SVG_H}" stroke="${corFrente}" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.5"/>`;
+      return;
+    }
+
+    // REV-17: Administração Local — barra especial de fundo que cobre toda a obra
+    if (act.isAdmin) {
+      const adminX = LBLW;
+      const adminW = Math.max(act.duracao * PPD, 4);
+      svg += `<rect x="0" y="${y}" width="${LBLW}" height="${ROW_H}" fill="#ECEFF1"/>`;
+      svg += `<rect x="${adminX}" y="${y+2}" width="${adminW}" height="${ROW_H-4}" fill="#455A64" rx="3" opacity="0.85"/>`;
+      svg += `<text x="10" y="${y+ROW_H/2+4}" font-size="7.5" fill="#455A64" font-weight="700">GERAL</text>`;
+      svg += `<text x="52" y="${y+ROW_H/2+4}" font-size="8.5" fill="#263238" font-weight="600">${act.atividade}</text>`;
+      svg += `<text x="${LBLW + adminW/2}" y="${y+ROW_H/2+4}" font-size="7.5" fill="#fff" text-anchor="middle" font-weight="700">${act.duracao}d</text>`;
+      svg += `<line x1="0" y1="${y+ROW_H}" x2="${SVG_W}" y2="${y+ROW_H}" stroke="#B0BEC5" stroke-width="0.5"/>`;
       return;
     }
 
@@ -3589,6 +3662,32 @@ async function _gerarPDFCompleto() {
     linha("Frentes / Defasagem", _nFrentes+" frente"+(_nFrentes!==1?"s":"")+" / "+getV("obra-defasagem")+" dias");
     y += 3;
 
+    // ── REV-17: Tabela de canteiros por frente (se alguma frente tiver canteiro próprio) ──
+    const _frentesComCant = usarFrentesAtivo() ? FRENTES.filter(f => f.canteiroKm != null) : [];
+    if (_frentesComCant.length > 0) {
+      chkBrk(16);
+      doc.setFontSize(7.5); doc.setTextColor(0,45,114); doc.setFont("helvetica","bold");
+      doc.text("CANTEIROS POR FRENTE:", ML, y); y += 4;
+      doc.autoTable({
+        head:[["Frente","KM Canteiro","Dist. Ramal","KMs atendidos"]],
+        body: _frentesComCant.map(function(f){
+          const ramal = parseFloat(document.getElementById("obra-canteiro-ramal")?.value)||0;
+          return [
+            f.nome,
+            "KM " + f.canteiroKm,
+            ramal > 0 ? "+" + ramal.toFixed(1) + " km" : "—",
+            f.kmInicio + " a " + f.kmFim
+          ];
+        }),
+        startY: y, margin:{left:ML,right:MR,top:Y0,bottom:PH-YM},
+        styles:{fontSize:7.5,cellPadding:1.8},
+        headStyles:{fillColor:[0,45,114],textColor:255,fontStyle:"bold"},
+        alternateRowStyles:{fillColor:[235,242,252]},
+        didDrawPage: didDrawPageFn
+      });
+      y = doc.lastAutoTable.finalY + 6;
+    }
+
     // ── Tabela de trechos (multi-trecho) ──────────────────────────
     const trechoRows = getTrechosPDFRows();
     if (trechoRows) {
@@ -3836,6 +3935,7 @@ async function _gerarPDFCompleto() {
       {cor:[198,40,40],  label:"Pavimentação"},
       {cor:[249,168,37], label:"Sinalização Viária"},
       {cor:[0,131,143],  label:"Meio-fio / Sarjeta"},
+      {cor:[69,90,100],   label:"Administracao Local"},
     ];
     const _legCols = 4;
     const _legW = CW / _legCols;
@@ -4107,6 +4207,11 @@ function _finalizarPDF2(doc,chk,_addPageOuter,_tituloOuter,_linhaOuter,didDrawPa
     linha("No de Frentes",       String(_nFrentesMemorial)+" frente"+(_nFrentesMemorial!==1?"s":""));
     linha("Defasagem",           (getV("obra-defasagem")||"---")+" dias"); yRef.y += 2;
     linha("MO Total (h.h)",      numBR(moTotal,0)+" horas", true);
+    // REV-17: Administração Local — duração calculada pelo cronograma
+    const _adminGantt = GANTT_DATA.find(function(a){ return a.isAdmin; });
+    if (_adminGantt) {
+      linha("Administracao Local", _adminGantt.duracao+" dias (durante toda a obra)");
+    }
     linha("Servicos Cadastrados",String(EAP_CALC.length)); yRef.y += 2;
     linha("Serventes (pico)",    String(pico.servente||0));
     linha("Pedreiros (pico)",    String(pico.pedreiro||0));
@@ -5359,7 +5464,7 @@ function _gerarDadosDiarios() {
   const dailyAtiv = new Array(maxDay + 1).fill(0);
 
   GANTT_DATA.forEach(act => {
-    if (act.isHeader) return;
+    if (act.isHeader || act.isAdmin) return; // ignorar Admin Local nos dados diários
     const kmNum = (act.km === "GERAL" || !act.km) ? null
                 : parseInt(act.km.replace("KM ", ""));
     const svcs = EAP_CALC.filter(s => {
@@ -5719,7 +5824,7 @@ function _detectarConflitos() {
   const uso = { escavadeira:{}, caminhao:{}, operador:{}, servente:{} };
 
   GANTT_DATA.forEach(act => {
-    if (act.isHeader) return;
+    if (act.isHeader || act.isAdmin) return;
     const kmNum = (act.km==="GERAL"||!act.km) ? null : parseInt(act.km.replace("KM ",""));
     const svcs  = EAP_CALC.filter(s=>{
       const sk = s.km ? parseInt(s.km) : null;
@@ -6210,7 +6315,7 @@ function _montarProjeto() {
     frentes:     FRENTES.map(f => ({ ...f })),
     trechos:     TRECHOS.map(t => ({ ...t })),
     modoMulti:   _modoMultiTrecho,
-    gantt:       GANTT_DATA.filter(a => !a.isHeader && !a.isTranslado),
+    gantt:       GANTT_DATA.filter(a => !a.isHeader && !a.isTranslado && !a.isAdmin),
     histograma:  HIST_DATA,
     curvaS,
     eapCalc,
@@ -6975,10 +7080,30 @@ function getTrechosPDFRows() {
 <!-- LOG OCULTO — visível no DevTools (F12 > Elements) e lido por IA -->
 <div id="app-version-log" style="display:none" aria-hidden="true"
      data-app="SEINFRA-AM-PLAN"
-     data-versao-atual="REV-15b"
-     data-data-atual="2026-03-18">
+     data-versao-atual="REV-17"
+     data-data-atual="2026-03-20">
 
-  <div data-rev="REV-15b" data-data="2026-03-19" data-status="ATUAL">
+  <div data-rev="REV-17" data-data="2026-03-20" data-status="ATUAL">
+    <span data-tipo="IMPL" data-id="CANTEIRO_POR_FRENTE">
+      Campo canteiroKm adicionado em cada frente no painel Frentes de Servico.
+      buildKmSeq(ini, fim, canteiroKmFrente) — prioriza canteiro da frente, fallback para global.
+      Retrocompatível: null = usa canteiro global da obra.
+      PDF mostra tabela "CANTEIROS POR FRENTE" quando alguma frente tem canteiro proprio.
+      VICIO_EVITAR: ao adicionar campo em objeto de frente, verificar que é salvo
+      via spread operator (...f) para persistencia automatica.
+    </span>
+    <span data-tipo="IMPL" data-id="ADMIN_LOCAL">
+      Administracao Local adicionada como atividade global no Gantt (isAdmin:true).
+      Duracao = duracao total real da obra (calculada apos montar todas as atividades).
+      Renderizada com estilo especial no SVG (cinza-azulado, cobre toda a extensao).
+      Excluida dos calculos de MO/histograma/analise critica (nao gera recursos por dia).
+      Aparece no memorial PDF. Presente em todos os tipos de obra nos PARAMETROS.
+      VICIO_EVITAR: atividades globais (isAdmin, isHeader, isTranslado) devem ser
+      explicitamente excluidas nos filtros de GANTT_DATA para calculos de recursos.
+    </span>
+  </div>
+
+    <div data-rev="REV-15b" data-data="2026-03-19" data-status="SUPERADA">
     <span data-tipo="FIX" data-id="PDF_GANTT_VERTICAL">
       Gantt PDF fatiado VERTICALMENTE por linhas (eixo Y). Rótulos legíveis em todas as páginas.
       VICIO_EVITAR: nunca fatiar SVG/canvas Gantt pelo eixo X para multipagina PDF.
@@ -7047,7 +7172,19 @@ function getTrechosPDFRows() {
 /* ── LOG DE VERSÕES (runtime) — consultável via window._VERSION_LOG ── */
 window._VERSION_LOG = [
   {
-    rev: "REV-15b",
+    rev: "REV-17",
+    data: "2026-03-20",
+    status: "ATUAL",
+    fixes: [
+      { id:"CANTEIRO_POR_FRENTE", desc:"Campo canteiroKm por frente. buildKmSeq 3 params. PDF tabela canteiros. Retrocompativel." },
+      { id:"ADMIN_LOCAL",         desc:"Administracao Local: atividade global isAdmin, duracao=obra inteira, excluida de MO/histograma." },
+    ],
+    bugs_pendentes: []
+  },
+  {
+    rev: "REV-16",
+    data: "2026-03-20",
+    status: "SUPERADA",
     data: "2026-03-19",
     status: "ATUAL",
     fixes: [
@@ -7079,12 +7216,14 @@ window._VICIOS_CONHECIDOS = [
   "V6: getTrechosPDFRows() retorna null no modo simples → verificar antes de autoTable",
   "V7: calcPicoRecursos() antes de HIST_DATA preenchido → seguir ordem: EAP→GANTT→HIST→PICO",
   "V8: Histograma pico subestimado em frentes paralelas (pendente correção)",
-  "V9: Calcular offset de slice de imagem como pg*constante quando pág 0 tem tamanho diferente → sempre usar cursor acumulado (cursorPx += sliceHpx)"
+  "V9: Calcular offset de slice de imagem como pg*constante quando pág 0 tem tamanho diferente → sempre usar cursor acumulado (cursorPx += sliceHpx)",
+  "V12: Atividades globais (isAdmin, isHeader, isTranslado) devem ser excluídas explicitamente nos filtros GANTT_DATA",
+  "V13: canteiroKm da frente pode ser null — nunca usar Math.round(null) diretamente"
 ];
 
 // Exibe no console para debug (visível no DevTools)
 console.groupCollapsed("%c SEINFRA/AM Plataforma REV-15 ", "background:#002D72;color:#F5A623;font-weight:bold;padding:2px 6px;border-radius:3px");
-console.log("%c Versão atual: REV-15 (2026-03-18)", "color:#002D72;font-weight:bold");
+console.log("%c Versão atual: REV-17 (2026-03-20)", "color:#002D72;font-weight:bold");
 console.log("%c Fixes desta versão:", "color:#2E7D32;font-weight:bold");
 window._VERSION_LOG[0].fixes.forEach(f => console.log(`  ✅ [${f.id}] ${f.desc}`));
 if(window._VERSION_LOG[0].bugs_pendentes?.length){
