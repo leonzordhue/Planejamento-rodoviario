@@ -1369,9 +1369,97 @@
 <script>
 "use strict";
 
+// ╔══════════════════════════════════════════════════════════════════════════════╗
+// ║  AKE — AXIOMATIC KERNEL ENGINE · UNIFIED FIELD THEORY                       ║
+// ║  Protocolo: UFT-1.0 · Arquivo Soberano · Motor de Cálculo Rodoviário       ║
+// ╠══════════════════════════════════════════════════════════════════════════════╣
+// ║  @domain    Engenharia Rodoviária — Planejamento de Obras SEINFRA/AM        ║
+// ║  @author    Paulo Esteves Fernandes Neto — Chefe DMOB/SEINFRA-AM            ║
+// ║  @version   REV-17-ake                                                      ║
+// ║  @build     GENESIS_RETROFIT                                                ║
+// ║  @created   2026-03-24                                                      ║
+// ║  @repo      github.com/leonzordhue/seinfra-rodovias                         ║
+// ║                                                                              ║
+// ║  CLASSIFICAÇÃO AKE:                                                          ║
+// ║    Perfil:        Soberano (Library interna: 38 composições DNIT/SICRO2)    ║
+// ║    Camada 1 (Library):   COMPOSICOES[] — 38 composições DNIT-313/SICRO2    ║
+// ║    Camada 2 (Logic):     Motor de cálculo: MO, cronograma, Gantt,          ║
+// ║                          histogramas, nivelamento de recursos, DMT          ║
+// ║    Camada 3 (Metadata):  CHANGELOG REV-14→17 + VÍCIOS DE IA documentados   ║
+// ║    Camada 4 (Log):       AKE_BUILD_LOG formalizado a partir do CHANGELOG    ║
+// ║    Camada 5 (Evolution): tentativas_falhas extraídas dos VÍCIOS DE IA      ║
+// ║    Camada 6 (UI):        Tabs, EAP, Gantt SVG, PDF jsPDF, Excel SheetJS   ║
+// ║                                                                              ║
+// ║  DEPENDÊNCIAS EXTERNAS (somente renderização/export, não dados):            ║
+// ║    - Chart.js 4.4.0 (histogramas)                                           ║
+// ║    - jsPDF 2.5.2 + autoTable (exportação PDF com timbrado SEINFRA)          ║
+// ║    - SheetJS (exportação Excel)                                              ║
+// ║    - Google Sheets API (persistência opcional — não crítica)                 ║
+// ║                                                                              ║
+// ║  Este é o projeto-mãe do AKE. O conceito nasceu aqui.                       ║
+// ║  O CHANGELOG pré-existente (REV-14→17) é o proto-Log Engine original.       ║
+// ║  Os "VÍCIOS DE IA" documentados são as primeiras tentativas_falhas formais. ║
+// ╚══════════════════════════════════════════════════════════════════════════════╝
+
+// ============================================================================
+// CAMADA 4 — LOG ENGINE (AKE_BUILD_LOG)
+// Formalização do CHANGELOG pré-existente + entrada GENESIS_RETROFIT.
+// O CHANGELOG original (abaixo) é preservado integralmente como patrimônio.
+// Regra AKE-LOG-001: Nenhuma entrada pode ser removida.
+// Regra AKE-LOG-002: A IA deve consultar este log antes de qualquer modificação.
+// ============================================================================
+const AKE_BUILD_LOG = Object.freeze([
+  {
+    build: "REV-14",
+    data: "2026-03-01T00:00:00-04:00",
+    autor: "Paulo Esteves Fernandes Neto",
+    ia_assistente: "Claude",
+    tipo: "FEATURE",
+    descricao: "Sistema multi-trecho, nivelamento de recursos, persistência localStorage+Sheets, exportação Excel básica, PDF com timbrado SEINFRA, Gantt SVG multipágina com fatiamento horizontal.",
+    axiomas_adicionados: ["calcularServico()", "gerarCronograma()", "gerarHistogramas()", "renderMemorial()"],
+    tentativas_falhas: [],
+    erros_corrigidos: []
+  },
+  {
+    build: "REV-15",
+    data: "2026-03-18T00:00:00-04:00",
+    autor: "Paulo Esteves Fernandes Neto",
+    ia_assistente: "Claude",
+    tipo: "BUGFIX",
+    descricao: "Correções críticas de PDF, Excel e IDs de serviço.",
+    erros_corrigidos: [
+      { erro: "PDF Gantt: fatiamento horizontal cortava rótulos de KM", causa: "_sliceGantt dividia pelo eixo X", solucao: "_sliceGanttVertical() fatia pelo eixo Y" },
+      { erro: "PDF refs: frases soltas em páginas em branco", causa: "y passado por valor, não referência", solucao: "y encapsulado como {y:n}" },
+      { erro: "IDs duplicados ao carregar projetos", causa: "_SERV_ID_CTR referenciava variável inexistente", solucao: "Corrigido para _idCounter" }
+    ],
+    tentativas_falhas: [
+      { tentativa: "Passar y numérico para subfunções PDF", resultado: "addPage() não atualizava y do caller", motivo_rejeicao: "JS passa primitivos por valor, não referência", build_ref: "REV-14" },
+      { tentativa: "Fatiar SVG/canvas pelo eixo X para multipágina", resultado: "Rótulos à esquerda ficavam cortados na 2ª página", motivo_rejeicao: "Eixo X corta informação vertical; eixo Y preserva", build_ref: "REV-14" },
+      { tentativa: "Usar _SERV_ID_CTR como nome de contador global", resultado: "ReferenceError em runtime", motivo_rejeicao: "Nome correto é _idCounter", build_ref: "REV-14" }
+    ],
+    axiomas_adicionados: ["_sliceGanttVertical()", "exportarExcel() reescrita"]
+  },
+  {
+    build: "REV-17-ake",
+    data: "2026-03-24T10:35:00-04:00",
+    autor: "Paulo Esteves Fernandes Neto",
+    ia_assistente: "Claude Opus 4.6",
+    tipo: "GENESIS_RETROFIT",
+    descricao: "Retrofit AKE aplicado sobre REV-17. CHANGELOG preservado. tentativas_falhas formalizadas a partir dos VÍCIOS DE IA. COMPOSICOES recebe _meta. Zero lógica alterada.",
+    decisoes: [
+      "Preservar CHANGELOG original integralmente como patrimônio histórico",
+      "Formalizar VÍCIOS DE IA como tentativas_falhas retroativas (REV-14→15)",
+      "Adicionar _meta ao array COMPOSICOES com fonte DNIT-313/SICRO2",
+      "Não alterar nenhuma função — retrofit é puro metadata"
+    ],
+    tentativas_falhas: [],
+    erros_corrigidos: []
+  }
+]);
+
 /* ═══════════════════════════════════════════════════════════════════════════
-   CHANGELOG — SEINFRA/AM · Plataforma de Planejamento de Obras Rodoviárias
-   Arquivo: index.html (single-page application)
+   CHANGELOG ORIGINAL — PRESERVADO COMO PATRIMÔNIO PRÉ-AKE
+   (Este bloco é o proto-Log Engine que originou o conceito AKE)
    ═══════════════════════════════════════════════════════════════════════════
 
    REV-15 | 2026-03-18
@@ -1426,12 +1514,30 @@ const _APP_CHANGELOG = {
          "PDF_REFERENCIAS_PAGINA_VAZIA"]
 };
 
-// ═══════════════════════════════════════════════════════
-// BANCO DE COMPOSIÇÕES — DNIT-313 / SICRO2 / CPU / e-Obras
-// produt  = h·homem / unidade de serviço
-// mo.*    = h·categoria / unidade
-// eqp.*   = h·equipamento / unidade
-// ═══════════════════════════════════════════════════════
+// ============================================================================
+// CAMADA 1 — THE LIBRARY (Conhecimento Estático)
+// Base de composições de custos rodoviários.
+// Regra AKE-LIB-001: Todo dado deve ter bloco _meta com proveniência.
+// ============================================================================
+
+/**
+ * @meta Banco de Composições de Custo Rodoviário
+ * @source DNIT-313 / SICRO2 / CPU / e-Obras (Sistema Nacional de Pesquisa de Custos)
+ * @description 38 composições de serviços rodoviários com coeficientes de
+ *              mão de obra (h·homem/unidade) e equipamentos (h·equip/unidade).
+ *              Cada entrada representa um serviço unitário com produtividade
+ *              determinística derivada das tabelas oficiais DNIT.
+ * @fields cod: Código hierárquico (ex: "2.2.1") | desc: Descrição do serviço |
+ *         unid: Unidade de medida | produt: h·homem/unidade (coef. total MO) |
+ *         mo: {servente, pedreiro, operador, carpinteiro} em h/unidade |
+ *         eqp: {escavadeira, rolo, caminhao, moto} em h/unidade
+ * @coverage 38 composições cobrindo: administração, terraplenagem, drenagem,
+ *           pavimentação, sinalização, OAE, meio ambiente
+ * @responsible Paulo E. F. Neto — DMOB/SEINFRA-AM
+ * @validity Válido para orçamentos com base SICRO2 vigente
+ * @sovereignty SOBERANO — dados embutidos, zero dependência externa
+ * @ake_rule AKE-LIB-001
+ */
 const COMPOSICOES = [
   { cod:"1.1.1", desc:"ADMINISTRAÇÃO LOCAL",                        unid:"mês",   produt:176,   mo:{servente:176,  pedreiro:0,   operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
   { cod:"2.1.1", desc:"LIMPEZA MECÂNICA C/ TRATOR ESTEIRA",         unid:"m²",    produt:0.015, mo:{servente:0,    pedreiro:0,   operador:0.015,carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
