@@ -2686,26 +2686,53 @@ function renderEAP() {
     return;
   }
 
-  const tbody = EAP_CALC.map((c, i) => {
-    const cor = etapaCor(c.etapa);
-    const td = (v, cls="") => `<td class="right ${cls}">${v||v===0?numBR(v):"—"}</td>`;
-    return `<tr>
-      <td style="color:var(--cinza-aux);text-align:right">${i+1}</td>
-      <td><div class="td-etapa"><div class="etapa-dot" style="background:${cor}"></div><span style="font-size:0.75rem">${c.etapa}</span></div></td>
-      <td style="font-size:0.78rem"><span style="color:var(--cinza-aux);margin-right:4px">${c.codigo}</span>${c.comp?.desc||""}</td>
-      <td style="color:var(--cinza-aux)">${c.km?"KM "+c.km:"—"}</td>
-      <td style="color:var(--cinza-aux)">${c.comp?.unid||""}</td>
-      <td class="right">${numBR(c.qtde)}</td>
-      <td class="right" style="color:var(--cinza-aux)">${c.comp?.produt}</td>
-      <td class="right" style="color:#0277BD;font-weight:700">${numBR(c.moTotal,1)}</td>
-      <td class="right" style="color:#0277BD">${numBR(c.dp)}</td>
-      <td class="right" style="color:var(--cinza-med)">${numBR(c.qe)}</td>
-      <td class="right" style="color:var(--amarelo);font-weight:700">${numBR(c.da)}</td>
-      ${[c.qmo.servente,c.qmo.pedreiro,c.qmo.operador,c.qmo.carpinteiro].map(v=>`<td class="right" style="color:${v>0?"#0277BD":"var(--cinza-aux)"};${v>0?"font-weight:600":""}">${v||"—"}</td>`).join("")}
-      ${[c.eqp.escavadeira,c.eqp.rolo,c.eqp.caminhao,c.eqp.moto].map(v=>`<td class="right" style="color:${v>0?"#2E7D32":"var(--cinza-aux)"};${v>0?"font-weight:600":""}">${v||"—"}</td>`).join("")}
-    </tr>`;
-  }).join("");
-  setEl("tbody-eap", tbody);
+  // AKE REV-18: EAP agrupada por KM com linha de subtotal por grupo
+  // Fundamentação: feedback Pedro Paiva — "quantos serventes só no KM 11?"
+  // Princípio: soma de QMO por KM = pico real daquele KM (todos serviços executados juntos)
+  const _kmsUnicos = [...new Set(EAP_CALC.map(c => c.km))];
+  let tbodyRows = [];
+  _kmsUnicos.forEach(km => {
+    const grupo = EAP_CALC.filter(c => c.km === km);
+    // Linhas de serviço deste KM
+    grupo.forEach((c, i) => {
+      const cor = etapaCor(c.etapa);
+      tbodyRows.push(`<tr>
+        <td style="color:var(--cinza-aux);text-align:right;font-size:0.72rem">${c.km?"KM "+c.km:"—"}</td>
+        <td><div class="td-etapa"><div class="etapa-dot" style="background:${cor}"></div><span style="font-size:0.75rem">${c.etapa}</span></div></td>
+        <td style="font-size:0.78rem"><span style="color:var(--cinza-aux);margin-right:4px">${c.codigo}</span>${c.comp?.desc||""}</td>
+        <td style="color:var(--cinza-aux)">${c.comp?.unid||""}</td>
+        <td class="right">${numBR(c.qtde)}</td>
+        <td class="right" style="color:var(--cinza-aux)">${c.comp?.produt}</td>
+        <td class="right" style="color:#0277BD;font-weight:700">${numBR(c.moTotal,1)}</td>
+        <td class="right" style="color:#0277BD">${numBR(c.dp)}</td>
+        <td class="right" style="color:var(--cinza-med)">${numBR(c.qe)}</td>
+        <td class="right" style="color:var(--amarelo);font-weight:700">${numBR(c.da)}</td>
+        ${[c.qmo.servente,c.qmo.pedreiro,c.qmo.operador,c.qmo.carpinteiro].map(v=>`<td class="right" style="color:${v>0?"#0277BD":"var(--cinza-aux)"};${v>0?"font-weight:600":""}">${v||"—"}</td>`).join("")}
+        ${[c.eqp.escavadeira,c.eqp.rolo,c.eqp.caminhao,c.eqp.moto].map(v=>`<td class="right" style="color:${v>0?"#2E7D32":"var(--cinza-aux)"};${v>0?"font-weight:600":""}">${v||"—"}</td>`).join("")}
+      </tr>`);
+    });
+    // Linha de subtotal do KM — soma de MO e pico de QMO/EQP deste KM
+    const subMO  = grupo.reduce((s,c)=>s+c.moTotal,0);
+    const subSrv = grupo.reduce((s,c)=>s+c.qmo.servente,0);
+    const subPed = grupo.reduce((s,c)=>s+c.qmo.pedreiro,0);
+    const subOpr = grupo.reduce((s,c)=>s+c.qmo.operador,0);
+    const subCar = grupo.reduce((s,c)=>s+c.qmo.carpinteiro,0);
+    const subEsc = grupo.reduce((s,c)=>s+c.eqp.escavadeira,0);
+    const subRol = grupo.reduce((s,c)=>s+c.eqp.rolo,0);
+    const subCam = grupo.reduce((s,c)=>s+c.eqp.caminhao,0);
+    const subMot = grupo.reduce((s,c)=>s+c.eqp.moto,0);
+    const _sub = v => `<td class="right" style="font-weight:700;color:${v>0?"#002D72":"var(--cinza-aux)"}">${v>0?numBR(v):"—"}</td>`;
+    tbodyRows.push(`<tr style="background:var(--azul-claro);border-top:2px solid var(--azul-borda)">
+      <td colspan="6" style="font-size:0.65rem;font-weight:700;color:var(--azul);letter-spacing:0.08em;text-transform:uppercase;padding:0.4rem 0.8rem">
+        ∑ KM ${km} — ${grupo.length} serviço${grupo.length!==1?"s":""}
+      </td>
+      <td class="right" style="font-weight:800;color:var(--azul)">${numBR(subMO,1)}</td>
+      <td colspan="3"></td>
+      ${_sub(subSrv)}${_sub(subPed)}${_sub(subOpr)}${_sub(subCar)}
+      ${_sub(subEsc)}${_sub(subRol)}${_sub(subCam)}${_sub(subMot)}
+    </tr>`);
+  });
+  setEl("tbody-eap", tbodyRows.join(""));
 
   // Pico simultâneo de recursos (fisicamente correto)
   // Somar QMO de todos os KMs implica trabalho simultâneo — fisicamente impossível para obra sequencial
@@ -3683,12 +3710,30 @@ function _capturarMapaImg(cb) {
       if (_mkFim) try { _leafletMap.removeLayer(_mkFim); } catch(e) {}
     };
 
+    // AKE REV-18 FIX: timeout de segurança — leafletImage pode travar indefinidamente
+    // se tiles OSM bloqueiam CORS ou o mapa não está renderizado.
+    // Após 8s sem resposta, força cb(null) e o PDF gera sem o mapa.
+    var _cbChamado = false;
+    var _safeCb = function(result) {
+      if (_cbChamado) return;
+      _cbChamado = true;
+      _limparMarcadores();
+      if (wasH && tabMem) tabMem.style.display = "none";
+      cb(result);
+    };
+    var _safetyTimer = setTimeout(function() {
+      if (!_cbChamado) {
+        console.warn("_capturarMapaImg: timeout de segurança (8s) — gerando PDF sem mapa");
+        _safeCb(null);
+      }
+    }, 8000);
+
     setTimeout(function() {
+      if (_cbChamado) return; // já resolvido pelo safety timer
       if (typeof leafletImage === "function") {
         leafletImage(_leafletMap, function(err, canvas) {
-          _limparMarcadores();
-          if (wasH && tabMem) tabMem.style.display = "none";
-          if (err || !canvas) { cb(null); return; }
+          clearTimeout(_safetyTimer);
+          if (err || !canvas) { _safeCb(null); return; }
           try {
             var bigCanvas = document.createElement("canvas");
             bigCanvas.width  = canvas.width  * 2;
@@ -3696,26 +3741,23 @@ function _capturarMapaImg(cb) {
             var ctx = bigCanvas.getContext("2d");
             ctx.scale(2, 2);
             ctx.drawImage(canvas, 0, 0);
-            cb(bigCanvas.toDataURL("image/png", 1.0));
-          } catch(e) { cb(null); }
+            _safeCb(bigCanvas.toDataURL("image/png", 1.0));
+          } catch(e) { _safeCb(null); }
         });
       } else if (typeof html2canvas === "function") {
         html2canvas(document.getElementById("mapa-rodovia"), {
           useCORS: true, allowTaint: false,
           backgroundColor: "#f0f4f8", scale: 2, logging: false
         }).then(function(canvas) {
-          _limparMarcadores();
-          if (wasH && tabMem) tabMem.style.display = "none";
-          try { cb(canvas.toDataURL("image/png", 1.0)); } catch(e) { cb(null); }
+          clearTimeout(_safetyTimer);
+          try { _safeCb(canvas.toDataURL("image/png", 1.0)); } catch(e) { _safeCb(null); }
         }).catch(function() {
-          _limparMarcadores();
-          if (wasH && tabMem) tabMem.style.display = "none";
-          cb(null);
+          clearTimeout(_safetyTimer);
+          _safeCb(null);
         });
       } else {
-        _limparMarcadores();
-        if (wasH && tabMem) tabMem.style.display = "none";
-        cb(null);
+        clearTimeout(_safetyTimer);
+        _safeCb(null);
       }
     }, 1400);
   } catch(e) { cb(null); }
@@ -3945,29 +3987,56 @@ async function _gerarPDFCompleto() {
     y += 3;
   }
 
-  /* ── EAP ── */
+  /* ── EAP — agrupada por KM com subtotais (feedback Pedro Paiva REV-18) ── */
   if (chk("eap") && EAP_CALC.length) {
     addPage();
-    titulo("3. EAP — MÃO DE OBRA E EQUIPAMENTOS");
+    titulo("3. EAP — MÃO DE OBRA E EQUIPAMENTOS (por KM)");
+
+    // Monta body com linhas de serviço + linhas de subtotal por KM
+    // Marcador: linha de subtotal tem coluna 0 = "__SUB__"
+    const _kmsEAP = [...new Set(EAP_CALC.map(c => c.km))];
+    const eapBody = [];
+    _kmsEAP.forEach(km => {
+      const g = EAP_CALC.filter(c => c.km === km);
+      g.forEach(c => eapBody.push([
+        "KM "+(c.km||"—"), c.etapa,
+        (c.comp?c.comp.desc:c.codigo).substring(0,26),
+        c.comp?c.comp.unid:"—",
+        numBR(c.qtde||0,0), numBR(c.moTotal,1),
+        c.dp, c.qe||1, c.da,
+        c.qmo.servente, c.qmo.operador,
+        c.eqp.escavadeira, c.eqp.caminhao
+      ]));
+      // Linha de subtotal
+      const subMO  = g.reduce((s,c)=>s+c.moTotal,0);
+      const subSrv = g.reduce((s,c)=>s+c.qmo.servente,0);
+      const subOpr = g.reduce((s,c)=>s+c.qmo.operador,0);
+      const subEsc = g.reduce((s,c)=>s+c.eqp.escavadeira,0);
+      const subCam = g.reduce((s,c)=>s+c.eqp.caminhao,0);
+      eapBody.push([
+        "__SUB__",
+        "∑ KM "+km+" ("+g.length+" serv.)", "",
+        "", "", numBR(subMO,1),
+        "", "", "",
+        subSrv>0?subSrv:"—", subOpr>0?subOpr:"—",
+        subEsc>0?subEsc:"—", subCam>0?subCam:"—"
+      ]);
+    });
+
+    const _isSubRow = (rowIdx) => eapBody[rowIdx] && eapBody[rowIdx][0] === "__SUB__";
+
     doc.autoTable({
       head:[["KM","Etapa","Serviço","Und","Qtde","MO(h)","DP","QE","DA","Srv","Opr","Esc","Cam"]],
-      body: EAP_CALC.map(c=>[
-        c.km||"—",c.etapa,
-        (c.comp?c.comp.desc:c.codigo).substring(0,28),
-        c.comp?c.comp.unid:"—",
-        numBR(c.qtde||0,0),numBR(c.moTotal,1),
-        c.dp,c.qe||1,c.da,
-        c.qmo.servente,c.qmo.operador,c.eqp.escavadeira,c.eqp.caminhao
-      ]),
+      body: eapBody.map(r => r[0]==="__SUB__" ? r.slice(1) : r),
       startY: y, margin:{left:ML, right:MR, top:Y0, bottom:PH-YM},
       styles:{fontSize:6.5, cellPadding:1.1},
       headStyles:{fillColor:[0,45,114], textColor:255, fontStyle:"bold",
                   fontSize:6, halign:"center", overflow:"ellipsize", minCellHeight:5},
       alternateRowStyles:{fillColor:[245,247,252]},
       columnStyles:{
-        0:{cellWidth:9,  halign:"center"},
+        0:{cellWidth:10, halign:"center"},
         1:{cellWidth:20, overflow:"linebreak"},
-        2:{cellWidth:34, overflow:"linebreak"},
+        2:{cellWidth:32, overflow:"linebreak"},
         3:{cellWidth:9,  halign:"center"},
         4:{cellWidth:11, halign:"right"},
         5:{cellWidth:13, halign:"right"},
@@ -3979,6 +4048,23 @@ async function _gerarPDFCompleto() {
         11:{cellWidth:9, halign:"center"},
         12:{cellWidth:7, halign:"center"}
       },
+      willDrawCell: function(data) {
+        // Linha de subtotal: fundo azul claro, texto bold azul
+        if (data.section === "body" && _isSubRow(data.row.index)) {
+          doc.setFillColor(235, 242, 252);
+        }
+      },
+      didDrawCell: function(data) {
+        if (data.section === "body" && _isSubRow(data.row.index)) {
+          // Linha superior destacada
+          doc.setDrawColor(0,45,114);
+          doc.setLineWidth(0.5);
+          doc.line(data.cell.x, data.cell.y, data.cell.x+data.cell.width, data.cell.y);
+          // Texto azul bold manualmente (o autoTable já renderizou, mas cores corretas via styles)
+        }
+      },
+      bodyStyles: {},
+      // Estilo dinâmico por linha não é suportado inline — usamos willDrawCell acima
       didDrawPage: didDrawPageFn
     });
     y = doc.lastAutoTable.finalY + 3;
