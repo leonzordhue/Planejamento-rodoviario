@@ -5191,56 +5191,44 @@ function normalizeRoadRow(row, sheet) {
   };
 }
 
-// ── Helpers internos de parsing ────────────────────────────────────
-function _applyGroupBy(items, sheet) {
-  if (!sheet.groupBy) return items;
-  const seen = new Map();
-  items.forEach(item => {
-    const key = (item.nome || "").trim().toUpperCase();
-    if (!key) return;
-    if (!seen.has(key)) {
-      seen.set(key, { ...item, _trechos: 1, extensao: item.extensao });
-    } else {
-      const ex = seen.get(key);
-      ex.extensao += item.extensao;
-      ex._trechos++;
-    }
-  });
-  return [...seen.values()].sort((a, b) => a.nome.localeCompare(b.nome));
-}
-
-function _parseSheetValues(allValues, sheet) {
-  if (!allValues || allValues.length < 2) return null;
-  const headers = allValues[0].map(h => (h||"").trim().toLowerCase()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
-    .replace(/[^a-z0-9_]/g,"_").replace(/__+/g,"_").replace(/^_|_$/g,""));
-  const rawRows = allValues.slice(1).filter(r => r.some(c => c)).map(r => {
-    const obj = {};
-    headers.forEach((h, i) => { obj[h] = (r[i]||"").toString().trim(); });
-    return obj;
-  });
-  let items = rawRows.map(r => normalizeRoadRow(r, sheet)).filter(r => r.nome || r.codigo);
-  return _applyGroupBy(items, sheet);
-}
-
-// ── Carrega dados: API v4 → gviz CSV → CSV export (fallbacks automáticos) ──
-// REV-18 FIX: API key pode estar restrita por domínio (file://) ou quota
-// excedida. Fallback para CSV público do Google Sheets sem API key.
+// ── Carrega dados via Sheets API v4 ───────────────────────────────
 async function loadRoadData(tipo) {
   if (_roadCache[tipo]) return _roadCache[tipo];
   const sheet = SHEETS[tipo];
   if (!sheet) return [];
   setRoadStatus("⏳ Carregando base de dados...");
 
-  // ── Método 1: Google Sheets API v4 (mais rápido, retorna JSON) ──────────
-  try {
-    const apiUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheet.spreadsheetId}/values/${sheet.range}?key=${ROAD_API_KEY}`;
-    const resp = await fetch(apiUrl);
-    if (!resp.ok) throw new Error("HTTP " + resp.status);
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
-    const items = _parseSheetValues(data.values, sheet);
-    if (!items) { throw new Error("Planilha sem dados (API v4)"); }
+  // Função auxiliar: normaliza headers e monta array de objetos
+  function _parseRows(allValues) {
+    if (!allValues || allValues.length < 2) return null;
+    const headers = allValues[0].map(h => (h||"").trim().toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+      .replace(/[^a-z0-9_]/g,"_").replace(/__+/g,"_").replace(/^_|_$/g,""));
+    return allValues.slice(1).filter(r => r.some(c => c)).map(r => {
+      const obj = {};
+      headers.forEach((h, i) => { obj[h] = (r[i]||"").toString().trim(); });
+      return obj;
+    });
+  }
+
+  // Função auxiliar: agrupa e finaliza
+  function _finalize(rawRows) {
+    let items = rawRows.map(r => normalizeRoadRow(r, sheet)).filter(r => r.nome || r.codigo);
+    if (sheet.groupBy) {
+      const seen = new Map();
+      items.forEach(item => {
+        const key = (item.nome || "").trim().toUpperCase();
+        if (!key) return;
+        if (!seen.has(key)) {
+          seen.set(key, { ...item, _trechos: 1, extensao: item.extensao });
+        } else {
+          const ex = seen.get(key);
+          ex.extensao += item.extensao;
+          ex._trechos++;
+        }
+      });
+      items = [...seen.values()].sort((a,b) => a.nome.localeCompare(b.nome));
+    }
     _roadCache[tipo] = items;
     setRoadStatus(`✅ ${items.length} registro${items.length !== 1 ? "s" : ""} carregado${items.length !== 1 ? "s" : ""}`);
     if (tipo === "RAMAL / VICINAL") {
@@ -5248,56 +5236,39 @@ async function loadRoadData(tipo) {
       if (sel && sel.options.length <= 1) populateMunicipioSelect(items);
     }
     return items;
-  } catch(e1) {
-    console.warn("[SEINFRA] Sheets API v4 falhou, tentando gviz CSV…", e1.message);
   }
 
-  // ── Método 2: Google Sheets gviz CSV (público, sem API key, CORS ok) ────
+  // ── Tentativa 1: gviz/tq (endpoint público, sem API Key — mesmo método do dmob-viario) ──
+  // Mais confiável: não depende de API Key, não tem cota por projeto
   try {
-    const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheet.spreadsheetId}/gviz/tq?tqx=out:csv`;
+    const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheet.spreadsheetId}/gviz/tq?tqx=out:csv&range=${sheet.range}`;
     const resp = await fetch(gvizUrl);
-    if (!resp.ok) throw new Error("HTTP " + resp.status);
-    const text = await resp.text();
-    if (!text || text.trim().length < 10) throw new Error("Resposta vazia");
-    const rows = parseCSV(text);
-    let items = rows.map(r => normalizeRoadRow(r, sheet)).filter(r => r.nome || r.codigo);
-    items = _applyGroupBy(items, sheet);
-    if (!items.length) throw new Error("Nenhum registro após parse CSV gviz");
-    _roadCache[tipo] = items;
-    setRoadStatus(`✅ ${items.length} registro${items.length !== 1 ? "s" : ""} (via CSV)`);
-    if (tipo === "RAMAL / VICINAL") {
-      const sel = document.getElementById("muni-filter-select");
-      if (sel && sel.options.length <= 1) populateMunicipioSelect(items);
+    if (resp.ok) {
+      const csvText = await resp.text();
+      // parseCSV já está definido no escopo global
+      const rawRows = parseCSV(csvText);
+      if (rawRows && rawRows.length > 0) {
+        return _finalize(rawRows);
+      }
     }
-    return items;
-  } catch(e2) {
-    console.warn("[SEINFRA] gviz CSV falhou, tentando export CSV…", e2.message);
+  } catch(e1) {
+    console.warn("loadRoadData gviz falhou:", e1.message);
   }
 
-  // ── Método 3: CSV export direto (fallback final) ─────────────────────────
+  // ── Tentativa 2: Sheets API v4 com API Key (fallback) ──
   try {
-    const csvUrl = `https://docs.google.com/spreadsheets/d/${sheet.spreadsheetId}/export?format=csv`;
-    const resp = await fetch(csvUrl);
+    const apiUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheet.spreadsheetId}/values/${sheet.range}?key=${ROAD_API_KEY}`;
+    const resp = await fetch(apiUrl);
     if (!resp.ok) throw new Error("HTTP " + resp.status);
-    const text = await resp.text();
-    if (!text || text.trim().length < 10) throw new Error("Resposta vazia");
-    const rows = parseCSV(text);
-    let items = rows.map(r => normalizeRoadRow(r, sheet)).filter(r => r.nome || r.codigo);
-    items = _applyGroupBy(items, sheet);
-    if (!items.length) throw new Error("Nenhum registro após parse export CSV");
-    _roadCache[tipo] = items;
-    setRoadStatus(`✅ ${items.length} registro${items.length !== 1 ? "s" : ""} (via export)`);
-    if (tipo === "RAMAL / VICINAL") {
-      const sel = document.getElementById("muni-filter-select");
-      if (sel && sel.options.length <= 1) populateMunicipioSelect(items);
-    }
-    return items;
-  } catch(e3) {
-    console.error("[SEINFRA] Todos os métodos de carregamento falharam:", e3.message);
-    setRoadStatus(
-      "⚠️ Base inacessível. Verifique: (1) planilha está pública, " +
-      "(2) API key válida, (3) conexão com internet."
-    );
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message);
+    const rawRows = _parseRows(data.values || []);
+    if (rawRows) return _finalize(rawRows);
+    setRoadStatus("⚠️ Planilha sem dados");
+    return [];
+  } catch(e2) {
+    setRoadStatus("⚠️ Não foi possível carregar a base: " + e2.message);
+    console.error("loadRoadData error:", e2);
     return [];
   }
 }
@@ -7903,15 +7874,6 @@ function getTrechosPDFRows() {
     </span>
   </div>
 
-  <div data-rev="REV-18" data-data="2026-03-27" data-status="ATUAL">
-    <span data-tipo="FIX" data-id="ROAD_LOAD_FALLBACK">
-      loadRoadData: 3 métodos em cascata: (1) Sheets API v4+key, (2) gviz?tqx=out:csv (sem key),
-      (3) export?format=csv. Extrai _parseSheetValues e _applyGroupBy como helpers reutilizáveis.
-      CAUSA_BUG: API key restrita por domínio (file://) ou quota excedida silenciava toda a base.
-      VICIO_EVITAR: nunca depender de API key única para dados críticos sem fallback CSV público.
-    </span>
-  </div>
-
   <div data-rev="VICIOS_CONHECIDOS" data-tipo="GUIA_IA">
     <span data-id="V1">Fatiar canvas/SVG de Gantt pelo eixo X para multipágina → SEMPRE usar eixo Y</span>
     <span data-id="V2">Passar y numérico para subfunção PDF que o modifica → SEMPRE usar {y:n}</span>
@@ -7928,15 +7890,6 @@ function getTrechosPDFRows() {
 <script>
 /* ── LOG DE VERSÕES (runtime) — consultável via window._VERSION_LOG ── */
 window._VERSION_LOG = [
-  {
-    rev: "REV-18",
-    data: "2026-03-27",
-    status: "ATUAL",
-    fixes: [
-      { id:"ROAD_LOAD_FALLBACK", desc:"loadRoadData com 3 métodos em cascata: API v4 → gviz CSV → export CSV. Extrai _parseSheetValues e _applyGroupBy. Fix: base sumia quando API key restrita por domínio (file://) ou quota excedida." },
-    ],
-    bugs_pendentes: []
-  },
   {
     rev: "REV-17",
     data: "2026-03-20",
@@ -7983,14 +7936,13 @@ window._VICIOS_CONHECIDOS = [
   "V7: calcPicoRecursos() antes de HIST_DATA preenchido → seguir ordem: EAP→GANTT→HIST→PICO",
   "V8: Histograma pico subestimado em frentes paralelas (pendente correção)",
   "V9: Calcular offset de slice de imagem como pg*constante quando pág 0 tem tamanho diferente → sempre usar cursor acumulado (cursorPx += sliceHpx)",
-  "V10: Depender de API key única (Sheets API v4) para carregar base de dados sem fallback → sempre implementar cascata: API v4 → gviz CSV → export CSV",
   "V12: Atividades globais (isAdmin, isHeader, isTranslado) devem ser excluídas explicitamente nos filtros GANTT_DATA",
   "V13: canteiroKm da frente pode ser null — nunca usar Math.round(null) diretamente"
 ];
 
 // Exibe no console para debug (visível no DevTools)
 console.groupCollapsed("%c SEINFRA/AM Plataforma REV-15 ", "background:#002D72;color:#F5A623;font-weight:bold;padding:2px 6px;border-radius:3px");
-console.log("%c Versão atual: REV-18 (2026-03-27)", "color:#002D72;font-weight:bold");
+console.log("%c Versão atual: REV-17 (2026-03-20)", "color:#002D72;font-weight:bold");
 console.log("%c Fixes desta versão:", "color:#2E7D32;font-weight:bold");
 window._VERSION_LOG[0].fixes.forEach(f => console.log(`  ✅ [${f.id}] ${f.desc}`));
 if(window._VERSION_LOG[0].bugs_pendentes?.length){
