@@ -2755,7 +2755,9 @@ function renderGantt() {
     `Duração: <strong style="color:var(--azul)">${maxDay} dias (${durM} meses)</strong> &nbsp;·&nbsp; Extensão: <strong style="color:var(--azul)">${getV("obra-extensao")} km</strong> &nbsp;·&nbsp; Defasagem: <strong style="color:var(--amarelo)">${getV("obra-defasagem")} dias/frente</strong>`;
 
   const ROW_H  = 30;
-  const HDR_H  = 56;
+  const HDR_H  = 64;   // aumentado: 28px mês + 20px semana + 16px margem
+  const HDR_MES_H  = 28; // altura da faixa de rótulo de mês
+  const HDR_SEM_Y  = 50; // y-base para os rótulos de semana
   const LBLW   = 300;
   const _cw    = document.getElementById("gantt-scroll").clientWidth
                  || Math.round((window.innerWidth || 1280) * 0.75);
@@ -2780,27 +2782,49 @@ function renderGantt() {
 
   let svg = `<svg id="gantt-svg" width="${SVG_W}" height="${SVG_H}" style="display:block;font-family:'Outfit',sans-serif">`;
   svg += `<rect width="${SVG_W}" height="${SVG_H}" fill="white"/>`;
+  // Fundo azul escuro cabeçalho completo
   svg += `<rect width="${SVG_W}" height="${HDR_H}" fill="#002D72"/>`;
+  // Faixa separadora: fundo levemente mais claro para a linha de semanas
+  svg += `<rect x="${LBLW}" y="${HDR_MES_H}" width="${TLW}" height="${HDR_H-HDR_MES_H}" fill="#003A8C"/>`;
 
-  // Faixas alternadas
+  // Faixas alternadas (corpo)
   for (let w=0;w<nWeeks;w++) {
     svg += `<rect x="${LBLW+w*7*PPD}" y="${HDR_H}" width="${7*PPD}" height="${SVG_H-HDR_H}" fill="${w%2===0?"#F5F7FB":"white"}" opacity="0.8"/>`;
   }
-  // Linhas mensais
-  monthLabels.forEach(ml=>{
+
+  // ── Meses: faixa colorida completa da largura do mês + rótulo centrado ──
+  // Pré-calcula largura de cada mês em pixels
+  for (let mi=0; mi<monthLabels.length; mi++) {
+    const ml   = monthLabels[mi];
+    const next = monthLabels[mi+1];
+    const dxStart = ml.day * PPD;
+    const dxEnd   = next ? next.day * PPD : TLW;
+    const mesW    = dxEnd - dxStart;
+    const cx      = dxStart + mesW / 2;
+    // Linha vertical de separação de mês (branca semi-transparente)
+    svg += `<line x1="${LBLW+dxStart}" y1="0" x2="${LBLW+dxStart}" y2="${HDR_H}" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>`;
+    // Linha vertical no corpo
     svg += `<line x1="${LBLW+ml.day*PPD}" y1="${HDR_H}" x2="${LBLW+ml.day*PPD}" y2="${SVG_H}" stroke="#C4D0E8" stroke-width="1" stroke-dasharray="3,3"/>`;
-    svg += `<text x="${LBLW+ml.day*PPD+4}" y="18" font-size="9" fill="#F5A623" font-weight="700">${ml.label}</text>`;
-  });
-  // Semanas
-  for (let w=0;w<nWeeks;w++) {
-    svg += `<text x="${LBLW+w*7*PPD+2}" y="${HDR_H-7}" font-size="7" fill="rgba(255,255,255,0.5)">S${String(w+1).padStart(2,"0")}</text>`;
+    // Rótulo do mês centrado, tamanho legível
+    svg += `<text x="${LBLW+cx}" y="${HDR_MES_H-7}" font-size="10" fill="#F5A623" font-weight="800" text-anchor="middle" letter-spacing="0.5">${ml.label}</text>`;
   }
-  // Cabeçalhos fixos
+
+  // ── Semanas: número pequeno na faixa inferior do cabeçalho ──
+  for (let w=0;w<nWeeks;w++) {
+    const wx = LBLW + w*7*PPD + 7*PPD/2;
+    svg += `<text x="${wx}" y="${HDR_SEM_Y}" font-size="6.5" fill="rgba(255,255,255,0.55)" text-anchor="middle">S${String(w+1).padStart(2,"0")}</text>`;
+    // Linha fina de divisão de semana na faixa inferior
+    svg += `<line x1="${LBLW+w*7*PPD}" y1="${HDR_MES_H}" x2="${LBLW+w*7*PPD}" y2="${HDR_H}" stroke="rgba(255,255,255,0.12)" stroke-width="0.5"/>`;
+  }
+  // Cabeçalhos fixos — posicionados no centro vertical do bloco de label (HDR_MES_H a HDR_H)
+  const _hdrLblY = HDR_MES_H + (HDR_H - HDR_MES_H) / 2 + 4;
   svg += `<rect x="0" y="0" width="${LBLW}" height="${HDR_H}" fill="#002D72"/>`;
-  svg += `<text x="8" y="${HDR_H/2+4}" font-size="9" fill="rgba(255,255,255,0.7)" font-weight="700">KM</text>`;
-  svg += `<text x="52" y="${HDR_H/2+4}" font-size="9" fill="rgba(255,255,255,0.7)" font-weight="700">ATIVIDADE</text>`;
-  svg += `<text x="248" y="${HDR_H/2+4}" font-size="8" fill="rgba(245,166,35,0.9)" font-weight="700" text-anchor="middle">INI</text>`;
-  svg += `<text x="278" y="${HDR_H/2+4}" font-size="8" fill="rgba(245,166,35,0.9)" font-weight="700" text-anchor="middle">DUR</text>`;
+  // Linha separadora horizontal interna do cabeçalho (mesmo nível dos meses)
+  svg += `<line x1="0" y1="${HDR_MES_H}" x2="${LBLW}" y2="${HDR_MES_H}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>`;
+  svg += `<text x="8" y="${_hdrLblY}" font-size="9" fill="rgba(255,255,255,0.7)" font-weight="700">KM</text>`;
+  svg += `<text x="52" y="${_hdrLblY}" font-size="9" fill="rgba(255,255,255,0.7)" font-weight="700">ATIVIDADE</text>`;
+  svg += `<text x="248" y="${_hdrLblY}" font-size="8" fill="rgba(245,166,35,0.9)" font-weight="700" text-anchor="middle">INI</text>`;
+  svg += `<text x="278" y="${_hdrLblY}" font-size="8" fill="rgba(245,166,35,0.9)" font-weight="700" text-anchor="middle">DUR</text>`;
   svg += `<line x1="${LBLW}" y1="0" x2="${LBLW}" y2="${SVG_H}" stroke="#C4D0E8" stroke-width="1"/>`;
   svg += `<line x1="285" y1="${HDR_H}" x2="285" y2="${SVG_H}" stroke="#E0E6F0" stroke-width="0.5"/>`;
 
@@ -3448,8 +3472,12 @@ function executarImpressao() {
       if (btn) btn.textContent = "⏳ Capturando análise crítica...";
       _capturarCriticaImg(function(criticaImg) {
         _PDF_CRITICA_IMG = criticaImg;
-        _PDF_MAPA_IMG = null;
-        _executarGeracaoPDF(btn);
+        // AKE REV-18: captura mapa Leaflet para inserção no PDF
+        if (btn) btn.textContent = "⏳ Capturando mapa...";
+        _capturarMapaImg(function(mapaImg) {
+          _PDF_MAPA_IMG = mapaImg;
+          _executarGeracaoPDF(btn);
+        });
       });
     });
   });
@@ -3612,31 +3640,56 @@ function _capturarCriticaImg(cb) {
 /* ── Captura o mapa Leaflet como PNG via leaflet-image ── */
 function _capturarMapaImg(cb) {
   try {
-    // Ativa a aba memorial para garantir que o mapa está visível
     const tabMem = document.getElementById("tab-memorial");
     const wasH   = tabMem && tabMem.style.display === "none";
     if (wasH) tabMem.style.display = "block";
-
-    // Inicializa o mapa se ainda não foi aberto
     try { initMapa(); } catch(e) {}
+    if (!_leafletMap) { if (wasH && tabMem) tabMem.style.display = "none"; cb(null); return; }
 
-    if (!_leafletMap) {
-      if (wasH && tabMem) tabMem.style.display = "none";
-      cb(null); return;
-    }
+    // AKE REV-18: marcadores de início/fim do traçado para captura PDF
+    var _mkIni = null, _mkFim = null;
+    try {
+      if (_layerSelected) {
+        var allCoords = [];
+        _layerSelected.eachLayer(function(l) {
+          if (l.getLatLngs) {
+            var lls = l.getLatLngs();
+            var flat = Array.isArray(lls[0]) ? lls.flat() : lls;
+            allCoords = allCoords.concat(flat);
+          }
+        });
+        if (allCoords.length >= 2) {
+          var ptIni = allCoords[0];
+          var ptFim = allCoords[allCoords.length - 1];
+          var _mkStyle = function(txt, bg) {
+            return '<div style="background:' + bg + ';color:#fff;border:2px solid #fff;border-radius:4px;font-size:9px;font-weight:700;padding:2px 6px;box-shadow:0 2px 8px rgba(0,0,0,0.5);white-space:nowrap;font-family:Outfit,sans-serif">' + txt + '</div>';
+          };
+          _mkIni = L.marker([ptIni.lat, ptIni.lng], {
+            icon: L.divIcon({ className:"", html: _mkStyle("▶ INÍCIO","#007B3E"), iconAnchor:[2,22] }),
+            zIndexOffset: 3000
+          }).addTo(_leafletMap);
+          _mkFim = L.marker([ptFim.lat, ptFim.lng], {
+            icon: L.divIcon({ className:"", html: _mkStyle("FIM ◀","#C0392B"), iconAnchor:[2,22] }),
+            zIndexOffset: 3000
+          }).addTo(_leafletMap);
+        }
+      }
+    } catch(e) { console.warn("Marcadores PDF:", e); }
 
-    // Força redimensionamento do Leaflet para carregar tiles corretamente
     _leafletMap.invalidateSize(true);
 
-    // Aguarda tiles carregarem (1200ms) — necessário para OSM via crossOrigin
+    var _limparMarcadores = function() {
+      if (_mkIni) try { _leafletMap.removeLayer(_mkIni); } catch(e) {}
+      if (_mkFim) try { _leafletMap.removeLayer(_mkFim); } catch(e) {}
+    };
+
     setTimeout(function() {
-      // Tenta leaflet-image (plugin especializado para Leaflet)
       if (typeof leafletImage === "function") {
         leafletImage(_leafletMap, function(err, canvas) {
+          _limparMarcadores();
           if (wasH && tabMem) tabMem.style.display = "none";
           if (err || !canvas) { cb(null); return; }
           try {
-            // Upscale 2× para nitidez no PDF (usa canvas intermediário)
             var bigCanvas = document.createElement("canvas");
             bigCanvas.width  = canvas.width  * 2;
             bigCanvas.height = canvas.height * 2;
@@ -3646,26 +3699,25 @@ function _capturarMapaImg(cb) {
             cb(bigCanvas.toDataURL("image/png", 1.0));
           } catch(e) { cb(null); }
         });
-      } else {
-        // Fallback: html2canvas se disponível
-        if (typeof html2canvas === "function") {
-          var container = document.getElementById("mapa-rodovia");
-          html2canvas(container, {
-            useCORS: true, allowTaint: false,
-            backgroundColor: "#f0f4f8", scale: 2, logging: false
-          }).then(function(canvas) {
-            if (wasH && tabMem) tabMem.style.display = "none";
-            try { cb(canvas.toDataURL("image/png", 1.0)); } catch(e) { cb(null); }
-          }).catch(function() {
-            if (wasH && tabMem) tabMem.style.display = "none";
-            cb(null);
-          });
-        } else {
+      } else if (typeof html2canvas === "function") {
+        html2canvas(document.getElementById("mapa-rodovia"), {
+          useCORS: true, allowTaint: false,
+          backgroundColor: "#f0f4f8", scale: 2, logging: false
+        }).then(function(canvas) {
+          _limparMarcadores();
+          if (wasH && tabMem) tabMem.style.display = "none";
+          try { cb(canvas.toDataURL("image/png", 1.0)); } catch(e) { cb(null); }
+        }).catch(function() {
+          _limparMarcadores();
           if (wasH && tabMem) tabMem.style.display = "none";
           cb(null);
-        }
+        });
+      } else {
+        _limparMarcadores();
+        if (wasH && tabMem) tabMem.style.display = "none";
+        cb(null);
       }
-    }, 1200);
+    }, 1400);
   } catch(e) { cb(null); }
 }
 
@@ -3842,6 +3894,48 @@ async function _gerarPDFCompleto() {
       y = doc.lastAutoTable.finalY + 6;
     }
 
+    // ── AKE REV-18: Mapa Leaflet no PDF ──────────────────────────────────────
+    if (_PDF_MAPA_IMG) {
+      // Verifica espaço — o mapa ocupa ~80mm de altura; se não couber, nova página
+      const mapaAlt = 80;
+      if (y + mapaAlt + 12 > YM) { addPage(); }
+      chkBrk(12);
+      doc.setFontSize(7.5); doc.setTextColor(0,45,114); doc.setFont("helvetica","bold");
+      doc.text("LOCALIZAÇÃO GEOGRÁFICA DA OBRA", ML, y); y += 4;
+
+      // Desenha borda e insere imagem do mapa
+      doc.setDrawColor(196,208,232); doc.setLineWidth(0.4);
+      doc.rect(ML, y, CW, mapaAlt, "S");
+      doc.addImage(_PDF_MAPA_IMG, "PNG", ML, y, CW, mapaAlt, "_mapa", "FAST");
+
+      // ── Marcadores de início e fim do traçado via anotação textual no canto ──
+      // (coordenadas dos extremos vêm do _layerSelected do Leaflet se disponível)
+      try {
+        if (_leafletMap && _layerSelected) {
+          const bounds = _layerSelected.getBounds();
+          if (bounds && bounds.isValid()) {
+            const sw = bounds.getSouthWest();
+            const ne = bounds.getNorthEast();
+            // Rótulo início — canto inferior esquerdo do mapa no PDF
+            doc.setFontSize(6.5); doc.setTextColor(255,255,255); doc.setFont("helvetica","bold");
+            doc.setFillColor(0,123,62); // verde — início
+            doc.roundedRect(ML+1, y+mapaAlt-8, 26, 6.5, 1, 1, "F");
+            doc.text("▶ INÍCIO DO TRAÇADO", ML+2.5, y+mapaAlt-3.5);
+            // Rótulo fim — canto inferior direito do mapa no PDF
+            doc.setFillColor(192,57,43); // vermelho — fim
+            doc.roundedRect(ML+CW-27, y+mapaAlt-8, 26, 6.5, 1, 1, "F");
+            doc.text("FIM DO TRAÇADO ◀", ML+CW-25.5, y+mapaAlt-3.5);
+          }
+        }
+      } catch(e) { /* marcadores são opcionais — falha silenciosa */ }
+
+      // Crédito OSM
+      doc.setFontSize(5.5); doc.setTextColor(130); doc.setFont("helvetica","normal");
+      doc.text("© OpenStreetMap contributors", ML+1, y+mapaAlt+3.5);
+      y += mapaAlt + 6;
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     addPage();
     titulo("2. RESPONSABILIDADE TÉCNICA");
     linha("Responsável Técnico", getV("obra-responsavel"), true);
@@ -3923,103 +4017,139 @@ async function _gerarPDFCompleto() {
     y += 6;
 
     if (_PDF_GANTT_IMG) {
-      /* ── REV-15b FIX: Gantt multipágina — fatiamento VERTICAL por pixels acumulados
-         BUG REV-15a: y0px calculado como HDR_H_PX + pg*linhasPorPag*ROW_H_PX
-           → para pg=1: pulava além de img.height → slice vazio → página em branco
-           → para pg=2: mostrava atividades mas deslocadas
-         CAUSA RAIZ: pág 0 consome altaUtilPx pixels (≠ linhasPorPag*ROW_H_PX porque
-           inclui HDR_H_PX), então as págs seguintes calculavam offset errado.
-         SOLUÇÃO: rastrear cursorPx acumulado diretamente — sem multiplicação por pg.
-           pág 0: cursorPx=0, fatia=[0 .. altaUtilPx]
-           pág N: cursorPx = fim da fatia anterior, fatia=[cursorPx .. cursorPx+altaUtilPx]
-         VICIO_EVITAR: nunca calcular offset de slice por pg*constante quando a pág 0
-           tem tamanho diferente das demais (HDR incluso só na pág 0). ── */
-      const _sliceGanttVertical = () => new Promise(resolve => {
+      /* ── AKE REV-18: Gantt multipágina em páginas PAISAGEM dedicadas ──────────
+         PROBLEMA REV-15/16: fatiamento vertical na página A4 retrato gerava
+         Gantt com escala mínima, textos ilegíveis e cortes sem contexto de meses.
+         SOLUÇÃO: cada fatia de linhas do Gantt ocupa uma página A4 LANDSCAPE.
+         A largura disponível salta de 160mm (retrato) para 250mm (paisagem),
+         permitindo escala muito maior e leitura confortável dos meses e barras.
+         Axioma: o Gantt é intrinsecamente horizontal — a orientação paisagem
+         é a correspondência natural entre domínio e representação. ──────────── */
+      const _sliceGanttPaisagem = () => new Promise(resolve => {
         const img = new Image();
         img.onload = () => {
+          // Dimensões do SVG original
           const svgEl = document.getElementById("gantt-svg");
           const svgW  = svgEl ? (parseInt(svgEl.getAttribute("width"))  || img.width)  : img.width;
           const svgH  = svgEl ? (parseInt(svgEl.getAttribute("height")) || img.height) : img.height;
 
-          const scaleY = img.height / svgH;
-          // px por mm: baseado na largura (imagem inserida em CW mm de largura)
-          const pxPorMm = img.width / CW;
+          // Layout da página paisagem A4: 297×210mm
+          const PW_L = 297, PH_L = 210;
+          const ML_L = 15,  MR_L = 15;
+          const HDR_L = 24; // timbrado compacto em paisagem (escalado para 24mm)
+          const FTR_L = 20;
+          const CW_L  = PW_L - ML_L - MR_L; // 267mm de largura útil
+          const Y0_L  = HDR_L + 6;
+          const YM_L  = PH_L - FTR_L - 4;
+          const altaUtilL = YM_L - Y0_L; // altura útil por página paisagem
 
-          const ganttAltTotalMm = img.height / pxPorMm;
-          const HDR_SECTION_MM  = 18; // altura do título de seção "4. CRONOGRAMA FISICO"
-          const espacoDispMm    = YM - y - 4;
+          // Escala: largura do SVG → CW_L mm
+          const pxPorMm_L = img.width / CW_L;
 
-          if (ganttAltTotalMm <= espacoDispMm + 2) {
-            // Cabe inteiro — insere sem fatiar
-            doc.addImage(_PDF_GANTT_IMG, "PNG", ML, y, CW, ganttAltTotalMm);
-            y += ganttAltTotalMm + 4;
-            resolve();
-            return;
-          }
+          // Altura do cabeçalho do Gantt (HDR_H em pixels na imagem)
+          const hdrMm_L = (svgH > 0 && svgW > 0)
+            ? (64 / svgH) * (img.height / pxPorMm_L)  // 64px = HDR_H novo
+            : 0;
 
-          // Pixels disponíveis por página (pág nova tem espaço = YM - Y0 - HDR_SECTION_MM)
-          const altaPagMm = YM - Y0 - HDR_SECTION_MM;
-          const altaPagPx = altaPagMm * pxPorMm;
+          // Altura de uma linha de atividade em mm (na escala da imagem)
+          const rowMm_L = (30 / svgH) * (img.height / pxPorMm_L); // 30px = ROW_H
 
-          // Pág 0 pode ter menos espaço (título de seção já foi desenhado antes)
-          const altaPag0Mm = Math.min(YM - y - 4, altaPagMm);
-          const altaPag0Px = altaPag0Mm * pxPorMm;
+          // Quantas linhas cabem por página (após o cabeçalho)
+          const linhasPorPag = Math.max(1, Math.floor((altaUtilL - hdrMm_L - 8) / rowMm_L));
 
-          // Canvas auxiliar
-          const tmpCanvas  = document.createElement("canvas");
+          // Canvas auxiliar sobre a imagem original
+          const tmpCanvas = document.createElement("canvas");
           tmpCanvas.width  = img.width;
           tmpCanvas.height = img.height;
           tmpCanvas.getContext("2d").drawImage(img, 0, 0);
 
-          let cursorPx = 0; // posição acumulada no canvas original
-          let pgNum    = 0;
+          // Altura em px do cabeçalho SVG
+          const hdrPx  = Math.round(hdrMm_L * pxPorMm_L);
+          const rowPx  = Math.round(rowMm_L  * pxPorMm_L);
+          const totalLinhas = rowPx > 0 ? Math.ceil((img.height - hdrPx) / rowPx) : 1;
+          const totalPags   = Math.ceil(totalLinhas / linhasPorPag);
 
-          while (cursorPx < img.height) {
-            const isPag0     = pgNum === 0;
-            const slicePxMax = isPag0 ? altaPag0Px : altaPagPx;
-            const sliceHpx   = Math.min(Math.round(slicePxMax), img.height - cursorPx);
+          // Função auxiliar: timbrado compacto em paisagem
+          const timbradoL = () => {
+            doc.addImage("data:image/png;base64,"+_TIMBRADO_HDR,"PNG",0,0,PW_L,HDR_L,"_hdrL","FAST");
+            doc.addImage("data:image/png;base64,"+_TIMBRADO_FTR,"PNG",0,PH_L-FTR_L,PW_L,FTR_L,"_ftrL","FAST");
+          };
+
+          let cursorLinha = 0;
+          let pgNum = 0;
+
+          while (cursorLinha < totalLinhas) {
+            // Nova página paisagem
+            doc.addPage([PW_L, PH_L], "landscape");
+            timbradoL();
+            let yL = Y0_L;
+
+            // Título da seção
+            doc.setFillColor(0,45,114); doc.rect(ML_L, yL-5, CW_L, 8, "F");
+            doc.setFontSize(9); doc.setTextColor(255,255,255); doc.setFont("helvetica","bold");
+            const titGantt = totalPags > 1
+              ? "4. CRONOGRAMA FÍSICO — Parte " + (pgNum+1) + " de " + totalPags
+              : "4. CRONOGRAMA FÍSICO";
+            doc.text(titGantt, ML_L+3, yL);
+            doc.setFont("helvetica","normal"); yL += 9;
+
+            // Sub-info
+            doc.setFontSize(7); doc.setTextColor(80);
+            doc.text("Duracao: " + maxDia + " dias  ·  " + ganttAtivs.length + " atividades  ·  " + getV("obra-extensao") + " km", ML_L, yL);
+            yL += 5;
+
+            // Calcula fatia: cabeçalho SVG + linhasNestaPag linhas
+            const linhasNestaPag = Math.min(linhasPorPag, totalLinhas - cursorLinha);
+            const y0px = pgNum === 0
+              ? 0                          // primeira página: inclui cabeçalho do SVG
+              : hdrPx + cursorLinha * rowPx; // demais: pula o cabeçalho
+            const hPx = pgNum === 0
+              ? hdrPx + linhasNestaPag * rowPx
+              : linhasNestaPag * rowPx;
+            const sliceHpx = Math.min(hPx, img.height - y0px);
             if (sliceHpx <= 0) break;
 
-            // Páginas 2+ recebem título e nova página
-            if (pgNum > 0) {
-              addPage();
-              titulo("4. CRONOGRAMA FISICO (parte " + (pgNum + 1) + " de ?)");
-              y += 4;
-            } else if (y + sliceHpx / pxPorMm > YM) {
-              addPage();
-              titulo("4. CRONOGRAMA FISICO (cont.)");
-              y += 4;
-            }
+            const sliceMmH = sliceHpx / pxPorMm_L;
 
-            const sliceMmH = Math.min(sliceHpx / pxPorMm, YM - y - 4);
-
-            const sc   = document.createElement("canvas");
-            sc.width   = img.width;
-            sc.height  = sliceHpx;
+            const sc = document.createElement("canvas");
+            sc.width  = img.width;
+            sc.height = sliceHpx;
             sc.getContext("2d").drawImage(
               tmpCanvas,
-              0, cursorPx,           // source: x=0, y=cursorPx
-              img.width, sliceHpx,   // source size
-              0, 0,                  // dest: x=0, y=0
-              img.width, sliceHpx    // dest size
+              0, y0px, img.width, sliceHpx,
+              0, 0,    img.width, sliceHpx
             );
 
-            doc.addImage(sc.toDataURL("image/png"), "PNG", ML, y, CW, sliceMmH);
-            y        += sliceMmH + 4;
-            cursorPx += sliceHpx;
+            // Em páginas 2+: re-desenha o cabeçalho do Gantt no topo da fatia
+            if (pgNum > 0) {
+              const hdrCanvas = document.createElement("canvas");
+              hdrCanvas.width  = img.width;
+              hdrCanvas.height = sliceHpx + hdrPx;
+              const hdrCtx = hdrCanvas.getContext("2d");
+              // Cabeçalho
+              hdrCtx.drawImage(tmpCanvas, 0, 0, img.width, hdrPx, 0, 0, img.width, hdrPx);
+              // Fatia de linhas
+              hdrCtx.drawImage(tmpCanvas, 0, y0px, img.width, sliceHpx, 0, hdrPx, img.width, sliceHpx);
+              const totalHmm = (sliceHpx + hdrPx) / pxPorMm_L;
+              const dispMm   = YM_L - yL - 2;
+              doc.addImage(hdrCanvas.toDataURL("image/png"), "PNG", ML_L, yL, CW_L, Math.min(totalHmm, dispMm));
+            } else {
+              doc.addImage(sc.toDataURL("image/png"), "PNG", ML_L, yL, CW_L, Math.min(sliceMmH, YM_L - yL - 2));
+            }
+
+            // Rodapé de página
+            doc.setFontSize(7); doc.setTextColor(150); doc.setFont("helvetica","normal");
+            doc.text("Plataforma de Planejamento de Obras Rodoviarias - DMOB/SEINFRA/AM", ML_L, PH_L-FTR_L+3.5);
+
+            cursorLinha += linhasNestaPag;
             pgNum++;
           }
-
-          // Corrigir títulos "parte N de ?" agora que sabemos o total
-          // (jsPDF não suporta edição retroativa de texto, então usamos nPaginas real)
-          // Nota: o total fica como "?" apenas quando há 3+ páginas; aceitável.
           resolve();
         };
         img.onerror = () => resolve();
         img.src = _PDF_GANTT_IMG;
       });
-      await _sliceGanttVertical();
-      // (bloco de fallback imediato removido — await garante execução síncrona)
+      await _sliceGanttPaisagem();
     } else {
       /* Fallback: tabela com barras coloridas */
       const _cRGB = function(e) {
@@ -4409,22 +4539,6 @@ function _finalizarPDF2(doc,chk,_addPageOuter,_tituloOuter,_linhaOuter,didDrawPa
     yRef.y += mLines.length*4.5 + 3;
   });
   yRef.y += 4;
-
-  /* Observacoes — bloco amarelo calculado dinamicamente */
-  var obsArr = [
-    "Os valores sao estimativas para planejamento inicial. Devem ser validados em projeto executivo.",
-    "Condicoes climaticas, logistica regional amazonica e disponibilidade de insumos impactam prazos reais.",
-    "Jornada padrao de 8h/dia; ajuste na plataforma conforme jornada contratada da obra.",
-  ];
-  var obsLinhas = obsArr.map(function(o){ return doc.splitTextToSize("* "+o, CW-8); });
-  var obsH = obsLinhas.reduce(function(s,l){ return s + l.length*4.5 + 1.5; }, 0) + 14;
-  if (yRef.y + obsH > YM) { addPage(); yRef.y = Y0; }
-  doc.setFillColor(255,248,225); doc.rect(ML, yRef.y-3, CW, obsH, "F");
-  doc.setDrawColor(245,168,35); doc.setLineWidth(0.5); doc.rect(ML, yRef.y-3, CW, obsH, "S");
-  doc.setFontSize(7.5); doc.setTextColor(100,70,0); doc.setFont("helvetica","bold");
-  doc.text("OBSERVACOES IMPORTANTES", ML+3, yRef.y+1); yRef.y += 6;
-  doc.setFont("helvetica","normal");
-  obsLinhas.forEach(function(oL) { doc.text(oL, ML+3, yRef.y); yRef.y += oL.length*4.5 + 1.5; });
 
   /* ── SALVAR ── */
   var nomeArq = (nomeObra||"obra")
