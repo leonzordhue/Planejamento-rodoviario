@@ -1291,6 +1291,31 @@
         </button>
       </div>
       <div class="card-body" style="padding:0">
+        <!-- AKE REV-18 ── Painel de Referenciamento Linear por KM ──────────────── -->
+        <div id="lr-painel" style="display:none;padding:0.75rem 1rem;background:var(--azul-claro);border-bottom:1.5px solid var(--azul-borda)">
+          <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.6rem;flex-wrap:wrap">
+            <span style="font-size:0.68rem;font-weight:700;color:var(--azul);text-transform:uppercase;letter-spacing:0.08em">📐 Referenciamento Linear — Pintura de Trechos</span>
+            <span style="font-size:0.62rem;color:var(--cinza-aux);font-weight:500" id="lr-rodovia-label"></span>
+            <div style="margin-left:auto;display:flex;gap:0.5rem">
+              <button class="btn btn-sm" onclick="lrSincronizarTRECHOS()"
+                style="font-size:0.63rem;padding:0.2rem 0.65rem;background:var(--verde);color:#fff"
+                title="Lê os trechos definidos na aba principal e pinta no mapa">
+                ↺ Sincronizar com Trechos
+              </button>
+              <button class="btn btn-sm" onclick="lrAdicionarTrecho()"
+                style="font-size:0.63rem;padding:0.2rem 0.65rem;background:var(--azul);color:#fff">
+                + Pintar trecho
+              </button>
+              <button class="btn btn-sm" onclick="lrLimparTodos()"
+                style="font-size:0.63rem;padding:0.2rem 0.65rem;color:var(--vermelho);border:1.5px solid rgba(192,57,43,0.3);background:transparent">
+                🗑 Limpar
+              </button>
+            </div>
+          </div>
+          <div id="lr-lista" style="display:flex;flex-direction:column;gap:0.4rem"></div>
+          <div id="lr-aviso" style="font-size:0.61rem;color:var(--cinza-aux);margin-top:0.4rem;line-height:1.4"></div>
+        </div>
+        <!-- ─────────────────────────────────────────────────────────────────────── -->
         <div class="mapa-container">
           <div id="mapa-rodovia"></div>
           <div class="mapa-badge" id="mapa-badge" style="display:none"></div>
@@ -4834,6 +4859,8 @@ function gerarPreviewImpressao() {
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <!-- leaflet-image: captura mapa Leaflet como canvas para exportação PDF -->
   <script src="https://unpkg.com/leaflet-image@0.4.0/leaflet-image.js"></script>
+  <!-- Turf.js: Linear Referencing — lineSlice, length, along, lineString (AKE REV-18) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
 
 <script>
 // ═══════════════════════════════════════════════════════════════════
@@ -4878,6 +4905,9 @@ let _leafletMap = null;
 let _layerAll = null;
 let _layerSelected = null;
 let _geojsonCache = {};
+// AKE REV-18 — Linear Referencing: camadas de trechos recortados por KM
+let _layersTrechosKm = [];  // array de L.geoJSON das faixas pintadas por trecho
+let _layersMarkersKm = [];  // array de L.layerGroup com marcadores de KM ini/fim
 
 // ── CSV parser simples ─────────────────────────────────────────────
 function parseCSV(text) {
@@ -5461,6 +5491,9 @@ async function highlightRoadOnMap(road) {
   if (badge) { badge.textContent = road.nome || road.codigo; badge.style.display = "block"; }
   addMapaLegenda(tipo, sheet.cor, road.nome || road.codigo);
   setMapaStatus(`✅ ${matching.features.length} trecho(s) mapeado(s)`);
+  // AKE REV-18: ativa painel LR e limpa pinturas da rodovia anterior
+  lrLimparTodos();
+  lrAtivarPainel(road);
 }
 
 // Fallback: centraliza o mapa no município/localização usando Nominatim
@@ -5511,8 +5544,349 @@ function recarregarMapa() {
   const el = document.getElementById("mapa-legenda");
   if (el) el.innerHTML = "";
   if (_layerSelected && _leafletMap) { _leafletMap.removeLayer(_layerSelected); _layerSelected = null; }
+  // AKE REV-18: limpa trechos LR ao recarregar mapa
+  lrLimparTodos();
   if (_selectedRoad) highlightRoadOnMap(_selectedRoad);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AKE REV-18 — LINEAR REFERENCING ENGINE
+// Fundamentação: Noronha (Linear Referencing and Alt. Expressions of Location),
+//                Nyerges (Linear Referencing and Location-Based Services),
+//                De Berg (Computational Geometry — Algorithms and Applications)
+// Implementação: Turf.js v6 — turf.lineSlice / turf.length / turf.along
+//
+// Princípio: A complexidade do domínio (Ω_problema) é constante — a rodovia
+// tem comprimento real L km. Para isolar o segmento [kmIni, kmFim] precisamos:
+//   1. Unificar as features GeoJSON em uma LineString única (MultiLine → merge)
+//   2. Calcular ponto de origem P0 = turf.along(linha, kmIni)
+//   3. Calcular ponto de fim   P1 = turf.along(linha, kmFim)
+//   4. Recortar: segmento = turf.lineSlice(P0, P1, linha)
+// O resultado é um GeoJSON válido que o Leaflet renderiza como polilinha colorida.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Paleta cíclica para múltiplos trechos pintados simultaneamente
+const LR_PALETA = [
+  "#E74C3C","#E67E22","#27AE60","#2980B9","#8E44AD",
+  "#16A085","#C0392B","#F39C12","#1ABC9C","#2C3E50"
+];
+
+// Estado interno do motor LR
+let _lrTrechos = [];     // [{ id, kmIni, kmFim, cor, label, layerPoly, layerMarkers }]
+let _lrNextId  = 1;
+let _lrRoadExt = 0;      // Extensão real da rodovia selecionada (km) — controle de limites
+
+/**
+ * Converte o array de features GeoJSON (pode ser LineString ou MultiLineString)
+ * em uma única LineString Turf ordenada, pronta para turf.lineSlice.
+ * Axioma: a operação é idempotente — o mesmo GeoJSON sempre gera a mesma linha.
+ */
+function _lrMergeFeatures(features) {
+  const coords = [];
+  features.forEach(f => {
+    const geom = f.geometry;
+    if (!geom) return;
+    if (geom.type === "LineString") {
+      coords.push(...geom.coordinates);
+    } else if (geom.type === "MultiLineString") {
+      geom.coordinates.forEach(part => coords.push(...part));
+    }
+  });
+  if (coords.length < 2) return null;
+  return turf.lineString(coords);
+}
+
+/**
+ * Pinta um segmento [kmIni, kmFim] sobre o traçado da rodovia ativa.
+ * Retorna objeto trecho ou null em caso de erro.
+ *
+ * @param {number} kmIni   - KM inicial (0 = início da rodovia)
+ * @param {number} kmFim   - KM final
+ * @param {string} cor     - Cor CSS hex
+ * @param {string} label   - Rótulo do trecho (ex: "Trecho 1")
+ */
+async function lrPintarTrecho(kmIni, kmFim, cor, label) {
+  if (!_leafletMap) { console.warn("LR: mapa não inicializado"); return null; }
+  if (!_selectedRoad) { lrSetAviso("⚠️ Selecione uma rodovia primeiro."); return null; }
+
+  const tipo  = _selectedRoad.tipo || getV("obra-tipo");
+  const sheet = SHEETS[tipo];
+  if (!sheet?.geojson) { lrSetAviso("⚠️ GeoJSON não disponível para este tipo."); return null; }
+
+  // Carrega GeoJSON (usa cache se disponível)
+  let gj = _geojsonCache[tipo];
+  if (!gj) {
+    lrSetAviso("⏳ Carregando traçado para referenciamento...");
+    const urls = [sheet.geojson, sheet.geojsonAlt].filter(Boolean);
+    for (const url of urls) {
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) continue;
+        gj = await resp.json();
+        _geojsonCache[tipo] = gj;
+        break;
+      } catch(e) { console.warn("LR GeoJSON fetch:", url, e.message); }
+    }
+  }
+  if (!gj) { lrSetAviso("❌ GeoJSON indisponível — não é possível recortar trecho."); return null; }
+
+  // Filtra features da rodovia selecionada (reutiliza lógica de matching existente)
+  const norm = s => (s||"").trim().toUpperCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ");
+  const nomeN = norm(_selectedRoad.nome);
+  const codN  = norm(_selectedRoad.codigo);
+  const numStr = String(_selectedRoad.numero||"").trim();
+
+  const features = gj.features.filter(f => {
+    const p = f.properties || {};
+    if (tipo === "RODOVIA ESTADUAL") {
+      const r = norm(p.RODOVIA || p.rodovia || "");
+      return r && r === nomeN;
+    }
+    const gjCod = String(p['CÓDIGO']||p['CODIGO']||p['C\u00D3DIGO']||p['codigo']||'').trim().toUpperCase();
+    const gjNum = String(p['Número']||p['Numero']||p['N\u00FAmero']||p['NUMERO']||p['Numero_2']||p['numero']||'').trim();
+    if (codN && gjCod === codN && numStr && gjNum === numStr) return true;
+    if (codN && gjCod === codN && !numStr) return true;
+    if (nomeN.length >= 5) {
+      const gjNome = norm(p.nome||p.NOME||p.DENOMINACAO||p.denominacao||p.name||"");
+      if (gjNome && gjNome === nomeN) return true;
+    }
+    return false;
+  });
+
+  if (!features.length) {
+    lrSetAviso("⚠️ Traçado da rodovia não localizado no GeoJSON para recorte.");
+    return null;
+  }
+
+  // Monta LineString unificada
+  const linha = _lrMergeFeatures(features);
+  if (!linha) { lrSetAviso("❌ GeoJSON sem coordenadas válidas."); return null; }
+
+  // Comprimento real da linha (km) — referência para validação dos limites
+  const compReal = turf.length(linha, { units: "kilometers" });
+  _lrRoadExt = compReal;
+
+  // Clamp seguro: não permite kmFim > comprimento real
+  const kmA = Math.max(0,   Math.min(kmIni, compReal));
+  const kmB = Math.max(kmA, Math.min(kmFim, compReal));
+
+  if (kmA >= kmB) {
+    lrSetAviso(`⚠️ KM inicial (${kmA.toFixed(2)}) deve ser menor que KM final (${kmB.toFixed(2)}).`);
+    return null;
+  }
+
+  // ── NÚCLEO DO LINEAR REFERENCING ──────────────────────────────────
+  // turf.along: interpola ponto exato ao longo da linha na distância d (km)
+  // turf.lineSlice: extrai o segmento entre dois pontos ao longo da linha
+  let segmento;
+  try {
+    const ptInicio = turf.along(linha, kmA, { units: "kilometers" });
+    const ptFim    = turf.along(linha, kmB, { units: "kilometers" });
+    segmento = turf.lineSlice(ptInicio, ptFim, linha);
+  } catch(e) {
+    lrSetAviso("❌ Erro no recorte do segmento: " + e.message);
+    console.error("LR lineSlice:", e);
+    return null;
+  }
+  // ─────────────────────────────────────────────────────────────────
+
+  // Renderiza polilinha do segmento recortado
+  const layerPoly = L.geoJSON(segmento, {
+    style: {
+      color:     cor,
+      weight:    8,
+      opacity:   0.88,
+      lineJoin:  "round",
+      lineCap:   "round",
+    }
+  }).addTo(_leafletMap);
+
+  // Popups de KM no segmento
+  layerPoly.eachLayer(l => {
+    l.bindPopup(`
+      <div style="font-family:'Outfit',sans-serif;font-size:0.82rem;min-width:180px">
+        <div style="font-weight:800;color:${cor};font-size:0.92rem;margin-bottom:4px">${label}</div>
+        <div style="color:#4A5568"><strong>KM ${kmA.toFixed(2)}</strong> → <strong>KM ${kmB.toFixed(2)}</strong></div>
+        <div style="color:#8896A8;font-size:0.72rem;margin-top:3px">Extensão: ${(kmB-kmA).toFixed(2)} km</div>
+      </div>`, { maxWidth: 240 });
+  });
+
+  // Marcadores de KM inicial e final com rótulo
+  const coordsSeq = segmento.geometry.coordinates;
+  const ptA = coordsSeq[0];
+  const ptZ = coordsSeq[coordsSeq.length - 1];
+
+  const mkStyle = (kmVal, bgCor) => `
+    background:${bgCor};color:#fff;border:2px solid #fff;border-radius:4px;
+    font-family:'Outfit',sans-serif;font-size:0.6rem;font-weight:700;
+    padding:2px 5px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.25)`;
+
+  const mkIcon = (kmVal, bgCor) => L.divIcon({
+    className: "",
+    html: `<div style="${mkStyle(kmVal, bgCor)}">KM ${kmVal.toFixed(1)}</div>`,
+    iconAnchor: [20, 10]
+  });
+
+  const layerMarkers = L.layerGroup([
+    L.marker([ptA[1], ptA[0]], { icon: mkIcon(kmA, cor), zIndexOffset: 1000 })
+      .bindTooltip(`${label} — Início KM ${kmA.toFixed(2)}`, { direction:"top" }),
+    L.marker([ptZ[1], ptZ[0]], { icon: mkIcon(kmB, cor), zIndexOffset: 1000 })
+      .bindTooltip(`${label} — Fim KM ${kmB.toFixed(2)}`, { direction:"top" }),
+  ]).addTo(_leafletMap);
+
+  const id = _lrNextId++;
+  const trecho = { id, kmIni: kmA, kmFim: kmB, cor, label, layerPoly, layerMarkers };
+  _lrTrechos.push(trecho);
+
+  lrRenderLista();
+  lrSetAviso(`✅ ${label}: KM ${kmA.toFixed(2)} → KM ${kmB.toFixed(2)} (${(kmB-kmA).toFixed(2)} km) | Rodovia: ${compReal.toFixed(2)} km total`);
+
+  // Centraliza mapa no segmento pintado
+  try { _leafletMap.fitBounds(layerPoly.getBounds(), { padding: [60, 60] }); } catch(e) {}
+
+  return trecho;
+}
+
+/**
+ * Abre diálogo inline para o usuário informar KM ini/fim e pintar o trecho.
+ */
+function lrAdicionarTrecho() {
+  if (!_selectedRoad) {
+    alert("Selecione uma rodovia ou ramal antes de pintar um trecho.");
+    return;
+  }
+  const extMax = _lrRoadExt > 0 ? _lrRoadExt : (_selectedRoad.extensao || 999);
+  const cor    = LR_PALETA[_lrTrechos.length % LR_PALETA.length];
+  const label  = "Trecho " + _lrNextId;
+
+  const id = "lr-form-" + Date.now();
+  const div = document.createElement("div");
+  div.id = id;
+  div.style.cssText = "display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;background:white;padding:0.5rem 0.7rem;border-radius:8px;border:1.5px solid var(--borda)";
+  div.innerHTML = `
+    <input type="color" value="${cor}" id="lr-cor-${id}" style="width:28px;height:28px;border:none;cursor:pointer;border-radius:4px;padding:0"/>
+    <input type="text" value="${label}" id="lr-label-${id}" style="width:80px;font-size:0.78rem;padding:0.25rem 0.4rem;border:1.5px solid var(--borda);border-radius:6px;font-family:var(--font)" placeholder="Rótulo"/>
+    <span style="font-size:0.72rem;color:var(--cinza-aux)">KM</span>
+    <input type="number" value="0" min="0" max="${extMax.toFixed(2)}" step="0.1" id="lr-ini-${id}"
+      style="width:72px;font-size:0.78rem;padding:0.25rem 0.4rem;border:1.5px solid var(--borda);border-radius:6px;font-family:var(--font)" placeholder="Início"/>
+    <span style="font-size:0.72rem;color:var(--cinza-aux)">→</span>
+    <input type="number" value="${Math.min(10, extMax).toFixed(1)}" min="0" max="${extMax.toFixed(2)}" step="0.1" id="lr-fim-${id}"
+      style="width:72px;font-size:0.78rem;padding:0.25rem 0.4rem;border:1.5px solid var(--borda);border-radius:6px;font-family:var(--font)" placeholder="Fim"/>
+    <span style="font-size:0.68rem;color:var(--cinza-aux)">/ ${extMax.toFixed(1)} km</span>
+    <button onclick="lrConfirmarForm('${id}')"
+      style="font-size:0.68rem;padding:0.25rem 0.65rem;background:var(--azul);color:#fff;border:none;border-radius:6px;cursor:pointer;font-family:var(--font);font-weight:700">
+      Pintar
+    </button>
+    <button onclick="document.getElementById('${id}').remove()"
+      style="font-size:0.68rem;padding:0.25rem 0.5rem;background:transparent;color:var(--vermelho);border:1.5px solid rgba(192,57,43,0.3);border-radius:6px;cursor:pointer;font-family:var(--font)">
+      ✕
+    </button>`;
+  document.getElementById("lr-lista").appendChild(div);
+  // Foco no KM inicial
+  setTimeout(() => document.getElementById("lr-ini-"+id)?.focus(), 80);
+}
+
+async function lrConfirmarForm(formId) {
+  const kmIni = parseFloat(document.getElementById("lr-ini-"+formId)?.value) || 0;
+  const kmFim = parseFloat(document.getElementById("lr-fim-"+formId)?.value) || 0;
+  const cor   = document.getElementById("lr-cor-"+formId)?.value || LR_PALETA[0];
+  const label = document.getElementById("lr-label-"+formId)?.value.trim() || ("Trecho " + _lrNextId);
+  document.getElementById(formId)?.remove();
+  lrSetAviso("⏳ Calculando recorte linear...");
+  await lrPintarTrecho(kmIni, kmFim, cor, label);
+}
+
+/** Remove todas as camadas LR do mapa e limpa estado */
+function lrLimparTodos() {
+  _lrTrechos.forEach(t => {
+    if (t.layerPoly    && _leafletMap) try { _leafletMap.removeLayer(t.layerPoly);    } catch(e){}
+    if (t.layerMarkers && _leafletMap) try { _leafletMap.removeLayer(t.layerMarkers); } catch(e){}
+  });
+  _lrTrechos = [];
+  _lrNextId  = 1;
+  lrRenderLista();
+  lrSetAviso("");
+}
+
+/** Remove um trecho específico pelo ID */
+function lrRemoverTrecho(id) {
+  const idx = _lrTrechos.findIndex(t => t.id === id);
+  if (idx === -1) return;
+  const t = _lrTrechos[idx];
+  if (t.layerPoly    && _leafletMap) try { _leafletMap.removeLayer(t.layerPoly);    } catch(e){}
+  if (t.layerMarkers && _leafletMap) try { _leafletMap.removeLayer(t.layerMarkers); } catch(e){}
+  _lrTrechos.splice(idx, 1);
+  lrRenderLista();
+}
+
+/**
+ * Sincroniza com o array TRECHOS[] da aba principal.
+ * Lê cada trecho (kmInicio / kmFim em km reais), pinta no mapa.
+ * Responde ao caso de uso: "no planejamento defini KM 113-145 e KM 160-180 —
+ * quero ver isso no mapa sem ter que redigitar".
+ */
+async function lrSincronizarTRECHOS() {
+  if (typeof TRECHOS === "undefined" || !TRECHOS.length) {
+    lrSetAviso("⚠️ Nenhum trecho definido na aba principal ainda.");
+    return;
+  }
+  lrLimparTodos();
+  lrSetAviso("⏳ Sincronizando trechos...");
+  for (let i = 0; i < TRECHOS.length; i++) {
+    const t   = TRECHOS[i];
+    const ini = parseFloat(t.kmInicio) || 0;
+    const fim = parseFloat(t.kmFim)    || 0;
+    const cor = LR_PALETA[i % LR_PALETA.length];
+    const lbl = t.nome?.trim() || ("Trecho " + (i + 1));
+    await lrPintarTrecho(ini, fim, cor, lbl);
+  }
+}
+
+/** Renderiza a lista de trechos pintados no painel LR */
+function lrRenderLista() {
+  const el = document.getElementById("lr-lista");
+  if (!el) return;
+  // Remove linhas de formulário (não confirmadas) mas preserva badges de trechos já pintados
+  el.querySelectorAll(".lr-badge").forEach(n => n.remove());
+  _lrTrechos.forEach(t => {
+    const div = document.createElement("div");
+    div.className = "lr-badge";
+    div.style.cssText = "display:flex;align-items:center;gap:0.5rem;background:#fff;padding:0.35rem 0.7rem;border-radius:6px;border-left:4px solid "+t.cor+";border:1.5px solid var(--borda);border-left:4px solid "+t.cor;
+    div.innerHTML = `
+      <div style="width:10px;height:10px;border-radius:50%;background:${t.cor};flex-shrink:0"></div>
+      <span style="font-size:0.75rem;font-weight:600;color:var(--cinza-txt)">${t.label}</span>
+      <span style="font-size:0.7rem;color:var(--cinza-aux)">KM ${t.kmIni.toFixed(2)} → ${t.kmFim.toFixed(2)}</span>
+      <span style="font-size:0.68rem;color:var(--cinza-aux);margin-left:0.2rem">(${(t.kmFim-t.kmIni).toFixed(2)} km)</span>
+      <button onclick="lrRemoverTrecho(${t.id})"
+        style="margin-left:auto;font-size:0.62rem;padding:0.1rem 0.4rem;color:var(--vermelho);border:1px solid rgba(192,57,43,0.25);border-radius:4px;background:transparent;cursor:pointer;font-family:var(--font)">✕</button>`;
+    el.appendChild(div);
+  });
+}
+
+function lrSetAviso(msg) {
+  const el = document.getElementById("lr-aviso");
+  if (el) el.textContent = msg;
+}
+
+/**
+ * Ativa o painel LR quando uma rodovia é selecionada e exibe a extensão máxima.
+ * Chamado por highlightRoadOnMap após renderização bem-sucedida.
+ */
+function lrAtivarPainel(road) {
+  const painel = document.getElementById("lr-painel");
+  const label  = document.getElementById("lr-rodovia-label");
+  if (!painel) return;
+  painel.style.display = "block";
+  if (label) {
+    const ext = road?.extensao || _lrRoadExt || 0;
+    label.textContent = (road?.nome || "") + (ext > 0 ? ` — ${ext.toFixed(2)} km` : "");
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FIM DO LINEAR REFERENCING ENGINE — AKE REV-18
+// ═══════════════════════════════════════════════════════════════════════════════
 
 // ── Inicializa/sincroniza mapa ao entrar na aba memorial ───────────
 document.querySelectorAll(".tab-btn").forEach(btn => {
