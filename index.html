@@ -2730,7 +2730,8 @@ function renderEAP() {
       <td colspan="3"></td>
       ${_sub(subSrv)}${_sub(subPed)}${_sub(subOpr)}${_sub(subCar)}
       ${_sub(subEsc)}${_sub(subRol)}${_sub(subCam)}${_sub(subMot)}
-    </tr>`);
+    </tr>
+    <tr style="height:8px;background:transparent"><td colspan="19" style="border:none;padding:0"></td></tr>`);
   });
   setEl("tbody-eap", tbodyRows.join(""));
 
@@ -3992,51 +3993,63 @@ async function _gerarPDFCompleto() {
     addPage();
     titulo("3. EAP — MÃO DE OBRA E EQUIPAMENTOS (por KM)");
 
-    // Monta body com linhas de serviço + linhas de subtotal por KM
-    // Marcador: linha de subtotal tem coluna 0 = "__SUB__"
+    // AKE REV-18 FIX: dois arrays paralelos evitam desalinhamento de colunas.
+    // eapRows: dados limpos, sempre 13 colunas.
+    // eapIsSub: bool[] — true quando a linha é de subtotal.
     const _kmsEAP = [...new Set(EAP_CALC.map(c => c.km))];
-    const eapBody = [];
+    const eapRows   = [];
+    const eapIsSub  = [];
+    const _sv = v => v > 0 ? String(v) : "—";
     _kmsEAP.forEach(km => {
       const g = EAP_CALC.filter(c => c.km === km);
-      g.forEach(c => eapBody.push([
-        "KM "+(c.km||"—"), c.etapa,
-        (c.comp?c.comp.desc:c.codigo).substring(0,26),
-        c.comp?c.comp.unid:"—",
-        numBR(c.qtde||0,0), numBR(c.moTotal,1),
-        c.dp, c.qe||1, c.da,
-        c.qmo.servente, c.qmo.operador,
-        c.eqp.escavadeira, c.eqp.caminhao
-      ]));
-      // Linha de subtotal
+      g.forEach(c => {
+        eapRows.push([
+          "KM "+(c.km||"—"),
+          c.etapa,
+          (c.comp ? c.comp.desc : c.codigo).substring(0,26),
+          c.comp ? c.comp.unid : "—",
+          numBR(c.qtde||0,0),
+          numBR(c.moTotal,1),
+          String(c.dp),
+          String(c.qe||1),
+          String(c.da),
+          _sv(c.qmo.servente),
+          _sv(c.qmo.operador),
+          _sv(c.eqp.escavadeira),
+          _sv(c.eqp.caminhao)
+        ]);
+        eapIsSub.push(false);
+      });
+      // Linha de subtotal — 13 colunas corretas
       const subMO  = g.reduce((s,c)=>s+c.moTotal,0);
       const subSrv = g.reduce((s,c)=>s+c.qmo.servente,0);
       const subOpr = g.reduce((s,c)=>s+c.qmo.operador,0);
       const subEsc = g.reduce((s,c)=>s+c.eqp.escavadeira,0);
       const subCam = g.reduce((s,c)=>s+c.eqp.caminhao,0);
-      eapBody.push([
-        "__SUB__",
-        "∑ KM "+km+" ("+g.length+" serv.)", "",
-        "", "", numBR(subMO,1),
-        "", "", "",
-        subSrv>0?subSrv:"—", subOpr>0?subOpr:"—",
-        subEsc>0?subEsc:"—", subCam>0?subCam:"—"
+      eapRows.push([
+        "",                                      // col 0: KM (vazio na sub)
+        "∑  KM "+km+" — "+g.length+" serviço"+(g.length!==1?"s":""),  // col 1: label
+        "", "", "",                              // cols 2-4
+        numBR(subMO,1),                          // col 5: MO total
+        "", "", "",                              // cols 6-8
+        _sv(subSrv), _sv(subOpr),               // cols 9-10
+        _sv(subEsc), _sv(subCam)                // cols 11-12
       ]);
+      eapIsSub.push(true);
     });
-
-    const _isSubRow = (rowIdx) => eapBody[rowIdx] && eapBody[rowIdx][0] === "__SUB__";
 
     doc.autoTable({
       head:[["KM","Etapa","Serviço","Und","Qtde","MO(h)","DP","QE","DA","Srv","Opr","Esc","Cam"]],
-      body: eapBody.map(r => r[0]==="__SUB__" ? r.slice(1) : r),
+      body: eapRows,
       startY: y, margin:{left:ML, right:MR, top:Y0, bottom:PH-YM},
       styles:{fontSize:6.5, cellPadding:1.1},
       headStyles:{fillColor:[0,45,114], textColor:255, fontStyle:"bold",
                   fontSize:6, halign:"center", overflow:"ellipsize", minCellHeight:5},
-      alternateRowStyles:{fillColor:[245,247,252]},
+      alternateRowStyles:false,   // desativa zebra — controle manual via willDrawCell
       columnStyles:{
         0:{cellWidth:10, halign:"center"},
-        1:{cellWidth:20, overflow:"linebreak"},
-        2:{cellWidth:32, overflow:"linebreak"},
+        1:{cellWidth:22, overflow:"linebreak"},
+        2:{cellWidth:30, overflow:"linebreak"},
         3:{cellWidth:9,  halign:"center"},
         4:{cellWidth:11, halign:"right"},
         5:{cellWidth:13, halign:"right"},
@@ -4049,22 +4062,30 @@ async function _gerarPDFCompleto() {
         12:{cellWidth:7, halign:"center"}
       },
       willDrawCell: function(data) {
-        // Linha de subtotal: fundo azul claro, texto bold azul
-        if (data.section === "body" && _isSubRow(data.row.index)) {
-          doc.setFillColor(235, 242, 252);
+        if (data.section !== "body") return;
+        if (eapIsSub[data.row.index]) {
+          // Subtotal: fundo azul-claro, texto azul bold
+          doc.setFillColor(225, 235, 252);
+          doc.setTextColor(0, 45, 114);
+          doc.setFont("helvetica", "bold");
+        } else {
+          // Zebra normal
+          doc.setFillColor(data.row.index % 2 === 0 ? 245 : 255, data.row.index % 2 === 0 ? 247 : 255, data.row.index % 2 === 0 ? 252 : 255);
+          doc.setTextColor(30, 30, 30);
+          doc.setFont("helvetica", "normal");
         }
       },
       didDrawCell: function(data) {
-        if (data.section === "body" && _isSubRow(data.row.index)) {
-          // Linha superior destacada
-          doc.setDrawColor(0,45,114);
-          doc.setLineWidth(0.5);
-          doc.line(data.cell.x, data.cell.y, data.cell.x+data.cell.width, data.cell.y);
-          // Texto azul bold manualmente (o autoTable já renderizou, mas cores corretas via styles)
+        if (data.section === "body" && eapIsSub[data.row.index] && data.column.index === 0) {
+          // Linha separadora superior em toda a largura da sub
+          doc.setDrawColor(0, 45, 114);
+          doc.setLineWidth(0.6);
+          const rowX = data.cell.x;
+          const rowY = data.cell.y;
+          // linha superior
+          doc.line(rowX, rowY, rowX + data.table.width, rowY);
         }
       },
-      bodyStyles: {},
-      // Estilo dinâmico por linha não é suportado inline — usamos willDrawCell acima
       didDrawPage: didDrawPageFn
     });
     y = doc.lastAutoTable.finalY + 3;
@@ -4083,26 +4104,10 @@ async function _gerarPDFCompleto() {
 
   /* ── GANTT ── imagem SVG capturada + tabela fallback ── */
   if (chk("gantt") && GANTT_DATA.length) {
-    addPage();
-    titulo("4. CRONOGRAMA FÍSICO");
-
     const ganttAtivs = GANTT_DATA.filter(function(a){ return !a.isHeader; });
-    // Se não há imagem E não há atividades — sai sem deixar página vazia
-    if (!_PDF_GANTT_IMG && !ganttAtivs.length) {
-      // remove a página vazia recém-adicionada
-      doc.deletePage(doc.internal.getNumberOfPages());
-    } else {
-    const _nFrentesGantt = usarFrentesAtivo() ? FRENTES.length : 1;
-    doc.setFontSize(7.5); doc.setTextColor(80); doc.setFont("helvetica","normal");
-    doc.text(
-      "Duracao: " + maxDia + " dias  ·  " + ganttAtivs.length + " atividades  ·  " +
-      getV("obra-extensao") + " km  ·  " + _nFrentesGantt + " frente" + (_nFrentesGantt!==1?"s":"") + "  ·  def. " +
-      getV("obra-defasagem") + " dias",
-      ML, y
-    );
-    y += 6;
 
     if (_PDF_GANTT_IMG) {
+      // Gantt com imagem: páginas paisagem próprias — NÃO cria página retrato antes
       /* ── AKE REV-18: Gantt multipágina em páginas PAISAGEM dedicadas ──────────
          PROBLEMA REV-15/16: fatiamento vertical na página A4 retrato gerava
          Gantt com escala mínima, textos ilegíveis e cortes sem contexto de meses.
@@ -4237,6 +4242,18 @@ async function _gerarPDFCompleto() {
       });
       await _sliceGanttPaisagem();
     } else {
+      /* Fallback: sem imagem — cria página retrato com tabela de texto */
+      addPage();
+      titulo("4. CRONOGRAMA FÍSICO");
+      const _nFrentesGantt = usarFrentesAtivo() ? FRENTES.length : 1;
+      doc.setFontSize(7.5); doc.setTextColor(80); doc.setFont("helvetica","normal");
+      doc.text(
+        "Duracao: " + maxDia + " dias  ·  " + ganttAtivs.length + " atividades  ·  " +
+        getV("obra-extensao") + " km  ·  " + _nFrentesGantt + " frente" + (_nFrentesGantt!==1?"s":"") + "  ·  def. " +
+        getV("obra-defasagem") + " dias",
+        ML, y
+      );
+      y += 6;
       /* Fallback: tabela com barras coloridas */
       const _cRGB = function(e) {
         var u = (e||"").toUpperCase();
