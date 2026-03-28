@@ -811,6 +811,9 @@
                 </div>
               </div>
               <div id="road-status" style="font-size:0.65rem;color:var(--cinza-aux);margin-top:3px"></div>
+              <!-- AKE REV-20: diagnóstico estrutura da planilha -->
+              <button onclick="mostrarDebugPlanilha()" id="road-debug-btn" style="display:none;font-size:0.6rem;background:none;border:1px solid var(--cinza-borda);border-radius:4px;padding:2px 8px;cursor:pointer;color:var(--cinza-aux);margin-top:4px">🔍 Ver campos da planilha</button>
+              <pre id="road-debug-output" style="display:none;margin-top:4px;font-size:0.58rem;background:#f5f7fa;border-radius:6px;padding:8px;max-height:220px;overflow:auto;white-space:pre-wrap;color:#333;border:1px solid #e0e4ea"></pre>
             </div>
 
             <div class="form-group">
@@ -1510,6 +1513,29 @@ const AKE_BUILD_LOG = Object.freeze([
     ],
     erros_corrigidos: [
       { erro: "Nomes sujos no dropdown de busca de rodovias e ramais", causa: "normalizeRoadRow usava campo rodovia (descrição longa) como nome; ramais com colunas CSV corrompidas", solucao: "_extractCodRod extrai AM-xxx/BR-xxx do codigo_ser_snv; _invalido filtra strings com muitas vírgulas" }
+    ]
+  },
+  {
+    build: "REV-20",
+    data: "2026-03-28T01:30:00-04:00",
+    autor: "Paulo Esteves Fernandes Neto",
+    ia_assistente: "Claude Sonnet 4.6",
+    tipo: "BUGFIX + DIAGNÓSTICO",
+    descricao: "Correccao da leitura de municipio em RODOVIAS ESTADUAIS: campo inicio e ponto de inicio do trecho, nao municipio. Deteccao inteligente sem inicio. Botao de diagnostico para inspecionar headers reais da planilha.",
+    axiomas_adicionados: [
+      "mostrarDebugPlanilha(): exibe headers reais e campos extraídos do 1o item carregado",
+      "_munCandidatos diferenciado por tipo: RODOVIAS excluem inicio da lista de candidatos a municipio"
+    ],
+    decisoes: [
+      "municipioCol de RODOVIAS mudado de inicio para municipio (fallback detectCol sem inicio)",
+      "Diagnostico visual no HTML elimina dependencia do F12 para inspecionar estrutura da planilha",
+      "Problema raiz nao foi corrigido nas versoes anteriores porque nao havia como ver os headers reais sem acesso ao CSV"
+    ],
+    tentativas_falhas: [
+      { tentativa: "municipioCol=inicio para RODOVIAS ESTADUAIS", resultado: "Exibe ponto de inicio do trecho (ex: Aleixo - SEFAZ) em vez do municipio", motivo_rejeicao: "inicio e localizacao administrativa do ponto de partida do trecho, nao o municipio atendido", build_ref: "REV-19" }
+    ],
+    erros_corrigidos: [
+      { erro: "Localizacao Municipio/UF exibindo Aleixo - SEFAZ em vez do municipio", causa: "municipioCol=inicio continha localizacao administrativa do trecho, nao o municipio", solucao: "municipioCol=municipio + _munCandidatos sem inicio para RODOVIAS" }
     ]
   }
 ]);
@@ -5006,7 +5032,7 @@ const SHEETS = {
     cor: "#1565C0",
     nameCol:      "rodovia",
     codigoCol:    "codigo_ser_snv",
-    municipioCol: "inicio",
+    municipioCol: "municipio",   // tentativa; detectCol fará fallback automático
     referenciaCol: null,
     extensaoCol:  "extensao",
     groupBy: "rodovia",
@@ -5103,7 +5129,14 @@ function normalizeRoadRow(row, sheet) {
 
     const numero    = (sheet.numeroCol && row[sheet.numeroCol])
                       || detectCol(row, ["numero","num","no_","n_ramal"]) || "";
-    const municipio = row[sheet.municipioCol] || detectCol(row, ["municipio","municipios","cidade","inicio","local"]);
+    // AKE REV-20: "inicio" não é município em rodovias — é ponto de início do trecho
+    // Para RODOVIAS: tentar "municipio","municipios","cidade" antes de qualquer outro
+    const _munCandidatos = sheet.nameCol === "rodovia"
+      ? ["municipio","municipios","cidade","local","origem"]
+      : ["municipio","municipios","cidade","inicio","local"];
+    const municipio = (sheet.municipioCol && row[sheet.municipioCol] && sheet.municipioCol !== "inicio"
+      ? row[sheet.municipioCol]
+      : null) || detectCol(row, _munCandidatos);
     const extRaw    = row[sheet.extensaoCol]  || detectCol(row, ["extensao","extensao_km","comprimento","km"]);
     const extensao  = parseFloat(String(extRaw || "0").replace(",",".")) || 0;
     const situacao  = row["situacao_fisica"] || row["descricao"] || detectCol(row, ["situacao","status","descricao"]);
@@ -5279,6 +5312,47 @@ async function loadRoadData(tipo) {
 function setRoadStatus(msg) {
   const el = document.getElementById("road-status");
   if (el) el.textContent = msg;
+  // Mostrar botão de diagnóstico quando planilha carregada
+  const dbg = document.getElementById("road-debug-wrap");
+  const dbgBtn = document.getElementById("road-debug-btn");
+  if (dbgBtn && msg.startsWith("✅")) dbgBtn.style.display = "inline-block";
+}
+
+// AKE REV-20: diagnóstico de campos reais da planilha
+function mostrarDebugPlanilha() {
+  const tipo = getV("obra-tipo");
+  const out = document.getElementById("road-debug-output");
+  if (!out) return;
+  const dados = _roadCache[tipo];
+  if (!dados || !dados.length) { out.textContent = "Planilha não carregada."; out.style.display="block"; return; }
+  const primeiro = dados[0];
+  const raw = primeiro.raw || {};
+  const headers = Object.keys(raw);
+  let texto = `Tipo: ${tipo}
+Total de registros: ${dados.length}
+
+`;
+  texto += `─── Headers da planilha (${headers.length} colunas) ───
+`;
+  headers.forEach(h => { texto += `  ${h}: ${JSON.stringify(raw[h])}
+`; });
+  texto += `
+─── Campos extraídos (1º item) ───
+`;
+  texto += `  nome:      ${primeiro.nome}
+`;
+  texto += `  codigo:    ${primeiro.codigo}
+`;
+  texto += `  municipio: ${primeiro.municipio}
+`;
+  texto += `  extensao:  ${primeiro.extensao}
+`;
+  texto += `  referencia:${primeiro.referencia}
+`;
+  texto += `  situacao:  ${primeiro.situacao}
+`;
+  out.textContent = texto;
+  out.style.display = out.style.display === "block" ? "none" : "block";
 }
 
 // ── Busca ──────────────────────────────────────────────────────────
