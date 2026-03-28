@@ -1535,7 +1535,8 @@ const AKE_BUILD_LOG = Object.freeze([
       { tentativa: "municipioCol=inicio para RODOVIAS ESTADUAIS", resultado: "Exibe ponto de inicio do trecho (ex: Aleixo - SEFAZ) em vez do municipio", motivo_rejeicao: "inicio e localizacao administrativa do ponto de partida do trecho, nao o municipio atendido", build_ref: "REV-19" }
     ],
     erros_corrigidos: [
-      { erro: "Localizacao Municipio/UF exibindo Aleixo - SEFAZ em vez do municipio", causa: "municipioCol=inicio continha localizacao administrativa do trecho, nao o municipio", solucao: "municipioCol=municipio + _munCandidatos sem inicio para RODOVIAS" }
+      { erro: "Localizacao Municipio/UF exibindo Aleixo - SEFAZ em vez do municipio", causa: "municipioCol=inicio continha localizacao administrativa do trecho, nao o municipio", solucao: "municipioCol=municipio + _munCandidatos sem inicio para RODOVIAS" },
+      { erro: "EAP no PDF ainda gerava tabela única com coluna KM — não estava separada por KM", causa: "Patch REV-19 corrigiu apenas renderEAP() (aba interativa). O PDF usa _gerarPDFCompleto() com doc.autoTable separado — não tocado", solucao: "Substituído doc.autoTable único por loop _eapKeysOrdenadas.forEach — uma autoTable por KM com título, body e foot (SOMA KM X). Espaçamento de 5mm entre tabelas" }
     ]
   }
 ]);
@@ -4003,51 +4004,111 @@ async function _gerarPDFCompleto() {
     y += 3;
   }
 
-  /* ── EAP ── */
+  /* ── EAP por KM — AKE REV-20 (pedido Pedro Paiva/DMOB) ── */
   if (chk("eap") && EAP_CALC.length) {
     addPage();
     titulo("3. EAP — MÃO DE OBRA E EQUIPAMENTOS");
-    doc.autoTable({
-      head:[["KM","Etapa","Serviço","Und","Qtde","MO(h)","DP","QE","DA","Srv","Opr","Esc","Cam"]],
-      body: EAP_CALC.map(c=>[
-        c.km||"—",c.etapa,
-        (c.comp?c.comp.desc:c.codigo).substring(0,28),
-        c.comp?c.comp.unid:"—",
-        numBR(c.qtde||0,0),numBR(c.moTotal,1),
-        c.dp,c.qe||1,c.da,
-        c.qmo.servente,c.qmo.operador,c.eqp.escavadeira,c.eqp.caminhao
-      ]),
-      startY: y, margin:{left:ML, right:MR, top:Y0, bottom:PH-YM},
-      styles:{fontSize:6.5, cellPadding:1.1},
-      headStyles:{fillColor:[0,45,114], textColor:255, fontStyle:"bold",
-                  fontSize:6, halign:"center", overflow:"ellipsize", minCellHeight:5},
-      alternateRowStyles:{fillColor:[245,247,252]},
-      columnStyles:{
-        0:{cellWidth:9,  halign:"center"},
-        1:{cellWidth:20, overflow:"linebreak"},
-        2:{cellWidth:34, overflow:"linebreak"},
-        3:{cellWidth:9,  halign:"center"},
-        4:{cellWidth:11, halign:"right"},
-        5:{cellWidth:13, halign:"right"},
-        6:{cellWidth:8,  halign:"center"},
-        7:{cellWidth:7,  halign:"center"},
-        8:{cellWidth:8,  halign:"center"},
-        9:{cellWidth:8,  halign:"center"},
-        10:{cellWidth:8, halign:"center"},
-        11:{cellWidth:9, halign:"center"},
-        12:{cellWidth:7, halign:"center"}
-      },
-      didDrawPage: didDrawPageFn
+
+    // Agrupar por KM e ordenar numericamente (mesma lógica do renderEAP)
+    const _eapGrupos = new Map();
+    EAP_CALC.forEach(c => {
+      const key = (c.km != null && c.km !== "") ? String(c.km) : "—";
+      if (!_eapGrupos.has(key)) _eapGrupos.set(key, []);
+      _eapGrupos.get(key).push(c);
     });
-    y = doc.lastAutoTable.finalY + 3;
-    // ── Legenda das colunas da EAP ──────────────────────────────────────
+    const _eapKeysOrdenadas = [..._eapGrupos.keys()].sort((a, b) => {
+      const na = parseInt(a), nb = parseInt(b);
+      if (!isNaN(na) && !isNaN(nb)) return na - nb;
+      return isNaN(na) ? 1 : -1;
+    });
+
+    // Estilos comuns
+    const _eapColStyles = {
+      0:{cellWidth:20, overflow:"linebreak"},
+      1:{cellWidth:34, overflow:"linebreak"},
+      2:{cellWidth:9,  halign:"center"},
+      3:{cellWidth:11, halign:"right"},
+      4:{cellWidth:13, halign:"right"},
+      5:{cellWidth:8,  halign:"center"},
+      6:{cellWidth:7,  halign:"center"},
+      7:{cellWidth:8,  halign:"center"},
+      8:{cellWidth:8,  halign:"center"},
+      9:{cellWidth:8,  halign:"center"},
+      10:{cellWidth:9, halign:"center"},
+      11:{cellWidth:7, halign:"center"}
+    };
+
+    _eapKeysOrdenadas.forEach((kmKey, kmIdx) => {
+      const svcs = _eapGrupos.get(kmKey);
+      const tituloKM = kmKey === "—" ? "KM — (Geral)" : "KM " + kmKey;
+
+      // Somar totais do KM para a linha de rodapé
+      let totMO = 0, totSrv = 0, totOpr = 0, totEsc = 0, totCam = 0;
+      svcs.forEach(c => {
+        totMO  += c.moTotal    || 0;
+        totSrv += c.qmo.servente  || 0;
+        totOpr += c.qmo.operador  || 0;
+        totEsc += c.eqp.escavadeira || 0;
+        totCam += c.eqp.caminhao   || 0;
+      });
+
+      // Garantir espaço para título + pelo menos 1 linha de tabela
+      chkBrk(18);
+
+      // Título do KM
+      doc.setFontSize(8); doc.setFont("helvetica","bold"); doc.setTextColor(0,45,114);
+      doc.setFillColor(225,235,252);
+      doc.rect(ML, y-1, CW, 6, "F");
+      doc.text(tituloKM + "  ·  " + svcs.length + " serviço" + (svcs.length!==1?"s":""), ML+2, y+3.5);
+      doc.setTextColor(80); doc.setFont("helvetica","normal");
+      y += 7;
+
+      doc.autoTable({
+        head:[["Etapa","Serviço","Und","Qtde","MO(h)","DP","QE","DA","Srv","Opr","Esc","Cam"]],
+        body: svcs.map(c=>[
+          c.etapa,
+          (c.comp?c.comp.desc:c.codigo).substring(0,32),
+          c.comp?c.comp.unid:"—",
+          numBR(c.qtde||0,0),
+          numBR(c.moTotal,1),
+          c.dp, c.qe||1, c.da,
+          c.qmo.servente||"—", c.qmo.operador||"—",
+          c.eqp.escavadeira||"—", c.eqp.caminhao||"—"
+        ]),
+        foot:[[
+          {content:"SOMA " + tituloKM, colSpan:4, styles:{halign:"right",fontStyle:"bold",fillColor:[200,215,250],textColor:[0,30,100]}},
+          {content:numBR(totMO,1), styles:{halign:"right",fontStyle:"bold",fillColor:[200,215,250],textColor:[0,30,100]}},
+          {content:"", styles:{fillColor:[200,215,250]}},
+          {content:"", styles:{fillColor:[200,215,250]}},
+          {content:"", styles:{fillColor:[200,215,250]}},
+          {content:totSrv||"—", styles:{halign:"center",fontStyle:"bold",fillColor:[200,215,250],textColor:[0,60,140]}},
+          {content:totOpr||"—", styles:{halign:"center",fontStyle:"bold",fillColor:[200,215,250],textColor:[0,60,140]}},
+          {content:totEsc||"—", styles:{halign:"center",fontStyle:"bold",fillColor:[200,215,250],textColor:[0,100,60]}},
+          {content:totCam||"—", styles:{halign:"center",fontStyle:"bold",fillColor:[200,215,250],textColor:[0,100,60]}}
+        ]],
+        showFoot:"lastPage",
+        startY: y,
+        margin:{left:ML, right:MR, top:Y0+8, bottom:PH-YM},
+        styles:{fontSize:6.5, cellPadding:1.1},
+        headStyles:{fillColor:[0,45,114], textColor:255, fontStyle:"bold",
+                    fontSize:6, halign:"center", overflow:"ellipsize", minCellHeight:5},
+        footStyles:{fontSize:6, fillColor:[200,215,250]},
+        alternateRowStyles:{fillColor:[245,247,252]},
+        columnStyles: _eapColStyles,
+        didDrawPage: didDrawPageFn
+      });
+
+      y = doc.lastAutoTable.finalY + (kmIdx < _eapKeysOrdenadas.length-1 ? 5 : 3);
+    });
+
+    // Legenda única ao final de todas as tabelas
     chkBrk(14);
     doc.setFillColor(245,247,252); doc.rect(ML, y, CW, 12, "F");
     doc.setDrawColor(200,210,230); doc.setLineWidth(0.3); doc.rect(ML, y, CW, 12, "S");
     doc.setFontSize(6); doc.setTextColor(90); doc.setFont("helvetica","bold");
     doc.text("LEGENDA:", ML+2, y+4);
     doc.setFont("helvetica","normal"); doc.setTextColor(100);
-    const legendaEAP = "Und = Unidade  |  Qtde = Quantidade  |  MO(h) = Mão de obra (h·homem)  |  DP = Duração parcial (dias)  |  QE = Equipes  |  DA = Duração ajustada por equipe (dias)  |  Srv = Serventes  |  Opr = Operadores  |  Esc = Escavadeiras  |  Cam = Caminhões";
+    const legendaEAP = "Und = Unidade  |  Qtde = Quantidade  |  MO(h) = Mão de obra (h·homem)  |  DP = Duração parcial (dias)  |  QE = Equipes  |  DA = Duração ajustada (dias)  |  Srv = Serventes  |  Opr = Operadores  |  Esc = Escavadeiras  |  Cam = Caminhões";
     const legendaLines = doc.splitTextToSize(legendaEAP, CW-4);
     doc.text(legendaLines, ML+2, y+8);
     y += 14;
