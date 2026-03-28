@@ -5077,13 +5077,21 @@ function normalizeRoadRow(row, sheet) {
     let codigo = rawCodigo;
 
     if (sheet.nameCol === "rodovia") {
-      // Rodovias Estaduais: campo "rodovia" tem descrição longa do trecho
-      // Usar o código SNV como nome limpo; trecho vira referência
-      const codLimpo = _extractCodRod(rawCodigo) || _extractCodRod(rawNome);
+      // AKE REV-19: Rodovias Estaduais — extrair código AM/BR de qualquer campo do row
+      // Estratégia: varrer todos os valores do row até encontrar padrão AM-xxx/BR-xxx
+      let codLimpo = _extractCodRod(rawCodigo) || _extractCodRod(rawNome);
+      if (!codLimpo) {
+        // Busca em todos os campos do row como último recurso
+        for (const v of Object.values(row)) {
+          codLimpo = _extractCodRod(String(v || ""));
+          if (codLimpo) break;
+        }
+      }
       if (codLimpo) {
-        nome   = codLimpo;
-        codigo = rawCodigo || codLimpo;
+        nome   = codLimpo;               // exibe "AM-010" no dropdown
+        codigo = rawCodigo || codLimpo;  // mantém código SNV original
       } else {
+        // Sem código AM/BR — manter rawNome (será filtrado em _finalize se necessário)
         nome = (rawNome || rawCodigo || "").split(",")[0].trim();
       }
     } else {
@@ -5139,7 +5147,30 @@ async function loadRoadData(tipo) {
   };
 
   const _finalize = (rawRows) => {
+    // Log dos headers reais para diagnóstico (F12 → Console)
+    if (rawRows.length > 0) {
+      console.log(`[loadRoadData] Headers reais (${tipo}):`, Object.keys(rawRows[0]).join(", "));
+      console.log(`[loadRoadData] 1ª linha:`, rawRows[0]);
+    }
+
     let items = rawRows.map(r => normalizeRoadRow(r, sheet)).filter(r => r.nome || r.codigo);
+
+    // AKE REV-19: para RODOVIAS ESTADUAIS, filtrar apenas linhas com código AM/BR válido
+    // O usuário tem 34 rodovias — cada uma com múltiplos trechos na planilha
+    // Filtro evita que municípios/localidades apareçam como rodovias no dropdown
+    if (sheet.groupBy && tipo === "RODOVIA ESTADUAL") {
+      const _codRegex = /^(AM|BR|PA|MT|RR|AC|AP|TO)-\d{3}$/i;
+      const comCodigo = items.filter(it => _codRegex.test((it.nome||"").trim()));
+      // Só aplica o filtro se encontrou pelo menos 1 código válido
+      // (garante fallback caso a planilha mude de estrutura)
+      if (comCodigo.length > 0) {
+        items = comCodigo;
+        console.log(`[loadRoadData] Rodovias com código AM/BR: ${items.length} (de ${rawRows.length} trechos)`);
+      } else {
+        console.warn("[loadRoadData] Nenhum código AM/BR encontrado — mostrando todos os itens");
+      }
+    }
+
     if (sheet.groupBy) {
       const seen = new Map();
       items.forEach(item => {
