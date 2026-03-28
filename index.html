@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8"/>
@@ -1400,9 +1400,9 @@
 // ╠══════════════════════════════════════════════════════════════════════════════╣
 // ║  @domain    Engenharia Rodoviária — Planejamento de Obras SEINFRA/AM        ║
 // ║  @author    Paulo Esteves Fernandes Neto — Chefe DMOB/SEINFRA-AM            ║
-// ║  @version   REV-17-ake                                                      ║
-// ║  @build     GENESIS_RETROFIT                                                ║
-// ║  @created   2026-03-24                                                      ║
+// ║  @version   REV-18                                                          ║
+// ║  @build     FEATURE+BUGFIX — Linear Ref / Gantt Paisagem / Sheets Fallback ║
+// ║  @created   2026-03-27                                                      ║
 // ║  @repo      github.com/leonzordhue/seinfra-rodovias                         ║
 // ║                                                                              ║
 // ║  CLASSIFICAÇÃO AKE:                                                          ║
@@ -1479,6 +1479,41 @@ const AKE_BUILD_LOG = Object.freeze([
     ],
     tentativas_falhas: [],
     erros_corrigidos: []
+  },
+  {
+    build: "REV-18",
+    data: "2026-03-27T23:47:00-04:00",
+    autor: "Paulo Esteves Fernandes Neto",
+    ia_assistente: "Claude Sonnet 4.6",
+    tipo: "FEATURE + BUGFIX",
+    descricao: "Linear Referencing Engine (Turf.js), PDF Gantt em paisagem, mapa com marcadores ini/fim, EAP agrupada por KM com subtotais, remoção balão OBSERVAÇÕES do PDF, correção de carregamento das planilhas Google Sheets (gviz/tq com gid correto, 4 estratégias de fallback com debug console).",
+    axiomas_adicionados: [
+      "lrPintarTrecho() — recorta segmento GeoJSON por KM ini/fim via turf.along/lineSlice",
+      "lrAdicionarTrecho(), lrConfirmarForm(), lrRemoverTrecho(), lrLimparTodos(), lrSincronizarTRECHOS()",
+      "lrRenderLista(), lrAtivarPainel(), _lrMergeFeatures()",
+      "_sliceGanttPaisagem() — Gantt em páginas A4 landscape 297×210mm",
+      "_capturarMapaImg() — captura Leaflet com marcadores ▶/◀ e timeout 8s",
+      "EAP agrupada: _kmsUnicos[], eapRows[], eapIsSub[] — arrays paralelos sem __SUB__",
+      "loadRoadData() refatorada: 4 tentativas (export CSV, gviz+range+gid, gviz+gid, SheetsAPI)"
+    ],
+    decisoes: [
+      "Usar turf.along() para calcular pontos extremos de trecho por KM, depois lineSlice()",
+      "Gantt paisagem: largura útil 267mm vs 160mm retrato — cabeçalho redesenhado por página",
+      "Marcadores Leaflet: L.divIcon com remoção pós-captura para não poluir mapa interativo",
+      "EAP PDF: arrays paralelos eapRows/eapIsSub eliminam bug de desalinhamento com sentinel __SUB__",
+      "gviz/tq como método primário de carga (sem API Key, sem quota), gid obrigatório para aba correta",
+      "Logs console detalhados em todas as tentativas de carga para diagnóstico em campo"
+    ],
+    tentativas_falhas: [
+      { tentativa: "Usar sheets.googleapis.com como único endpoint de carga", resultado: "Falha silenciosa — API Key expirada/restrita, sem fallback", motivo_rejeicao: "Dependência de chave gerenciada externamente; quota esgotável", build_ref: "REV-17-ake" },
+      { tentativa: "gviz/tq sem gid para planilha de Ramais", resultado: "Retornava primeira aba (vazia) em vez da aba gid=661002456", motivo_rejeicao: "gid é mandatório quando dados não estão na 1ª aba", build_ref: "REV-18" },
+      { tentativa: "Sentinel __SUB__ na coluna 0 para marcar linhas de subtotal na EAP PDF", resultado: "autoTable desalinhava colunas ao detectar valor fora do padrão", motivo_rejeicao: "Arrays paralelos eapIsSub[] são type-safe e não interferem na renderização", build_ref: "REV-18" },
+      { tentativa: "Gantt em páginas retrato com fatiamento vertical", resultado: "Largura útil 160mm insuficiente; rótulos de semana ilegíveis", motivo_rejeicao: "Paisagem A4 dá 267mm de largura útil — 67% a mais", build_ref: "REV-18" }
+    ],
+    erros_corrigidos: [
+      { erro: "Rodovias e ramais não carregavam", causa: "API Key Sheets revogada/expirada; gid ausente para aba não-padrão de Ramais", solucao: "4 estratégias de fallback: export CSV → gviz+range+gid → gviz+gid → SheetsAPI" },
+      { erro: "EAP PDF desalinhada em linhas de subtotal", causa: "Sentinel __SUB__ na coluna 0 tratado como dado pela autoTable", solucao: "Array paralelo eapIsSub[] com flag booleana; willDrawCell aplica cor independente do conteúdo" }
+    ]
   }
 ]);
 
@@ -5087,6 +5122,7 @@ const ROAD_API_KEY = 'AIzaSyDaitkJNDTZi3BMFAe9u4wV6U-DIgUS7NA';
 const SHEETS = {
   "RAMAL / VICINAL": {
     spreadsheetId: '1Cr5Qbj_My7oOcIYiIjZ6NgJiCsij4ZAQCSxdP49cffc',
+    gid: '661002456',            // aba correta da planilha de ramais
     range: 'A:Z',
     // GeoJSON no mesmo repositório do index_ramais (URL que funciona no browser)
     geojson: "https://raw.githubusercontent.com/leonzordhue/Planejamento-rodoviario/main/geojson/RAMAIS_SEINFRA.geojson",
@@ -5103,6 +5139,7 @@ const SHEETS = {
   },
   "RODOVIA ESTADUAL": {
     spreadsheetId: '1bYf2anVF4un84-lusSOeSRaNLiod9fq0joUEnbgHxnM',
+    gid: '0',                    // primeira aba (padrão)
     range: 'A:S',
     geojson: "https://raw.githubusercontent.com/leonzordhue/Planejamento-rodoviario/main/geojson/RODOVIAS_ESTADUAIS_AMAZONAS.geojson",
     label: "Rodovias Estaduais AM",
@@ -5197,6 +5234,7 @@ async function loadRoadData(tipo) {
   const sheet = SHEETS[tipo];
   if (!sheet) return [];
   setRoadStatus("⏳ Carregando base de dados...");
+  console.log(`[loadRoadData] Iniciando carga: ${tipo} | id=${sheet.spreadsheetId} gid=${sheet.gid||"0"}`);
 
   // Função auxiliar: normaliza headers e monta array de objetos
   function _parseRows(allValues) {
@@ -5238,26 +5276,72 @@ async function loadRoadData(tipo) {
     return items;
   }
 
-  // ── Tentativa 1: gviz/tq (endpoint público, sem API Key — mesmo método do dmob-viario) ──
-  // Mais confiável: não depende de API Key, não tem cota por projeto
+  // ── Tentativa 1: /export?format=csv (endpoint público direto, sem API Key) ──
+  // Mais simples e direto — funciona enquanto a planilha for "visível com link"
   try {
-    const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheet.spreadsheetId}/gviz/tq?tqx=out:csv&range=${sheet.range}`;
+    const exportGid = sheet.gid || "0";
+    const exportUrl = `https://docs.google.com/spreadsheets/d/${sheet.spreadsheetId}/export?format=csv&gid=${exportGid}`;
+    console.log(`[loadRoadData] Tentativa 1 (export): ${exportUrl}`);
+    const resp = await fetch(exportUrl);
+    if (resp.ok) {
+      const csvText = await resp.text();
+      console.log(`[loadRoadData] Tentativa 1 OK — ${csvText.length} bytes, primeiros 200: ${csvText.substring(0,200)}`);
+      const rawRows = parseCSV(csvText);
+      if (rawRows && rawRows.length > 0) {
+        console.log(`[loadRoadData] Tentativa 1 parseCSV OK — ${rawRows.length} linhas`);
+        return _finalize(rawRows);
+      } else {
+        console.warn("[loadRoadData] Tentativa 1: CSV parseado mas sem linhas");
+      }
+    } else {
+      console.warn(`[loadRoadData] Tentativa 1 falhou HTTP: ${resp.status}`);
+    }
+  } catch(e0) {
+    console.warn("[loadRoadData] Tentativa 1 (export) erro:", e0.message);
+  }
+
+  // ── Tentativa 2: gviz/tq com range e gid (endpoint público, sem API Key) ──
+  try {
+    const gvizGid = sheet.gid ? `&gid=${sheet.gid}` : "";
+    const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheet.spreadsheetId}/gviz/tq?tqx=out:csv&range=${sheet.range}${gvizGid}`;
+    console.log(`[loadRoadData] Tentativa 2 (gviz+range): ${gvizUrl}`);
     const resp = await fetch(gvizUrl);
     if (resp.ok) {
       const csvText = await resp.text();
-      // parseCSV já está definido no escopo global
+      console.log(`[loadRoadData] Tentativa 2 OK — ${csvText.length} bytes`);
       const rawRows = parseCSV(csvText);
       if (rawRows && rawRows.length > 0) {
+        console.log(`[loadRoadData] Tentativa 2 parseCSV OK — ${rawRows.length} linhas`);
         return _finalize(rawRows);
       }
+    } else {
+      console.warn(`[loadRoadData] Tentativa 2 falhou HTTP: ${resp.status}`);
     }
   } catch(e1) {
-    console.warn("loadRoadData gviz falhou:", e1.message);
+    console.warn("[loadRoadData] Tentativa 2 (gviz) erro:", e1.message);
   }
 
-  // ── Tentativa 2: Sheets API v4 com API Key (fallback) ──
+  // ── Tentativa 3: gviz/tq sem range (aba especificada só por gid) ──
+  try {
+    const gvizGid2 = sheet.gid ? `&gid=${sheet.gid}` : "";
+    const gvizUrl2 = `https://docs.google.com/spreadsheets/d/${sheet.spreadsheetId}/gviz/tq?tqx=out:csv${gvizGid2}`;
+    console.log(`[loadRoadData] Tentativa 3 (gviz sem range): ${gvizUrl2}`);
+    const resp2 = await fetch(gvizUrl2);
+    if (resp2.ok) {
+      const csvText2 = await resp2.text();
+      const rawRows2 = parseCSV(csvText2);
+      if (rawRows2 && rawRows2.length > 0) {
+        return _finalize(rawRows2);
+      }
+    }
+  } catch(e2a) {
+    console.warn("loadRoadData gviz2 falhou:", e2a.message);
+  }
+
+  // ── Tentativa 4: Sheets API v4 com API Key (último recurso) ──
   try {
     const apiUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheet.spreadsheetId}/values/${sheet.range}?key=${ROAD_API_KEY}`;
+    console.log(`[loadRoadData] Tentativa 4 (SheetsAPI): ${apiUrl}`);
     const resp = await fetch(apiUrl);
     if (!resp.ok) throw new Error("HTTP " + resp.status);
     const data = await resp.json();
@@ -5266,9 +5350,9 @@ async function loadRoadData(tipo) {
     if (rawRows) return _finalize(rawRows);
     setRoadStatus("⚠️ Planilha sem dados");
     return [];
-  } catch(e2) {
-    setRoadStatus("⚠️ Não foi possível carregar a base: " + e2.message);
-    console.error("loadRoadData error:", e2);
+  } catch(e3) {
+    setRoadStatus("⚠️ Não foi possível carregar a base: " + e3.message);
+    console.error("loadRoadData error:", e3);
     return [];
   }
 }
