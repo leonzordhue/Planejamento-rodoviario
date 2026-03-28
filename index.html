@@ -1505,8 +1505,12 @@ const AKE_BUILD_LOG = Object.freeze([
       "Toggle checked por padrao: preserva comportamento legado sem quebrar obras ja configuradas",
       "OBSERVACOES removidas do PDF: conteudo de ajuda geral inadequado para documento tecnico"
     ],
-    tentativas_falhas: [],
-    erros_corrigidos: []
+    tentativas_falhas: [
+      { tentativa: "Usar rawNome (campo rodovia) diretamente como nome de exibição", resultado: "Exibe texto longo do trecho como 39 da AM-010,Km 0 ao Km 05 e valores CSV corrompidos", motivo_rejeicao: "nameCol rodovia contém descrição do trecho, não o código limpo; codigoCol tem AM-xxx", build_ref: "REV-19" }
+    ],
+    erros_corrigidos: [
+      { erro: "Nomes sujos no dropdown de busca de rodovias e ramais", causa: "normalizeRoadRow usava campo rodovia (descrição longa) como nome; ramais com colunas CSV corrompidas", solucao: "_extractCodRod extrai AM-xxx/BR-xxx do codigo_ser_snv; _invalido filtra strings com muitas vírgulas" }
+    ]
   }
 ]);
 
@@ -5058,19 +5062,48 @@ function detectCol(row, candidates) {
 }
 
 function normalizeRoadRow(row, sheet) {
+  // AKE REV-19: extração inteligente — código AM/BR limpo para rodovias, filtro de corrompidos
+  const _extractCodRod = (s) => {
+    if (!s) return "";
+    const m = String(s).match(/\b(AM|BR|PA|MT|RR|AC|AP|TO)-?\s*(\d{2,3})\b/i);
+    return m ? (m[1].toUpperCase() + "-" + m[2].padStart(3,"0")) : "";
+  };
+  const _invalido = (s) => !s || String(s).split(",").length > 3 || /^[\s\d]*[,)]/.test(String(s).trim());
+
   if (sheet) {
-    const nome      = row[sheet.nameCol] || detectCol(row, ["nome","ramal","rodovia","denominacao"]);
-    const codigo    = row[sheet.codigoCol] || detectCol(row, ["codigo","cod","id","sigla"]);
+    const rawNome   = row[sheet.nameCol]   || "";
+    const rawCodigo = row[sheet.codigoCol] || "";
+    let nome   = rawNome;
+    let codigo = rawCodigo;
+
+    if (sheet.nameCol === "rodovia") {
+      // Rodovias Estaduais: campo "rodovia" tem descrição longa do trecho
+      // Usar o código SNV como nome limpo; trecho vira referência
+      const codLimpo = _extractCodRod(rawCodigo) || _extractCodRod(rawNome);
+      if (codLimpo) {
+        nome   = codLimpo;
+        codigo = rawCodigo || codLimpo;
+      } else {
+        nome = (rawNome || rawCodigo || "").split(",")[0].trim();
+      }
+    } else {
+      // Ramais: filtrar valores corrompidos (ex: "7),Sem informação,,,PAV")
+      if (_invalido(rawNome)) {
+        nome = detectCol(row, ["denominacao","nome","ramal","cod"]) || rawCodigo || "";
+      }
+    }
+
     const numero    = (sheet.numeroCol && row[sheet.numeroCol])
                       || detectCol(row, ["numero","num","no_","n_ramal"]) || "";
     const municipio = row[sheet.municipioCol] || detectCol(row, ["municipio","municipios","cidade","inicio","local"]);
-    const extRaw    = row[sheet.extensaoCol] || detectCol(row, ["extensao","extensao_km","comprimento","km"]);
+    const extRaw    = row[sheet.extensaoCol]  || detectCol(row, ["extensao","extensao_km","comprimento","km"]);
     const extensao  = parseFloat(String(extRaw || "0").replace(",",".")) || 0;
     const situacao  = row["situacao_fisica"] || row["descricao"] || detectCol(row, ["situacao","status","descricao"]);
     const referencia = (sheet.referenciaCol && row[sheet.referenciaCol])
+      || (sheet.nameCol === "rodovia" ? rawNome : "")
       || detectCol(row, ["ponto_de_referencia","ponto_referencia","referencia","ref_km","km_referencia","ponto","rodovia_referencia"])
       || "";
-    return { nome, codigo, numero, municipio, extensao, situacao, referencia, raw: row };
+    return { nome: nome.trim(), codigo: codigo.trim(), numero, municipio, extensao, situacao, referencia, raw: row };
   }
   return {
     nome:      detectCol(row, ["nome","denominacao","descricao","trecho","ramal","rodovia"]),
@@ -5084,7 +5117,7 @@ function normalizeRoadRow(row, sheet) {
   };
 }
 
-// ── Carrega dados via Sheets API v4 ───────────────────────────────
+
 async function loadRoadData(tipo) {
   if (_roadCache[tipo]) return _roadCache[tipo];
   const sheet = SHEETS[tipo];
