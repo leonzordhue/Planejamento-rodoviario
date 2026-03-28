@@ -2750,19 +2750,29 @@ function renderEAP() {
     </tr>
   </thead>`;
 
-  // Agrupar EAP_CALC por KM (preserva ordem de inserção)
+  // AKE REV-19: agrupar EAP_CALC por KM, ordenados numericamente
   const grupos = new Map();
   EAP_CALC.forEach(c => {
-    const key = c.km != null ? String(c.km) : "—";
+    const key = (c.km != null && c.km !== "") ? String(c.km) : "—";
     if (!grupos.has(key)) grupos.set(key, []);
     grupos.get(key).push(c);
+  });
+
+  // Ordenar: numéricos primeiro (crescente), depois não-numéricos
+  const keysOrdenadas = [...grupos.keys()].sort((a, b) => {
+    const na = parseInt(a), nb = parseInt(b);
+    if (!isNaN(na) && !isNaN(nb)) return na - nb;
+    if (!isNaN(na)) return -1;
+    if (!isNaN(nb)) return  1;
+    return a.localeCompare(b);
   });
 
   let html = "";
   let lineGlobal = 0;
 
-  grupos.forEach((servicos, kmKey) => {
-    const titulo = kmKey === "—" ? "KM — (Global)" : `KM ${kmKey}`;
+  keysOrdenadas.forEach(kmKey => {
+    const servicos = grupos.get(kmKey);
+    const titulo = kmKey === "—" ? "KM — (Geral)" : `KM ${kmKey}`;
 
     // Linha de totais do KM
     const totMO  = servicos.reduce((s,c) => s + (c.moTotal||0), 0);
