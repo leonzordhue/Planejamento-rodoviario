@@ -852,8 +852,16 @@
                   <div class="form-group">
                     <label>📍 KM do Canteiro de Obras</label>
                     <input type="number" id="obra-canteiro" value="0" min="0" step="0.1" oninput="syncObra()"
-                      placeholder="Ex.: 9.5" title="KM onde está instalado o canteiro. A obra parte deste ponto."/>
-                    <div style="font-size:0.65rem;color:var(--cinza-aux);margin-top:3px">Ponto de partida das frentes de serviço</div>
+                      placeholder="Ex.: 9.5" title="KM onde está instalado o canteiro. Ponto físico de instalação."/>
+                    <!-- AKE REV-19: toggle execução a partir do canteiro (Pedro Paiva) -->
+                    <label style="display:flex;align-items:center;gap:6px;margin-top:6px;cursor:pointer;user-select:none">
+                      <input type="checkbox" id="canteiro-como-inicio" checked onchange="syncObra()"
+                        style="width:14px;height:14px;accent-color:var(--azul);cursor:pointer"/>
+                      <span style="font-size:0.68rem;color:var(--cinza-txt);font-weight:600">Execução parte do canteiro</span>
+                    </label>
+                    <div style="font-size:0.62rem;color:var(--cinza-aux);margin-top:2px">
+                      Desmarcado: serviços seguem KM 1 → KM N (ordem natural)
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1052,38 +1060,8 @@
     </div>
 
     <div class="kpi-row" id="kpis-eap"></div>
-    <div class="table-wrap"><table id="tabela-eap">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Etapa</th>
-          <th style="min-width:240px">Serviço</th>
-          <th>KM</th>
-          <th>Unid.</th>
-          <th class="right">Qtde</th>
-          <th class="right">Produt.</th>
-          <th class="right" style="background:rgba(2,119,189,0.4)">MO Total(h)</th>
-          <th class="right" style="background:rgba(2,119,189,0.4)">DP(d)</th>
-          <th class="right" style="background:rgba(100,100,100,0.3)">QE</th>
-          <th class="right" style="background:rgba(245,166,35,0.4)">DA(d)</th>
-          <th class="right" style="background:rgba(2,119,189,0.25)">Serv.</th>
-          <th class="right" style="background:rgba(2,119,189,0.25)">Ped.</th>
-          <th class="right" style="background:rgba(2,119,189,0.25)">Oper.</th>
-          <th class="right" style="background:rgba(2,119,189,0.25)">Carp.</th>
-          <th class="right" style="background:rgba(46,125,50,0.25)">Escav.</th>
-          <th class="right" style="background:rgba(46,125,50,0.25)">Rolo</th>
-          <th class="right" style="background:rgba(46,125,50,0.25)">Cam.</th>
-          <th class="right" style="background:rgba(46,125,50,0.25)">Moto.</th>
-        </tr>
-        <tr style="background:#001d50">
-          <th colspan="11"></th>
-          <th colspan="4" style="text-align:center;font-size:0.62rem;background:rgba(2,119,189,0.35)">QMO</th>
-          <th colspan="4" style="text-align:center;font-size:0.62rem;background:rgba(46,125,50,0.3)">QEQ</th>
-        </tr>
-      </thead>
-      <tbody id="tbody-eap"></tbody>
-      <tfoot id="tfoot-eap"></tfoot>
-    </table></div>
+    <!-- AKE REV-19: container flexível — renderEAP() injeta uma tabela por KM -->
+    <div id="eap-km-container"></div>
     <div class="formulas" style="margin-top:1rem">
       <div class="formula"><strong>Fonte:</strong> DNIT-313 / SICRO2 / CPU / e-Obras — 38 composições</div>
       <div class="formula"><strong>DP</strong> = ROUNDUP(MO_Total / Jornada, 0)</div>
@@ -1509,6 +1487,26 @@ const AKE_BUILD_LOG = Object.freeze([
       { erro: "Rodovias e ramais nao carregavam", causa: "API Key expirada + gid ausente", solucao: "4 fallbacks + gid explicito por planilha" },
       { erro: "Pagina travada — nenhum elemento clicavel", causa: "function declarations aninhadas em strict mode quebraram o JS inteiro", solucao: "Convertidas para arrow functions (const _parseRows = ..., const _finalize = ...)" }
     ]
+  },
+  {
+    build: "REV-19",
+    data: "2026-03-28T00:00:00-04:00",
+    autor: "Paulo Esteves Fernandes Neto",
+    ia_assistente: "Claude Sonnet 4.6",
+    tipo: "FEATURE + UX",
+    descricao: "EAP por KM: uma tabela por KM com linha de totais (feedback Pedro Paiva/DMOB). Toggle canteiro como inicio de execucao. Remocao do bloco OBSERVACOES IMPORTANTES do PDF.",
+    axiomas_adicionados: [
+      "renderEAP() reescrita: container #eap-km-container, tabela por KM com thead/tbody/tfoot-soma e espacamento 28px",
+      "Toggle #canteiro-como-inicio: buildKmSeq respeita checkbox — desmarcado usa ordem natural KM 1→N"
+    ],
+    decisoes: [
+      "Map() agrupa EAP_CALC por c.km preservando ordem de insercao original",
+      "Cabecalho _thead reutilizavel evita duplicacao e garante consistencia visual entre tabelas",
+      "Toggle checked por padrao: preserva comportamento legado sem quebrar obras ja configuradas",
+      "OBSERVACOES removidas do PDF: conteudo de ajuda geral inadequado para documento tecnico"
+    ],
+    tentativas_falhas: [],
+    erros_corrigidos: []
   }
 ]);
 
@@ -1814,8 +1812,17 @@ function gerarCronograma() {
   // Se canteiroKm da frente for null, usa o canteiro global da obra.
   // Sentido: avança do canteiro até o fim, depois retorna do canteiro-1 até o início.
   const canteiroKmGlobal = Math.round(canteiro); // canteiro global (campo da obra)
+  // AKE REV-19: respeita toggle "Execução parte do canteiro" (Pedro Paiva)
+  // Se desmarcado: ordem natural KM 1→N independente do canteiro físico
+  const _canteiroComoInicio = (() => {
+    const el = document.getElementById("canteiro-como-inicio");
+    return el ? el.checked : true; // padrão: checked (comportamento legado)
+  })();
+
   const buildKmSeq = (ini, fim, canteiroKmFrente) => {
     const all = Array.from({length: fim - ini + 1}, (_, i) => ini + i);
+    // Se usuário desmarcou "Execução parte do canteiro" → ordem natural
+    if (!_canteiroComoInicio) return all;
     // Prioridade: canteiro da frente → canteiro global → ordem natural
     const ckm = (canteiroKmFrente != null)
       ? Math.round(canteiroKmFrente)
@@ -2708,56 +2715,131 @@ function renderServicos() {
 // EAP
 // ═══════════════════════════════════════════════════════
 function renderEAP() {
-  const jornada = parseInt(getV("obra-jornada")) || 8;
+  // AKE REV-19: tabela por KM com linha de totais — pedido Pedro Paiva (Eng. DMOB)
+  const container = document.getElementById("eap-km-container");
+  if (!container) return;
+
   if (!EAP_CALC.length) {
-    setEl("tbody-eap","<tr><td colspan='19'><div class='empty-state'><div class='empty-state-icon'>📋</div><p>Nenhum serviço cadastrado. Acesse a aba <strong>Serviços</strong>.</p></div></td></tr>");
-    setEl("tfoot-eap","");
+    container.innerHTML = "<div class='empty-state'><div class='empty-state-icon'>📋</div><p>Nenhum serviço cadastrado. Acesse a aba <strong>Serviços</strong>.</p></div>";
     setEl("kpis-eap","");
     return;
   }
 
-  const tbody = EAP_CALC.map((c, i) => {
-    const cor = etapaCor(c.etapa);
-    const td = (v, cls="") => `<td class="right ${cls}">${v||v===0?numBR(v):"—"}</td>`;
-    return `<tr>
-      <td style="color:var(--cinza-aux);text-align:right">${i+1}</td>
-      <td><div class="td-etapa"><div class="etapa-dot" style="background:${cor}"></div><span style="font-size:0.75rem">${c.etapa}</span></div></td>
-      <td style="font-size:0.78rem"><span style="color:var(--cinza-aux);margin-right:4px">${c.codigo}</span>${c.comp?.desc||""}</td>
-      <td style="color:var(--cinza-aux)">${c.km?"KM "+c.km:"—"}</td>
-      <td style="color:var(--cinza-aux)">${c.comp?.unid||""}</td>
-      <td class="right">${numBR(c.qtde)}</td>
-      <td class="right" style="color:var(--cinza-aux)">${c.comp?.produt}</td>
-      <td class="right" style="color:#0277BD;font-weight:700">${numBR(c.moTotal,1)}</td>
-      <td class="right" style="color:#0277BD">${numBR(c.dp)}</td>
-      <td class="right" style="color:var(--cinza-med)">${numBR(c.qe)}</td>
-      <td class="right" style="color:var(--amarelo);font-weight:700">${numBR(c.da)}</td>
-      ${[c.qmo.servente,c.qmo.pedreiro,c.qmo.operador,c.qmo.carpinteiro].map(v=>`<td class="right" style="color:${v>0?"#0277BD":"var(--cinza-aux)"};${v>0?"font-weight:600":""}">${v||"—"}</td>`).join("")}
-      ${[c.eqp.escavadeira,c.eqp.rolo,c.eqp.caminhao,c.eqp.moto].map(v=>`<td class="right" style="color:${v>0?"#2E7D32":"var(--cinza-aux)"};${v>0?"font-weight:600":""}">${v||"—"}</td>`).join("")}
-    </tr>`;
-  }).join("");
-  setEl("tbody-eap", tbody);
+  // Cabeçalho padrão reutilizável
+  const _thead = `<thead>
+    <tr>
+      <th>#</th><th>Etapa</th><th style="min-width:220px">Serviço</th>
+      <th>Unid.</th><th class="right">Qtde</th><th class="right">Produt.</th>
+      <th class="right" style="background:rgba(2,119,189,0.4)">MO(h)</th>
+      <th class="right" style="background:rgba(2,119,189,0.4)">DP(d)</th>
+      <th class="right" style="background:rgba(100,100,100,0.3)">QE</th>
+      <th class="right" style="background:rgba(245,166,35,0.4)">DA(d)</th>
+      <th class="right" style="background:rgba(2,119,189,0.25)">Serv.</th>
+      <th class="right" style="background:rgba(2,119,189,0.25)">Ped.</th>
+      <th class="right" style="background:rgba(2,119,189,0.25)">Oper.</th>
+      <th class="right" style="background:rgba(2,119,189,0.25)">Carp.</th>
+      <th class="right" style="background:rgba(46,125,50,0.25)">Escav.</th>
+      <th class="right" style="background:rgba(46,125,50,0.25)">Rolo</th>
+      <th class="right" style="background:rgba(46,125,50,0.25)">Cam.</th>
+      <th class="right" style="background:rgba(46,125,50,0.25)">Moto.</th>
+    </tr>
+    <tr style="background:#001d50">
+      <th colspan="10"></th>
+      <th colspan="4" style="text-align:center;font-size:0.62rem;background:rgba(2,119,189,0.35)">QMO</th>
+      <th colspan="4" style="text-align:center;font-size:0.62rem;background:rgba(46,125,50,0.3)">QEQ</th>
+    </tr>
+  </thead>`;
 
-  // Pico simultâneo de recursos (fisicamente correto)
-  // Somar QMO de todos os KMs implica trabalho simultâneo — fisicamente impossível para obra sequencial
-  // O correto é o pico mensal do histograma (frentes paralelas já consideradas)
-  const totMO  = EAP_CALC.reduce((s,c)=>s+c.moTotal,0);
-  const picoEAP = calcPicoRecursos();
-  setEl("tfoot-eap", `<tr>
-    <td colspan="7" style="text-align:right;font-size:0.65rem;letter-spacing:0.08em">PICO SIMULTÂNEO</td>
-    <td class="right">${numBR(totMO,1)}</td>
-    <td></td><td></td><td></td>
-    ${["servente","pedreiro","operador","carpinteiro"].map(k=>`<td class="right" style="color:${picoEAP[k]>0?"#0277BD":"var(--cinza-aux)"};font-weight:${picoEAP[k]>0?"700":"400"}">${numBR(picoEAP[k])}</td>`).join("")}
-    ${["escavadeira","rolo","caminhao","moto"].map(k=>`<td class="right" style="color:${picoEAP[k]>0?"#2E7D32":"var(--cinza-aux)"};font-weight:${picoEAP[k]>0?"700":"400"}">${numBR(picoEAP[k])}</td>`).join("")}
-  </tr>`);
+  // Agrupar EAP_CALC por KM (preserva ordem de inserção)
+  const grupos = new Map();
+  EAP_CALC.forEach(c => {
+    const key = c.km != null ? String(c.km) : "—";
+    if (!grupos.has(key)) grupos.set(key, []);
+    grupos.get(key).push(c);
+  });
 
-  // KPIs EAP — usa pico real (máximo simultâneo por KM)
+  let html = "";
+  let lineGlobal = 0;
+
+  grupos.forEach((servicos, kmKey) => {
+    const titulo = kmKey === "—" ? "KM — (Global)" : `KM ${kmKey}`;
+
+    // Linha de totais do KM
+    const totMO  = servicos.reduce((s,c) => s + (c.moTotal||0), 0);
+    const totQMO = {servente:0, pedreiro:0, operador:0, carpinteiro:0};
+    const totEQP = {escavadeira:0, rolo:0, caminhao:0, moto:0};
+    servicos.forEach(c => {
+      Object.keys(totQMO).forEach(k => { totQMO[k] += c.qmo[k]||0; });
+      Object.keys(totEQP).forEach(k => { totEQP[k] += c.eqp[k]||0; });
+    });
+
+    const tbody = servicos.map((c, i) => {
+      lineGlobal++;
+      const cor = etapaCor(c.etapa);
+      return `<tr>
+        <td style="color:var(--cinza-aux);text-align:right">${lineGlobal}</td>
+        <td><div class="td-etapa"><div class="etapa-dot" style="background:${cor}"></div><span style="font-size:0.75rem">${c.etapa}</span></div></td>
+        <td style="font-size:0.78rem"><span style="color:var(--cinza-aux);margin-right:4px">${c.codigo}</span>${c.comp?.desc||""}</td>
+        <td style="color:var(--cinza-aux)">${c.comp?.unid||""}</td>
+        <td class="right">${numBR(c.qtde)}</td>
+        <td class="right" style="color:var(--cinza-aux)">${c.comp?.produt}</td>
+        <td class="right" style="color:#0277BD;font-weight:700">${numBR(c.moTotal,1)}</td>
+        <td class="right" style="color:#0277BD">${numBR(c.dp)}</td>
+        <td class="right" style="color:var(--cinza-med)">${numBR(c.qe)}</td>
+        <td class="right" style="color:var(--amarelo);font-weight:700">${numBR(c.da)}</td>
+        ${[c.qmo.servente,c.qmo.pedreiro,c.qmo.operador,c.qmo.carpinteiro].map(v=>`<td class="right" style="color:${v>0?"#0277BD":"var(--cinza-aux)"};${v>0?"font-weight:600":""}">${v||"—"}</td>`).join("")}
+        ${[c.eqp.escavadeira,c.eqp.rolo,c.eqp.caminhao,c.eqp.moto].map(v=>`<td class="right" style="color:${v>0?"#2E7D32":"var(--cinza-aux)"};${v>0?"font-weight:600":""}">${v||"—"}</td>`).join("")}
+      </tr>`;
+    }).join("");
+
+    const tfoot = `<tfoot>
+      <tr style="background:rgba(0,29,80,0.12);font-weight:700;font-size:0.72rem">
+        <td colspan="6" style="text-align:right;font-size:0.63rem;letter-spacing:0.07em;color:var(--cinza-aux)">SOMA ${titulo}</td>
+        <td class="right" style="color:#0277BD">${numBR(totMO,1)}</td>
+        <td></td><td></td><td></td>
+        <td class="right" style="color:${totQMO.servente>0?"#0277BD":"var(--cinza-aux)"}">${totQMO.servente||"—"}</td>
+        <td class="right" style="color:${totQMO.pedreiro>0?"#0277BD":"var(--cinza-aux)"}">${totQMO.pedreiro||"—"}</td>
+        <td class="right" style="color:${totQMO.operador>0?"#0277BD":"var(--cinza-aux)"}">${totQMO.operador||"—"}</td>
+        <td class="right" style="color:${totQMO.carpinteiro>0?"#0277BD":"var(--cinza-aux)"}">${totQMO.carpinteiro||"—"}</td>
+        <td class="right" style="color:${totEQP.escavadeira>0?"#2E7D32":"var(--cinza-aux)"}">${totEQP.escavadeira||"—"}</td>
+        <td class="right" style="color:${totEQP.rolo>0?"#2E7D32":"var(--cinza-aux)"}">${totEQP.rolo||"—"}</td>
+        <td class="right" style="color:${totEQP.caminhao>0?"#2E7D32":"var(--cinza-aux)"}">${totEQP.caminhao||"—"}</td>
+        <td class="right" style="color:${totEQP.moto>0?"#2E7D32":"var(--cinza-aux)"}">${totEQP.moto||"—"}</td>
+      </tr>
+    </tfoot>`;
+
+    html += `
+    <div style="margin-bottom:28px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <div style="width:4px;height:20px;background:var(--azul);border-radius:2px"></div>
+        <span style="font-size:0.82rem;font-weight:700;color:var(--azul);letter-spacing:0.04em">${titulo}</span>
+        <span style="font-size:0.68rem;color:var(--cinza-aux)">${servicos.length} serviço${servicos.length!==1?"s":""}</span>
+      </div>
+      <div class="table-wrap">
+        <table>${_thead}<tbody>${tbody}</tbody>${tfoot}</table>
+      </div>
+    </div>`;
+  });
+
+  // Legenda fórmulas
+  html += `<div class="formulas" style="margin-top:0.5rem">
+    <div class="formula"><strong>Fonte:</strong> DNIT-313 / SICRO2 / CPU / e-Obras — 38 composições</div>
+    <div class="formula"><strong>DP</strong> = ROUNDUP(MO_Total / Jornada, 0)</div>
+    <div class="formula"><strong>DA</strong> = ROUNDUP(DP / QE, 0)</div>
+    <div class="formula"><strong>QMO_cat</strong> = ROUNDUP(Qtde × taxa / (DA × Jornada), 0)</div>
+  </div>`;
+
+  container.innerHTML = html;
+
+  // KPIs globais
+  const totMOGlobal = EAP_CALC.reduce((s,c)=>s+c.moTotal,0);
   const pico = calcPicoRecursos();
   setEl("kpis-eap", [
-    {label:"MO Total",        v:numBR(totMO,0),       unit:"horas·homem",   cor:"var(--azul)"},
-    {label:"Serv. (pico/KM)", v:pico.servente,         unit:"serventes",     cor:"#0277BD"},
-    {label:"Oper. (pico/KM)", v:pico.operador,         unit:"operadores",    cor:"#0277BD"},
-    {label:"Escav. (pico/KM)",v:pico.escavadeira,      unit:"escavadeiras",  cor:"#2E7D32"},
-    {label:"Cam. (pico/KM)",  v:pico.caminhao,         unit:"caminhões",     cor:"#2E7D32"},
+    {label:"MO Total",        v:numBR(totMOGlobal,0), unit:"horas·homem",   cor:"var(--azul)"},
+    {label:"Serv. (pico/KM)", v:pico.servente,        unit:"serventes",     cor:"#0277BD"},
+    {label:"Oper. (pico/KM)", v:pico.operador,        unit:"operadores",    cor:"#0277BD"},
+    {label:"Escav. (pico/KM)",v:pico.escavadeira,     unit:"escavadeiras",  cor:"#2E7D32"},
+    {label:"Cam. (pico/KM)",  v:pico.caminhao,        unit:"caminhões",     cor:"#2E7D32"},
   ].map(k=>`
     <div class="kpi" style="border-top-color:${k.cor}">
       <div class="kpi-label">${k.label}</div>
@@ -4440,21 +4522,7 @@ function _finalizarPDF2(doc,chk,_addPageOuter,_tituloOuter,_linhaOuter,didDrawPa
   });
   yRef.y += 4;
 
-  /* Observacoes — bloco amarelo calculado dinamicamente */
-  var obsArr = [
-    "Os valores sao estimativas para planejamento inicial. Devem ser validados em projeto executivo.",
-    "Condicoes climaticas, logistica regional amazonica e disponibilidade de insumos impactam prazos reais.",
-    "Jornada padrao de 8h/dia; ajuste na plataforma conforme jornada contratada da obra.",
-  ];
-  var obsLinhas = obsArr.map(function(o){ return doc.splitTextToSize("* "+o, CW-8); });
-  var obsH = obsLinhas.reduce(function(s,l){ return s + l.length*4.5 + 1.5; }, 0) + 14;
-  if (yRef.y + obsH > YM) { addPage(); yRef.y = Y0; }
-  doc.setFillColor(255,248,225); doc.rect(ML, yRef.y-3, CW, obsH, "F");
-  doc.setDrawColor(245,168,35); doc.setLineWidth(0.5); doc.rect(ML, yRef.y-3, CW, obsH, "S");
-  doc.setFontSize(7.5); doc.setTextColor(100,70,0); doc.setFont("helvetica","bold");
-  doc.text("OBSERVACOES IMPORTANTES", ML+3, yRef.y+1); yRef.y += 6;
-  doc.setFont("helvetica","normal");
-  obsLinhas.forEach(function(oL) { doc.text(oL, ML+3, yRef.y); yRef.y += oL.length*4.5 + 1.5; });
+  /* AKE REV-19: bloco OBSERVACOES IMPORTANTES removido a pedido do usuário */
 
   /* ── SALVAR ── */
   var nomeArq = (nomeObra||"obra")
