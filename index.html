@@ -1538,6 +1538,28 @@ const AKE_BUILD_LOG = Object.freeze([
       { erro: "Localizacao Municipio/UF exibindo Aleixo - SEFAZ em vez do municipio", causa: "municipioCol=inicio continha localizacao administrativa do trecho, nao o municipio", solucao: "municipioCol=municipio + _munCandidatos sem inicio para RODOVIAS" },
       { erro: "EAP no PDF ainda gerava tabela única com coluna KM — não estava separada por KM", causa: "Patch REV-19 corrigiu apenas renderEAP() (aba interativa). O PDF usa _gerarPDFCompleto() com doc.autoTable separado — não tocado", solucao: "Substituído doc.autoTable único por loop _eapKeysOrdenadas.forEach — uma autoTable por KM com título, body e foot (SOMA KM X). Espaçamento de 5mm entre tabelas" }
     ]
+  },
+  {
+    build: "REV-21",
+    data: "2026-03-28T02:00:00-04:00",
+    autor: "Paulo Esteves Fernandes Neto",
+    ia_assistente: "Claude Sonnet 4.6",
+    tipo: "UX + BUGFIX",
+    descricao: "EAP PDF: título KM como primeira linha do head do autoTable (inseparável). Gantt PDF: pré-cálculo do total de páginas; pular página se espaço < 40mm.",
+    axiomas_adicionados: [
+      "KM title como head row 0 do autoTable — colSpan:12, fillColor azul SEINFRA — inseparável da tabela em quebra de página",
+      "_calcTotalPags(): calcula antecipadamente o nº de páginas do Gantt para título parte N de M correto"
+    ],
+    decisoes: [
+      "Título KM no head garante que nunca fique em página separada — autoTable controla a quebra como unidade",
+      "totalPags pré-calculado antes do loop — evita placeholder ? (jsPDF não suporta edição retroativa de texto)",
+      "Limiar 40mm: se espaço disponível for insuficiente para o Gantt, pular para nova página antes de iniciar"
+    ],
+    tentativas_falhas: [],
+    erros_corrigidos: [
+      { erro: "Título KM podia ficar em página separada da tabela", causa: "doc.rect + doc.text separados do autoTable; autoTable não considerava o bloco anterior", solucao: "Título como primeira linha do head com colSpan:12 — autoTable gerencia quebra como unidade única" },
+      { erro: "Título do Gantt mostrava parte N de ? em páginas 2+", causa: "jsPDF não edita texto retroativamente; totalPags só era conhecido após o loop", solucao: "_calcTotalPags() pré-calcula o total antes do loop com mesma lógica de cursorPx acumulado" }
+    ]
   }
 ]);
 
@@ -4052,19 +4074,19 @@ async function _gerarPDFCompleto() {
         totCam += c.eqp.caminhao   || 0;
       });
 
-      // Garantir espaço para título + pelo menos 1 linha de tabela
-      chkBrk(18);
-
-      // Título do KM
-      doc.setFontSize(8); doc.setFont("helvetica","bold"); doc.setTextColor(0,45,114);
-      doc.setFillColor(225,235,252);
-      doc.rect(ML, y-1, CW, 6, "F");
-      doc.text(tituloKM + "  ·  " + svcs.length + " serviço" + (svcs.length!==1?"s":""), ML+2, y+3.5);
-      doc.setTextColor(80); doc.setFont("helvetica","normal");
-      y += 7;
+      // Garantir espaço para título + pelo menos 2 linhas de tabela (AKE REV-21)
+      chkBrk(28);
 
       doc.autoTable({
-        head:[["Etapa","Serviço","Und","Qtde","MO(h)","DP","QE","DA","Srv","Opr","Esc","Cam"]],
+        head:[
+          // Linha 0: título do KM — colspan 12, inseparável da tabela
+          [{content: tituloKM + "  ·  " + svcs.length + " serviço" + (svcs.length!==1?"s":""),
+            colSpan:12,
+            styles:{fillColor:[0,45,114], textColor:[255,255,255], fontStyle:"bold",
+                    fontSize:8, cellPadding:{top:2.5, bottom:2.5, left:3}, halign:"left"}}],
+          // Linha 1: cabeçalho das colunas
+          ["Etapa","Serviço","Und","Qtde","MO(h)","DP","QE","DA","Srv","Opr","Esc","Cam"]
+        ],
         body: svcs.map(c=>[
           c.etapa,
           (c.comp?c.comp.desc:c.codigo).substring(0,32),
@@ -4090,7 +4112,7 @@ async function _gerarPDFCompleto() {
         startY: y,
         margin:{left:ML, right:MR, top:Y0+8, bottom:PH-YM},
         styles:{fontSize:6.5, cellPadding:1.1},
-        headStyles:{fillColor:[0,45,114], textColor:255, fontStyle:"bold",
+        headStyles:{fillColor:[0,29,80], textColor:255, fontStyle:"bold",
                     fontSize:6, halign:"center", overflow:"ellipsize", minCellHeight:5},
         footStyles:{fontSize:6, fillColor:[200,215,250]},
         alternateRowStyles:{fillColor:[245,247,252]},
@@ -4184,7 +4206,31 @@ async function _gerarPDFCompleto() {
           tmpCanvas.height = img.height;
           tmpCanvas.getContext("2d").drawImage(img, 0, 0);
 
-          let cursorPx = 0; // posição acumulada no canvas original
+          // AKE REV-21: pré-calcular total de páginas para evitar "parte N de ?"
+          // Axioma REV-15: fatiar pelo eixo Y (cursorPx acumulado), não pelo eixo X
+          const _calcTotalPags = () => {
+            let px = 0, pg = 0;
+            // pág 0 pode ter menos espaço disponível
+            const altPag0Px = altaPag0Px;
+            while (px < img.height) {
+              const maxPx = pg === 0 ? altPag0Px : altaPagPx;
+              const slicePx = Math.min(Math.round(maxPx), img.height - px);
+              if (slicePx <= 0) break;
+              px += slicePx;
+              pg++;
+            }
+            return pg;
+          };
+          const totalPags = _calcTotalPags();
+
+          // Se espaço disponível na pág atual for pequeno (< 40mm), pular para nova
+          if (altaPag0Px / pxPorMm < 40) {
+            addPage();
+            titulo("4. CRONOGRAMA FISICO");
+            y += 4;
+          }
+
+          let cursorPx = 0;
           let pgNum    = 0;
 
           while (cursorPx < img.height) {
@@ -4193,14 +4239,10 @@ async function _gerarPDFCompleto() {
             const sliceHpx   = Math.min(Math.round(slicePxMax), img.height - cursorPx);
             if (sliceHpx <= 0) break;
 
-            // Páginas 2+ recebem título e nova página
+            // Páginas 2+: nova página com título numerado corretamente
             if (pgNum > 0) {
               addPage();
-              titulo("4. CRONOGRAMA FISICO (parte " + (pgNum + 1) + " de ?)");
-              y += 4;
-            } else if (y + sliceHpx / pxPorMm > YM) {
-              addPage();
-              titulo("4. CRONOGRAMA FISICO (cont.)");
+              titulo("4. CRONOGRAMA FISICO — parte " + (pgNum + 1) + " de " + totalPags);
               y += 4;
             }
 
@@ -4211,10 +4253,10 @@ async function _gerarPDFCompleto() {
             sc.height  = sliceHpx;
             sc.getContext("2d").drawImage(
               tmpCanvas,
-              0, cursorPx,           // source: x=0, y=cursorPx
-              img.width, sliceHpx,   // source size
-              0, 0,                  // dest: x=0, y=0
-              img.width, sliceHpx    // dest size
+              0, cursorPx,
+              img.width, sliceHpx,
+              0, 0,
+              img.width, sliceHpx
             );
 
             doc.addImage(sc.toDataURL("image/png"), "PNG", ML, y, CW, sliceMmH);
@@ -4223,9 +4265,6 @@ async function _gerarPDFCompleto() {
             pgNum++;
           }
 
-          // Corrigir títulos "parte N de ?" agora que sabemos o total
-          // (jsPDF não suporta edição retroativa de texto, então usamos nPaginas real)
-          // Nota: o total fica como "?" apenas quando há 3+ páginas; aceitável.
           resolve();
         };
         img.onerror = () => resolve();
