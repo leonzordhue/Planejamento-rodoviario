@@ -1560,6 +1560,29 @@ const AKE_BUILD_LOG = Object.freeze([
       { erro: "Título KM podia ficar em página separada da tabela", causa: "doc.rect + doc.text separados do autoTable; autoTable não considerava o bloco anterior", solucao: "Título como primeira linha do head com colSpan:12 — autoTable gerencia quebra como unidade única" },
       { erro: "Título do Gantt mostrava parte N de ? em páginas 2+", causa: "jsPDF não edita texto retroativamente; totalPags só era conhecido após o loop", solucao: "_calcTotalPags() pré-calcula o total antes do loop com mesma lógica de cursorPx acumulado" }
     ]
+  },
+  {
+    build: "REV-22",
+    data: "2026-03-28T02:30:00-04:00",
+    autor: "Paulo Esteves Fernandes Neto",
+    ia_assistente: "Claude Sonnet 4.6",
+    tipo: "BUGFIX",
+    descricao: "Gantt PDF: corte entre páginas respeita limites exatos de linha SVG. _snapSlice() arredonda sliceHpx para múltiplo de rowPxReal = ROW_H*scaleY. Elimina corte no meio de atividade.",
+    axiomas_adicionados: [
+      "_snapSlice(maxPx, isFirst): sliceHpx = hdrPxReal + N*rowPxReal (pág 0) ou N*rowPxReal (págs N>0)",
+      "SVG_ROW_H=30, SVG_HDR_H=56 — constantes AKE derivadas de renderGantt(), não de variáveis não confirmadas"
+    ],
+    decisoes: [
+      "rowPxReal = ROW_H * scaleY — converte coordenadas SVG para pixels da imagem capturada",
+      "Pág 0: inclui hdrPxReal; págs N>0: só linhas (cabeçalho não repetido no slice)",
+      "Math.max(1,...) garante ao menos 1 linha por página mesmo com espaço mínimo"
+    ],
+    tentativas_falhas: [
+      { tentativa: "Math.round(slicePxMax) direto como sliceHpx", resultado: "Corte no meio de linha SVG — atividade cortada entre páginas", motivo_rejeicao: "slicePxMax em mm→px não é múltiplo de ROW_H*scaleY; necessário snap explícito", build_ref: "REV-21" }
+    ],
+    erros_corrigidos: [
+      { erro: "Gantt cortava no meio de linha de atividade ao mudar de página", causa: "sliceHpx sem snap de ROW_H — corte em pixel arbitrário", solucao: "_snapSlice() força corte apenas em limites exatos de linha SVG" }
+    ]
   }
 ]);
 
@@ -4230,19 +4253,51 @@ async function _gerarPDFCompleto() {
             y += 4;
           }
 
+          // AKE REV-22: cortar APENAS em limites exatos de linha do SVG
+          // rowPxReal = altura de 1 linha em pixels de imagem; hdrPxReal = cabeçalho
+          const SVG_ROW_H  = 30; // pixels SVG por linha (constante renderGantt)
+          const SVG_HDR_H  = 56; // pixels SVG do cabeçalho
+          const rowPxReal  = Math.round(SVG_ROW_H * scaleY); // px de imagem por linha
+          const hdrPxReal  = Math.round(SVG_HDR_H * scaleY); // px de imagem do cabeçalho
+
+          // Recalcular totalPags com snap de linha
+          const _snapSlice = (maxPx, isFirst) => {
+            if (isFirst) {
+              const linhas = Math.max(1, Math.floor((maxPx - hdrPxReal) / rowPxReal));
+              return hdrPxReal + linhas * rowPxReal;
+            }
+            const linhas = Math.max(1, Math.floor(maxPx / rowPxReal));
+            return linhas * rowPxReal;
+          };
+
+          const _calcTotalPagsSnap = () => {
+            let px = 0, pg = 0;
+            while (px < img.height) {
+              const maxPx  = pg === 0 ? altaPag0Px : altaPagPx;
+              const slicePx = Math.min(_snapSlice(maxPx, pg===0), img.height - px);
+              if (slicePx <= 0) break;
+              px += slicePx;
+              pg++;
+            }
+            return pg;
+          };
+          const totalPagsSnap = _calcTotalPagsSnap();
+
           let cursorPx = 0;
           let pgNum    = 0;
 
           while (cursorPx < img.height) {
             const isPag0     = pgNum === 0;
             const slicePxMax = isPag0 ? altaPag0Px : altaPagPx;
-            const sliceHpx   = Math.min(Math.round(slicePxMax), img.height - cursorPx);
+            // Snap: arredondar para múltiplo exato de linhas SVG
+            const sliceHpxSnap = _snapSlice(slicePxMax, isPag0);
+            const sliceHpx     = Math.min(sliceHpxSnap, img.height - cursorPx);
             if (sliceHpx <= 0) break;
 
-            // Páginas 2+: nova página com título numerado corretamente
+            // Páginas 2+: nova página com título numerado correto
             if (pgNum > 0) {
               addPage();
-              titulo("4. CRONOGRAMA FISICO — parte " + (pgNum + 1) + " de " + totalPags);
+              titulo("4. CRONOGRAMA FISICO — parte " + (pgNum + 1) + " de " + totalPagsSnap);
               y += 4;
             }
 
