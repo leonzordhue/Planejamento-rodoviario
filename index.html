@@ -1266,8 +1266,18 @@
         <div class="card-header-icon">🗺️</div>
         <div class="card-header-title">Localização Geográfica da Obra</div>
         <div id="mapa-status" style="margin-left:auto;font-size:0.65rem;color:rgba(255,255,255,0.85);background:rgba(0,0,0,0.25);border-radius:4px;padding:0.15rem 0.5rem;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis"></div>
+        <div style="display:flex;align-items:center;gap:0.4rem;margin-left:0.6rem" title="Cor do traçado principal da rodovia">
+          <label style="font-size:0.6rem;color:rgba(255,255,255,0.7);font-weight:600;white-space:nowrap">Cor:</label>
+          <input type="color" id="mapa-cor-rodovia" value="#002D72"
+            onchange="atualizarCorRodovia(this.value)"
+            style="width:26px;height:26px;border:2px solid rgba(255,255,255,0.5);border-radius:4px;cursor:pointer;padding:0;background:none"/>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="exportarMapaPNG()" title="Exportar mapa como PNG centralizado na rodovia"
+          style="margin-left:0.4rem;color:white;border-color:rgba(255,255,255,0.35);font-size:0.68rem;padding:0.2rem 0.55rem;white-space:nowrap">
+          📷 PNG
+        </button>
         <button class="btn btn-outline btn-sm" onclick="recarregarMapa()" title="Recarregar traçado do mapa"
-          style="margin-left:0.6rem;color:white;border-color:rgba(255,255,255,0.35);font-size:0.68rem;padding:0.2rem 0.55rem;white-space:nowrap">
+          style="margin-left:0.3rem;color:white;border-color:rgba(255,255,255,0.35);font-size:0.68rem;padding:0.2rem 0.55rem;white-space:nowrap">
           🔄 Recarregar
         </button>
       </div>
@@ -1277,8 +1287,22 @@
           <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.6rem;flex-wrap:wrap">
             <span style="font-size:0.68rem;font-weight:700;color:var(--azul);text-transform:uppercase;letter-spacing:0.08em">📐 Referenciamento Linear — Pintura de Trechos</span>
             <span style="font-size:0.62rem;color:var(--cinza-aux);font-weight:500" id="lr-rodovia-label"></span>
-            <div style="margin-left:auto;display:flex;gap:0.5rem">
-              <button class="btn btn-sm" onclick="lrSincronizarTRECHOS()"
+          <div style="margin-left:auto;display:flex;gap:0.5rem;align-items:center">
+            <!-- Paleta rápida de cores para o traçado principal -->
+            <div style="display:flex;gap:3px;align-items:center" title="Cor rápida do traçado">
+              <span style="font-size:0.58rem;color:rgba(0,45,114,0.6);font-weight:600">Traçado:</span>
+              <button onclick="document.getElementById('mapa-cor-rodovia').value='#002D72';atualizarCorRodovia('#002D72')" title="Azul SEINFRA"
+                style="width:16px;height:16px;background:#002D72;border:1.5px solid #ccc;border-radius:3px;cursor:pointer;padding:0"></button>
+              <button onclick="document.getElementById('mapa-cor-rodovia').value='#E74C3C';atualizarCorRodovia('#E74C3C')" title="Vermelho"
+                style="width:16px;height:16px;background:#E74C3C;border:1.5px solid #ccc;border-radius:3px;cursor:pointer;padding:0"></button>
+              <button onclick="document.getElementById('mapa-cor-rodovia').value='#27AE60';atualizarCorRodovia('#27AE60')" title="Verde"
+                style="width:16px;height:16px;background:#27AE60;border:1.5px solid #ccc;border-radius:3px;cursor:pointer;padding:0"></button>
+              <button onclick="document.getElementById('mapa-cor-rodovia').value='#F39C12';atualizarCorRodovia('#F39C12')" title="Laranja"
+                style="width:16px;height:16px;background:#F39C12;border:1.5px solid #ccc;border-radius:3px;cursor:pointer;padding:0"></button>
+              <button onclick="document.getElementById('mapa-cor-rodovia').value='#8E44AD';atualizarCorRodovia('#8E44AD')" title="Roxo"
+                style="width:16px;height:16px;background:#8E44AD;border:1.5px solid #ccc;border-radius:3px;cursor:pointer;padding:0"></button>
+            </div>
+            <button class="btn btn-sm" onclick="lrSincronizarTRECHOS()"
                 style="font-size:0.63rem;padding:0.2rem 0.65rem;background:var(--verde);color:#fff"
                 title="Lê os trechos definidos na aba principal e pinta no mapa">
                 ↺ Sincronizar com Trechos
@@ -5152,6 +5176,8 @@ function gerarPreviewImpressao() {
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <!-- leaflet-image: captura mapa Leaflet como canvas para exportação PDF -->
   <script src="https://unpkg.com/leaflet-image@0.4.0/leaflet-image.js"></script>
+  <!-- html2canvas: fallback para captura do mapa -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <!-- Turf.js: Linear Referencing — lineSlice, length, along, lineString (AKE REV-18) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
 
@@ -5927,12 +5953,15 @@ async function highlightRoadOnMap(road) {
         (f.properties || {}).SITUACAO   ||
         (f.properties || {}).situacao   || ""
       );
-      let cor = sheet.cor;
-      if (sit.startsWith("PAV")) cor = "#007B3E";
-      if (sit.startsWith("DUP")) cor = "#1565C0";
-      if (sit.startsWith("LEI")) cor = "#F5A623";
-      if (sit.startsWith("PLA")) cor = "#8896A8";
-      return { color: cor, weight: 5, opacity: 0.95, lineJoin: "round", lineCap: "round" };
+      const corUsuario = document.getElementById("mapa-cor-rodovia")?.value || null;
+      let cor = corUsuario || sheet.cor;
+      if (!corUsuario) {
+        if (sit.startsWith("PAV")) cor = "#007B3E";
+        if (sit.startsWith("DUP")) cor = "#1565C0";
+        if (sit.startsWith("LEI")) cor = "#F5A623";
+        if (sit.startsWith("PLA")) cor = "#8896A8";
+      }
+      return { color: cor, weight: 6, opacity: 0.97, lineJoin: "round", lineCap: "round" };
     },
     onEachFeature: (feature, layer) => {
       const p   = feature.properties || {};
@@ -6018,6 +6047,74 @@ function recarregarMapa() {
   // AKE REV-18: limpa trechos LR ao recarregar mapa
   lrLimparTodos();
   if (_selectedRoad) highlightRoadOnMap(_selectedRoad);
+}
+
+/** Atualiza a cor do traçado principal sem recarregar do servidor */
+function atualizarCorRodovia(novaCor) {
+  if (_layerSelected) {
+    _layerSelected.setStyle({ color: novaCor, weight: 6, opacity: 0.97 });
+  }
+  // Atualiza legenda
+  const leg = document.getElementById("mapa-legenda");
+  if (leg) {
+    const dot = leg.querySelector("div > div");
+    if (dot) dot.style.background = novaCor;
+  }
+}
+
+/** Exporta o mapa como PNG centralizado na rodovia */
+function exportarMapaPNG() {
+  if (!_leafletMap) { alert("Abra a aba Memorial e selecione uma rodovia primeiro."); return; }
+
+  // Centraliza no traçado antes de capturar
+  try {
+    if (_layerSelected) {
+      _leafletMap.fitBounds(_layerSelected.getBounds(), { padding: [30, 30], animate: false });
+    }
+  } catch(e) {}
+
+  setMapaStatus("📷 Gerando PNG...");
+
+  const rodNome = (_selectedRoad?.nome || _selectedRoad?.codigo || "mapa")
+    .replace(/[^a-zA-Z0-9_\-]/g, "_");
+
+  // Usa leaflet-image se disponível
+  setTimeout(() => {
+    if (typeof leafletImage === "function") {
+      leafletImage(_leafletMap, function(err, canvas) {
+        if (err || !canvas) {
+          setMapaStatus("❌ Erro ao gerar PNG: " + (err?.message || "sem canvas"));
+          return;
+        }
+        // Adiciona marca d'água
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "rgba(0,45,114,0.75)";
+        ctx.fillRect(8, canvas.height - 28, 240, 20);
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 11px Arial";
+        ctx.fillText("SEINFRA/AM · " + (rodNome.replace(/_/g," ")), 14, canvas.height - 13);
+
+        const url = canvas.toDataURL("image/png");
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "mapa_" + rodNome + "_" + new Date().toISOString().slice(0,10) + ".png";
+        a.click();
+        setMapaStatus("✅ PNG exportado");
+      });
+    } else if (typeof html2canvas === "function") {
+      const container = document.getElementById("mapa-rodovia");
+      html2canvas(container, { useCORS: true, allowTaint: true, scale: 2 }).then(canvas => {
+        const url = canvas.toDataURL("image/png");
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "mapa_" + rodNome + "_" + new Date().toISOString().slice(0,10) + ".png";
+        a.click();
+        setMapaStatus("✅ PNG exportado");
+      }).catch(e => setMapaStatus("❌ Erro html2canvas: " + e.message));
+    } else {
+      setMapaStatus("⚠️ Plugin de captura não disponível — tente imprimir a página (Ctrl+P)");
+    }
+  }, 400);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -6166,8 +6263,8 @@ async function lrPintarTrecho(kmIni, kmFim, cor, label) {
   const layerPoly = L.geoJSON(segmento, {
     style: {
       color:     cor,
-      weight:    8,
-      opacity:   0.88,
+      weight:    10,
+      opacity:   0.92,
       lineJoin:  "round",
       lineCap:   "round",
     }
@@ -6188,15 +6285,19 @@ async function lrPintarTrecho(kmIni, kmFim, cor, label) {
   const ptA = coordsSeq[0];
   const ptZ = coordsSeq[coordsSeq.length - 1];
 
-  const mkStyle = (kmVal, bgCor) => `
-    background:${bgCor};color:#fff;border:2px solid #fff;border-radius:4px;
-    font-family:'Outfit',sans-serif;font-size:0.6rem;font-weight:700;
-    padding:2px 5px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.25)`;
-
   const mkIcon = (kmVal, bgCor) => L.divIcon({
     className: "",
-    html: `<div style="${mkStyle(kmVal, bgCor)}">KM ${kmVal.toFixed(1)}</div>`,
-    iconAnchor: [20, 10]
+    html: `<div style="
+      position:relative;display:flex;flex-direction:column;align-items:center;pointer-events:none">
+      <div style="
+        background:${bgCor};color:#fff;border:1.5px solid #fff;border-radius:3px;
+        font-family:'Outfit',sans-serif;font-size:0.55rem;font-weight:700;
+        padding:1px 4px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.35);
+        line-height:1.3">KM ${kmVal.toFixed(1)}</div>
+      <div style="width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:6px solid ${bgCor}"></div>
+    </div>`,
+    iconAnchor: [16, 22],
+    iconSize: [32, 22]
   });
 
   const layerMarkers = L.layerGroup([
