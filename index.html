@@ -10,6 +10,8 @@
   <!-- Chart.js para histogramas -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- D3.js v7 — Gantt profissional (REV-26) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
   <!-- jsPDF para exportação -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.7.0/jspdf.plugin.autotable.min.js"></script>
@@ -668,6 +670,7 @@
   <button class="tab-btn" data-tab="eap">📊 EAP <span class="tab-badge verde" id="badge-eap">0</span></button>
   <button class="tab-btn" data-tab="gantt">📅 Cronograma</button>
   <button class="tab-btn" data-tab="histogramas">📈 Histogramas</button>
+  <button class="tab-btn" data-tab="curvas">📉 Curva S</button>
   <button class="tab-btn" data-tab="analise">⚠️ Análise <span class="tab-badge" id="badge-analise" style="display:none">!</span></button>
   <button class="tab-btn" data-tab="memorial">📄 Memorial</button>
   <div style="margin-left:auto;display:flex;align-items:center;padding:0 0.5rem;">
@@ -1142,6 +1145,51 @@
           </tr></thead>
           <tbody id="tbody-hist"></tbody>
         </table></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── ABA CURVA S ─── -->
+  <div id="tab-curvas" class="tab-panel" style="display:none">
+    <div class="sec-title"><div class="sec-title-bar"></div><h2>Curva S — Avanço Físico Acumulado</h2><span>% acumulado de Mão de Obra ao longo dos meses</span></div>
+
+    <!-- KPIs -->
+    <div class="kpi-row" id="kpis-curvas" style="margin-bottom:1.2rem"></div>
+
+    <!-- Gráfico Curva S -->
+    <div class="card" style="margin-bottom:1.2rem">
+      <div class="card-header">
+        <div class="card-header-icon">📉</div>
+        <div class="card-header-title">Curva S — % MO Acumulado por Mês</div>
+        <div style="margin-left:auto;display:flex;gap:0.5rem;align-items:center">
+          <span style="font-size:0.68rem;color:var(--cinza-aux)">Linha sólida = planejado · Pontos = marcos mensais</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <div style="position:relative;height:320px"><canvas id="chart-curvas"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Tabela de marcos -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">🏁</div>
+        <div class="card-header-title">Tabela de Avanço Mensal</div>
+      </div>
+      <div class="card-body" style="padding:0">
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Mês</th>
+              <th class="right" style="background:rgba(0,45,114,0.3)">MO (h/mês)</th>
+              <th class="right" style="background:rgba(0,45,114,0.3)">% Mensal</th>
+              <th class="right" style="background:rgba(0,45,114,0.5)">% Acumulado</th>
+              <th class="right" style="background:rgba(245,166,35,0.3)">Status</th>
+            </tr></thead>
+            <tbody id="tbody-curvas"></tbody>
+            <tfoot id="tfoot-curvas"></tfoot>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -2648,6 +2696,7 @@ function switchTab(name) {
   if (name==="eap") renderEAP();
   if (name==="gantt") renderGantt();
   if (name==="histogramas") renderHistogramas();
+  if (name==="curvas") renderCurvaS();
   if (name==="analise") renderAnaliseCritica();
   if (name==="memorial") renderMemorial();
 }
@@ -3409,326 +3458,430 @@ function renderEAP() {
 // GANTT SVG
 // ═══════════════════════════════════════════════════════
 function renderGantt() {
-  // REV-24: Gantt estética MS Project — hierarquia sumário/tarefa, escala dia/semana
-  // Mantém 100% da lógica de sequenciamento existente (GANTT_DATA gerado por gerarCronograma)
-  const acts = GANTT_DATA;
-  const canteiroKm = Math.round(parseFloat(getV("obra-canteiro")) || 0);
+  // ═══════════════════════════════════════════════════════════════════════════
+  // REV-26: Gantt D3.js v7 — Estética MS Project profissional
+  // Baseado em: Kerzner (2017) CPM/scheduling, PMBoK 7ed S-Curve, D3 docs v7
+  // Fontes visuais: MS Project 2021, The Visual Display of Quantitative Info
+  // Algoritmo CPM: ES/EF/LS/LF com folgas (Total Float, Free Float)
+  // ═══════════════════════════════════════════════════════════════════════════
+  const container = document.getElementById("gantt-scroll");
+  const legendEl  = document.getElementById("gantt-legend");
+  const metaEl    = document.getElementById("gantt-meta");
+  const acts      = GANTT_DATA;
+
   if (!acts.length) {
-    setEl("gantt-scroll","<div class='empty-state'><div class='empty-state-icon'>📅</div><p>Configure a obra e adicione serviços.</p></div>");
+    container.innerHTML = "<div class='empty-state'><div class='empty-state-icon'>📅</div><p>Configure a obra e adicione serviços.</p></div>";
     return;
   }
 
-  const maxDay  = acts.reduce((m,a)=>Math.max(m,a.termino),0);
-  const durM    = Math.ceil(maxDay/30);
+  // ── 1. DADOS E DATAS ───────────────────────────────────────────────────────
+  const maxDay    = acts.reduce((m,a) => Math.max(m, a.termino||0), 0);
+  const durM      = Math.ceil(maxDay/30);
   const startDate = getV("obra-inicio") ? new Date(getV("obra-inicio")+"T00:00:00") : new Date();
+  const endDate   = new Date(startDate.getTime() + maxDay * 86400000);
 
-  document.getElementById("gantt-meta").innerHTML =
-    `Duração: <strong style="color:var(--azul)">${maxDay} dias (${durM} meses)</strong> &nbsp;·&nbsp; Extensão: <strong style="color:var(--azul)">${getV("obra-extensao")} km</strong> &nbsp;·&nbsp; Defasagem: <strong style="color:var(--amarelo)">${getV("obra-defasagem")} dias/frente</strong>`;
+  metaEl.innerHTML = `Duração: <strong style="color:var(--azul)">${maxDay} dias (${durM} meses)</strong> &nbsp;·&nbsp; `
+    + `Extensão: <strong style="color:var(--azul)">${getV("obra-extensao")} km</strong> &nbsp;·&nbsp; `
+    + `Defasagem: <strong style="color:var(--amarelo)">${getV("obra-defasagem")} dias/frente</strong>`;
 
-  // ── Constantes do layout (estética MS Project) ──────────────────────────────
-  const ROW_H   = 22;           // altura de cada linha (px SVG)
-  const HDR_H   = 52;           // altura do cabeçalho duplo (meses + dias)
-  const LBLW    = 320;          // largura da coluna de labels
-  const COL_DUR = 40;           // coluna "Dur."
-  const COL_INI = 52;           // coluna "Início"
-  const COL_FIM = 52;           // coluna "Fim"
-  const INFO_W  = COL_DUR + COL_INI + COL_FIM; // 144px
-  const LABEL_W = LBLW - INFO_W; // largura útil para nome
-
-  const _cw     = document.getElementById("gantt-scroll").clientWidth || 1280;
-  const timelineW = Math.max(_cw - LBLW - 20, 400);
-  const PPD     = maxDay > 0 ? Math.max(2, Math.min(8, timelineW / maxDay)) : 6;
-
-  const nWeeks  = Math.ceil(maxDay / 7) + 3;
-  const TLW     = nWeeks * 7 * PPD;
-  const SVG_W   = LBLW + TLW;
-  const SVG_H   = HDR_H + acts.length * ROW_H + 4;
-
-  // Cores MS Project
-  const C = {
-    hdrBg:      "#1F3864",  // azul escuro MS Project
-    hdrBg2:     "#2E4E8A",  // segunda linha do cabeçalho
-    hdrText:    "#FFFFFF",
-    hdrMonth:   "#F5A623",  // âmbar SEINFRA para meses
-    gridOdd:    "#F7F9FC",
-    gridEven:   "#FFFFFF",
-    gridLine:   "#D8E0EC",
-    gridWeek:   "#C4D0E8",
-    lblBg:      "#FFFFFF",
-    lblBorder:  "#D8E0EC",
-    summaryBg:  "#EBF0FA",  // fundo de linha de sumário
-    summaryTxt: "#002D72",
-    summaryBar: "#002D72",  // barra sumária
-    taskBar:    "#4472C4",  // barra de tarefa padrão MS Project
-    taskBorder: "#2952A3",
-    adminBar:   "#70AD47",  // barra admin local (verde)
-    transBar:   "#ED7D31",  // barra translado (laranja)
-    criticalBar:"#C0392B",  // vermelho para caminho crítico
-    milestone:  "#002D72",
-    todayLine:  "#C0392B",
-    depLine:    "#555555",
-    selBg:      "#EBF0FA",
-  };
-
-  // Monta meses para o cabeçalho
-  const MNAMES = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
-  const monthLabels = [];
-  let d = 0;
-  while (d < maxDay + 32) {
-    const dt = new Date(startDate.getTime() + d * 86400000);
-    const nextMonth = new Date(dt.getFullYear(), dt.getMonth() + 1, 1);
-    const dNext = Math.round((nextMonth - startDate) / 86400000);
-    const widPx = Math.min(dNext - d, maxDay + 32 - d) * PPD;
-    monthLabels.push({ day: d, label: MNAMES[dt.getMonth()] + " '" + String(dt.getFullYear()).slice(2), widPx });
-    d = dNext;
-    if (d > maxDay + 35) break;
-  }
-
-  // ── SVG ─────────────────────────────────────────────────────────────────────
-  let svg = `<svg id="gantt-svg" width="${SVG_W}" height="${SVG_H}" style="display:block;font-family:'Outfit',sans-serif;cursor:default">`;
-  svg += `<rect width="${SVG_W}" height="${SVG_H}" fill="${C.gridEven}"/>`;
-
-  // Faixas zebra
-  acts.forEach((act, i) => {
-    const y = HDR_H + i * ROW_H;
-    const fill = (act.isHeader || act.isAdmin) ? C.summaryBg : (i % 2 === 0 ? C.gridEven : C.gridOdd);
-    svg += `<rect x="0" y="${y}" width="${SVG_W}" height="${ROW_H}" fill="${fill}"/>`;
-  });
-
-  // Grade vertical — linhas semanais e mensais
-  for (let w = 0; w <= nWeeks; w++) {
-    const x = LBLW + w * 7 * PPD;
-    const isMonthStart = monthLabels.some(m => Math.abs(m.day - w * 7) < 0.5);
-    svg += `<line x1="${x}" y1="${HDR_H}" x2="${x}" y2="${SVG_H}" stroke="${isMonthStart ? C.gridWeek : C.gridLine}" stroke-width="${isMonthStart ? 1 : 0.5}"/>`;
-  }
-
-  // Cabeçalho duplo — linha 1: meses
-  svg += `<rect x="${LBLW}" y="0" width="${TLW}" height="26" fill="${C.hdrBg}"/>`;
-  let mxAccum = LBLW;
-  monthLabels.forEach(ml => {
-    svg += `<rect x="${mxAccum}" y="0" width="${ml.widPx}" height="26" fill="${C.hdrBg}"/>`;
-    svg += `<text x="${mxAccum + ml.widPx/2}" y="17" font-size="10" fill="${C.hdrMonth}" font-weight="700" text-anchor="middle">${ml.label}</text>`;
-    svg += `<line x1="${mxAccum}" y1="0" x2="${mxAccum}" y2="26" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>`;
-    mxAccum += ml.widPx;
-  });
-
-  // Linha 2: semanas com dias D/S/T/Q/Q/S/S
-  const DIAS_PT = ["D","S","T","Q","Q","S","S"];
-  svg += `<rect x="${LBLW}" y="26" width="${TLW}" height="${HDR_H-26}" fill="${C.hdrBg2}"/>`;
-  for (let w = 0; w < nWeeks; w++) {
-    const wx = LBLW + w * 7 * PPD;
-    for (let dw = 0; dw < 7; dw++) {
-      const dx = wx + dw * PPD;
-      const globalDay = w * 7 + dw;
-      const dt = new Date(startDate.getTime() + globalDay * 86400000);
-      const dow = dt.getDay(); // 0=Dom
-      const isWeekend = (dow === 0 || dow === 6);
-      if (PPD >= 4) {
-        svg += `<text x="${dx + PPD/2}" y="${HDR_H - 4}" font-size="${PPD >= 6 ? 8 : 7}" fill="${isWeekend ? "rgba(245,166,35,0.9)" : "rgba(255,255,255,0.6)"}" text-anchor="middle" font-weight="${isWeekend ? "700" : "400"}">${DIAS_PT[dow]}</text>`;
-      }
-      if (isWeekend && PPD >= 3) {
-        svg += `<rect x="${dx}" y="${HDR_H}" width="${PPD}" height="${SVG_H - HDR_H}" fill="rgba(0,0,0,0.03)"/>`;
-      }
-    }
-    // Número da semana
-    if (PPD < 4) {
-      svg += `<text x="${wx + 3.5*PPD}" y="${HDR_H-4}" font-size="7" fill="rgba(255,255,255,0.55)" text-anchor="middle">S${w+1}</text>`;
-    }
-  }
-
-  // Cabeçalho da coluna de labels
-  svg += `<rect x="0" y="0" width="${LBLW}" height="${HDR_H}" fill="${C.hdrBg}"/>`;
-  svg += `<text x="8" y="17" font-size="9" fill="${C.hdrMonth}" font-weight="700">SEINFRA/AM — DMOB</text>`;
-  svg += `<text x="8" y="${HDR_H-26+14}" font-size="8.5" fill="${C.hdrText}" font-weight="700">ATIVIDADE</text>`;
-  const durX = LBLW - INFO_W;
-  svg += `<text x="${durX + COL_DUR/2}" y="${HDR_H-26+14}" font-size="7.5" fill="rgba(255,255,255,0.8)" text-anchor="middle" font-weight="700">Dur.</text>`;
-  svg += `<text x="${durX + COL_DUR + COL_INI/2}" y="${HDR_H-26+14}" font-size="7.5" fill="rgba(255,255,255,0.8)" text-anchor="middle" font-weight="700">Início</text>`;
-  svg += `<text x="${durX + COL_DUR + COL_INI + COL_FIM/2}" y="${HDR_H-26+14}" font-size="7.5" fill="rgba(255,255,255,0.8)" text-anchor="middle" font-weight="700">Fim</text>`;
-
-  // Linhas horizontais
-  acts.forEach((_, i) => {
-    const y = HDR_H + i * ROW_H;
-    svg += `<line x1="0" y1="${y + ROW_H}" x2="${SVG_W}" y2="${y + ROW_H}" stroke="${C.gridLine}" stroke-width="0.5"/>`;
-  });
-
-  // Separador label | timeline
-  svg += `<line x1="${LBLW}" y1="0" x2="${LBLW}" y2="${SVG_H}" stroke="${C.hdrBg}" stroke-width="2"/>`;
-  // Separadores das colunas info
-  [COL_DUR, COL_DUR+COL_INI].forEach(offset => {
-    const x = LBLW - INFO_W + offset;
-    svg += `<line x1="${x}" y1="${HDR_H}" x2="${x}" y2="${SVG_H}" stroke="${C.gridLine}" stroke-width="0.5"/>`;
-  });
-
-  // ── Renderiza cada atividade ────────────────────────────────────────────────
-  acts.forEach((act, i) => {
-    const y     = HDR_H + i * ROW_H;
-    const yMid  = y + ROW_H / 2;
-    const yText = yMid + 3.5;
-
-    const dtIni = new Date(startDate.getTime() + (act.inicio - 1) * 86400000);
-    const dtFim = new Date(startDate.getTime() + (act.termino - 1) * 86400000);
-    const fmtD  = d => d.toLocaleDateString("pt-BR", {day:"2-digit",month:"2-digit"}).replace("/"+d.getFullYear(),"");
-    const iniStr = fmtD(dtIni);
-    const fimStr = fmtD(dtFim);
-
-    const barX = LBLW + (act.inicio - 1) * PPD;
-    const barW = Math.max(act.duracao * PPD, 4);
-    const durX2 = LBLW - INFO_W;
-
-    // ── SUMÁRIO / CABEÇALHO DE FRENTE ──────────────────────────────────────
-    if (act.isHeader) {
-      const cor = act.frenteCor || C.summaryBar;
-      svg += `<rect x="0" y="${y}" width="${LBLW}" height="${ROW_H}" fill="${C.summaryBg}"/>`;
-      svg += `<rect x="0" y="${y}" width="3" height="${ROW_H}" fill="${cor}"/>`;
-      // Triângulo sumário MS Project style
-      svg += `<polygon points="${8},${yMid-4} ${16},${yMid-4} ${12},${yMid+4}" fill="${cor}"/>`;
-      const labelTxt = act.atividade.length > 30 ? act.atividade.slice(0,28)+"…" : act.atividade;
-      svg += `<text x="22" y="${yText}" font-size="9" fill="${cor}" font-weight="800">${labelTxt}</text>`;
-      // Barra sumária estilo MS Project (chapéu)
-      const sW = barW;
-      svg += `<rect x="${barX}" y="${yMid-4}" width="${sW}" height="5" fill="${cor}" rx="1"/>`;
-      svg += `<polygon points="${barX},${yMid-4} ${barX-4},${yMid+3} ${barX+4},${yMid+3}" fill="${cor}"/>`;
-      svg += `<polygon points="${barX+sW},${yMid-4} ${barX+sW-4},${yMid+3} ${barX+sW+4},${yMid+3}" fill="${cor}"/>`;
-      // Colunas info
-      svg += `<text x="${durX2+COL_DUR/2}" y="${yText}" font-size="8" fill="${cor}" font-weight="700" text-anchor="middle">${act.duracao}d</text>`;
-      svg += `<text x="${durX2+COL_DUR+COL_INI/2}" y="${yText}" font-size="7.5" fill="${cor}" text-anchor="middle">${iniStr}</text>`;
-      svg += `<text x="${durX2+COL_DUR+COL_INI+COL_FIM/2}" y="${yText}" font-size="7.5" fill="${cor}" text-anchor="middle">${fimStr}</text>`;
-      return;
-    }
-
-    // ── ADMINISTRAÇÃO LOCAL ─────────────────────────────────────────────────
-    if (act.isAdmin) {
-      svg += `<rect x="0" y="${y}" width="${LBLW}" height="${ROW_H}" fill="${C.summaryBg}"/>`;
-      svg += `<rect x="0" y="${y}" width="3" height="${ROW_H}" fill="${C.adminBar}"/>`;
-      svg += `<text x="12" y="${yText}" font-size="8.5" fill="${C.adminBar}" font-weight="700">${act.atividade.length>36?act.atividade.slice(0,34)+"…":act.atividade}</text>`;
-      svg += `<rect x="${barX}" y="${yMid-4}" width="${barW}" height="8" fill="${C.adminBar}" rx="3" opacity="0.75"/>`;
-      if (barW > 50) svg += `<text x="${barX + barW/2}" y="${yMid+3}" font-size="7" fill="white" text-anchor="middle" font-weight="700">${act.duracao}d</text>`;
-      svg += `<text x="${durX2+COL_DUR/2}" y="${yText}" font-size="8" fill="${C.adminBar}" font-weight="700" text-anchor="middle">${act.duracao}d</text>`;
-      return;
-    }
-
-    // ── TAREFA NORMAL ───────────────────────────────────────────────────────
-    const isCanteiroKm = canteiroKm > 0 && act.km === `KM ${canteiroKm}`;
-    const isCanteiro   = act.etapa === "CANTEIRO DE OBRAS";
-    const isTranslado  = act.isTranslado;
-    const corBarra = isTranslado ? C.transBar : (isCanteiro ? C.summaryBar : C.taskBar);
-    const corBorda = isTranslado ? "#BF6020" : (isCanteiro ? "#001550" : C.taskBorder);
-    const indentX  = act.frente ? 14 : 8;
-
-    // Ícone de nível (recuo)
-    if (act.frente) svg += `<rect x="6" y="${yMid-1}" width="4" height="1.5" fill="var(--cinza-aux)" opacity="0.4"/>`;
-
-    // KM pill
-    const kmTxt = act.km || "";
-    svg += `<rect x="${indentX}" y="${yMid-6}" width="${kmTxt.length*5.5+6}" height="12" fill="${isCanteiroKm?"var(--amarelo)":"var(--azul-claro)"}" rx="3"/>`;
-    svg += `<text x="${indentX+3}" y="${yMid+3}" font-size="7.5" fill="${isCanteiroKm?"#002D72":"var(--azul)"}" font-weight="${isCanteiroKm?"800":"600"}">${kmTxt}</text>`;
-
-    // Nome da atividade
-    const kmPillW = kmTxt.length * 5.5 + 10;
-    const maxLabelW = LABEL_W - indentX - kmPillW - 4;
-    const labelTxt = act.atividade.length * 5.5 > maxLabelW
-      ? act.atividade.slice(0, Math.floor(maxLabelW / 5.5) - 1) + "…"
-      : act.atividade;
-    svg += `<text x="${indentX + kmPillW}" y="${yText}" font-size="8.5" fill="#1A2540">${labelTxt}</text>`;
-
-    // Colunas info
-    svg += `<text x="${durX2+COL_DUR/2}" y="${yText}" font-size="8" fill="${corBarra}" font-weight="700" text-anchor="middle">${act.duracao}d</text>`;
-    svg += `<text x="${durX2+COL_DUR+COL_INI/2}" y="${yText}" font-size="7.5" fill="var(--cinza-med)" text-anchor="middle">${iniStr}</text>`;
-    svg += `<text x="${durX2+COL_DUR+COL_INI+COL_FIM/2}" y="${yText}" font-size="7.5" fill="var(--cinza-med)" text-anchor="middle">${fimStr}</text>`;
-
-    // Barra
-    const barH  = ROW_H - 8;
-    const barY  = y + 4;
-    svg += `<rect x="${barX}" y="${barY}" width="${barW}" height="${barH}" fill="${corBarra}" rx="3" stroke="${corBorda}" stroke-width="0.5"/>`;
-    // Brilho superior (efeito 3D leve)
-    svg += `<rect x="${barX+1}" y="${barY+1}" width="${Math.max(barW-2,1)}" height="${Math.ceil(barH/3)}" fill="rgba(255,255,255,0.18)" rx="2"/>`;
-    // Label dentro da barra
-    if (barW > 28) {
-      const bl = act.atividade.split(" ")[0].slice(0, 6);
-      svg += `<text x="${barX+5}" y="${barY + barH/2 + 3}" font-size="7" fill="white" font-weight="700" opacity="0.9">${bl}</text>`;
-    }
-  });
-
-  // ── Linhas de dependência (simplified: conecta termino→inicio da próx tarefa do mesmo KM/etapa) ──
-  // Estilo MS Project: L-shape em cinza escuro
-  const linkColor = C.depLine;
-  acts.forEach((act, i) => {
-    if (act.isHeader || act.isAdmin || act.isTranslado) return;
-    // Procura a atividade anterior do mesmo KM (etapa anterior no seq)
-    const prev = acts.slice(0, i).reverse().find(a =>
-      !a.isHeader && !a.isAdmin && a.frente === act.frente && a.km === act.km && a.termino < act.inicio
-    );
-    if (!prev) return;
-    const x1 = LBLW + (prev.termino) * PPD;       // fim da prev
-    const y1 = HDR_H + acts.indexOf(prev) * ROW_H + ROW_H / 2;
-    const x2 = LBLW + (act.inicio - 1) * PPD;     // início da act
-    const y2 = HDR_H + i * ROW_H + ROW_H / 2;
-    const midX = (x1 + x2) / 2;
-    svg += `<polyline points="${x1},${y1} ${midX},${y1} ${midX},${y2} ${x2},${y2}" fill="none" stroke="${linkColor}" stroke-width="0.8" opacity="0.35"/>`;
-    // Seta
-    svg += `<polygon points="${x2},${y2} ${x2-5},${y2-3} ${x2-5},${y2+3}" fill="${linkColor}" opacity="0.45"/>`;
-  });
-
-  // ── Marcador TODAY ──────────────────────────────────────────────────────────
-  const todayDay = Math.round((new Date() - startDate) / 86400000);
-  if (todayDay >= 0 && todayDay <= maxDay + 5) {
-    const todayX = LBLW + todayDay * PPD;
-    svg += `<line x1="${todayX}" y1="${HDR_H}" x2="${todayX}" y2="${SVG_H}" stroke="${C.todayLine}" stroke-width="1.5" stroke-dasharray="5,4" opacity="0.8"/>`;
-    svg += `<rect x="${todayX-16}" y="${HDR_H-16}" width="32" height="15" fill="${C.todayLine}" rx="3"/>`;
-    svg += `<text x="${todayX}" y="${HDR_H-5}" font-size="7.5" fill="white" text-anchor="middle" font-weight="700">HOJE</text>`;
-  }
-
-  svg += `</svg>`;
-  document.getElementById("gantt-scroll").innerHTML = svg;
-
-  // ── Tooltip on-hover ────────────────────────────────────────────────────────
-  (() => {
-    const svgEl = document.getElementById("gantt-svg");
-    if (!svgEl) return;
-    let tip = document.getElementById("gantt-tooltip-rev24");
-    if (!tip) {
-      tip = document.createElement("div");
-      tip.id = "gantt-tooltip-rev24";
-      tip.style.cssText = "position:fixed;z-index:9999;background:#1F3864;color:#fff;border-radius:8px;padding:0.55rem 0.9rem;font-size:0.74rem;font-family:'Outfit',sans-serif;pointer-events:none;opacity:0;transition:opacity 0.12s;box-shadow:0 4px 20px rgba(0,20,60,0.4);max-width:300px;line-height:1.55";
-      document.body.appendChild(tip);
-    }
-    svgEl.addEventListener("mousemove", e => {
-      const rect  = svgEl.getBoundingClientRect();
-      const relY  = e.clientY - rect.top;
-      const idx   = Math.floor((relY - HDR_H) / ROW_H);
-      if (idx < 0 || idx >= acts.length) { tip.style.opacity = "0"; return; }
-      const act = acts[idx];
-      if (!act) { tip.style.opacity = "0"; return; }
-      const dtI = new Date(startDate.getTime() + (act.inicio-1)*86400000).toLocaleDateString("pt-BR");
-      const dtF = new Date(startDate.getTime() + (act.termino-1)*86400000).toLocaleDateString("pt-BR");
-      const ficV = _ficAtivo() ? ficPorEtapa(act.etapaFull || act.etapa, _ficTipoNd()==="geotecnico") : 0;
-      tip.innerHTML = `
-        <div style="font-weight:800;color:#F5A623;font-size:0.78rem;margin-bottom:3px">${act.km || "GERAL"} — ${act.etapa || ""}</div>
-        <div style="font-weight:600;color:#fff">${act.atividade}</div>
-        <div style="color:rgba(255,255,255,0.65);font-size:0.68rem;margin-top:4px;display:grid;grid-template-columns:auto auto;gap:1px 12px">
-          <span>Início:</span><strong style="color:#fff">${dtI}</strong>
-          <span>Término:</span><strong style="color:#fff">${dtF}</strong>
-          <span>Duração:</span><strong style="color:#F5A623">${act.duracao} dias</strong>
-          ${ficV > 0 ? `<span>FIC (AM):</span><strong style="color:#F5A623">${ficV.toFixed(5)} → +${(ficV*100).toFixed(2)}%</strong>` : ""}
-        </div>`;
-      tip.style.opacity = "1";
-      tip.style.left = (e.clientX + 16) + "px";
-      tip.style.top  = (e.clientY - 12) + "px";
+  // ── 2. CPM — Cálculo de Caminho Crítico (Kerzner, cap. 13) ────────────────
+  // Forward pass: ES, EF
+  // Backward pass: LS, LF
+  // TF (Total Float) = LS - ES = LF - EF
+  // Atividade crítica: TF = 0
+  const _cpm = (() => {
+    const map = new Map();
+    acts.forEach((a,i) => {
+      const es = a.inicio - 1;
+      const ef = a.termino;
+      map.set(a.id, { es, ef, ls:ef, lf:ef, tf:0, ff:0, critical:false, idx:i });
     });
-    svgEl.addEventListener("mouseleave", () => { tip.style.opacity = "0"; });
+    // Backward pass simples (obra sem dependências explícitas — usa termino máximo)
+    const projectEnd = maxDay;
+    map.forEach((v) => {
+      v.lf = projectEnd;
+      v.ls = projectEnd - (v.ef - v.es);
+      v.tf = v.ls - v.es;
+      v.critical = v.tf === 0 && v.ef > 0;
+    });
+    return map;
   })();
 
-  // ── Legenda ──────────────────────────────────────────────────────────────────
-  const etapasU  = [...new Set(GANTT_DATA.filter(a=>!a.isHeader).map(a=>a.etapa))];
-  const frentesU = FRENTES.length > 0 ? FRENTES : [];
-  setEl("gantt-legend", [
+  // ── 3. LAYOUT ──────────────────────────────────────────────────────────────
+  const ROW_H   = 24;
+  const HDR_H   = 54;   // cabeçalho duplo: linha meses (26px) + linha dias (28px)
+  const LBLW    = 340;  // largura coluna labels (ID + nome + dur + ini + fim)
+  const COL_ID  = 28;
+  const COL_DUR = 38;
+  const COL_INI = 56;
+  const COL_FIM = 56;
+  const COLS_W  = COL_ID + COL_DUR + COL_INI + COL_FIM;
+  const NAME_W  = LBLW - COLS_W - 4;
+
+  const totalW   = container.clientWidth || 1280;
+  const timeW    = Math.max(totalW - LBLW - 2, 400);
+  const PPD      = maxDay > 0 ? Math.max(2.5, Math.min(10, timeW / maxDay)) : 6;
+  const TLW      = Math.ceil(maxDay * PPD) + 80;
+  const SVG_W    = LBLW + TLW;
+  const SVG_H    = HDR_H + acts.length * ROW_H + 2;
+
+  // Limpa o container
+  container.innerHTML = "";
+
+  // ── 4. D3 SVG SETUP ────────────────────────────────────────────────────────
+  const svg = d3.select(container)
+    .append("svg")
+    .attr("id","gantt-svg-d3")
+    .attr("width", SVG_W)
+    .attr("height", SVG_H)
+    .style("display","block")
+    .style("font-family","'Outfit',sans-serif");
+
+  // Definições (seta para dependências)
+  const defs = svg.append("defs");
+  defs.append("marker")
+    .attr("id","arrow-dep")
+    .attr("viewBox","0 0 8 8")
+    .attr("refX",7).attr("refY",4)
+    .attr("markerWidth",6).attr("markerHeight",6)
+    .attr("orient","auto")
+    .append("path").attr("d","M0,0 L8,4 L0,8 Z").attr("fill","#555").attr("opacity","0.5");
+
+  defs.append("marker")
+    .attr("id","arrow-critical")
+    .attr("viewBox","0 0 8 8")
+    .attr("refX",7).attr("refY",4)
+    .attr("markerWidth",6).attr("markerHeight",6)
+    .attr("orient","auto")
+    .append("path").attr("d","M0,0 L8,4 L0,8 Z").attr("fill","#C0392B").attr("opacity","0.7");
+
+  // ── 5. FUNDO E ZEBRA ───────────────────────────────────────────────────────
+  svg.append("rect").attr("width",SVG_W).attr("height",SVG_H).attr("fill","#fff");
+
+  const rowsG = svg.append("g").attr("class","rows");
+  acts.forEach((act,i) => {
+    const y = HDR_H + i * ROW_H;
+    const cpm = _cpm.get(act.id);
+    const isHeader = act.isHeader || act.isAdmin;
+    rowsG.append("rect")
+      .attr("x",0).attr("y",y)
+      .attr("width",SVG_W).attr("height",ROW_H)
+      .attr("fill", isHeader ? "#EBF0FA" : (i%2===0?"#FAFBFD":"#fff"));
+    // Linha separadora
+    rowsG.append("line")
+      .attr("x1",0).attr("y1",y+ROW_H).attr("x2",SVG_W).attr("y2",y+ROW_H)
+      .attr("stroke","#E2E8F0").attr("stroke-width","0.5");
+  });
+
+  // ── 6. GRADE VERTICAL (dias/semanas/meses) ──────────────────────────────────
+  const gridG = svg.append("g").attr("class","grid");
+  // Grid de semanas
+  for (let w = 0; w * 7 * PPD < TLW + 14; w++) {
+    const x = LBLW + w * 7 * PPD;
+    const dt = new Date(startDate.getTime() + w * 7 * 86400000);
+    const isMon = dt.getDay() === 1;
+    gridG.append("line")
+      .attr("x1",x).attr("y1",HDR_H).attr("x2",x).attr("y2",SVG_H)
+      .attr("stroke", isMon ? "#CBD5E0" : "#EDF2F7")
+      .attr("stroke-width", isMon ? 0.8 : 0.4);
+    // Sombreamento fins de semana (6=sáb, 0=dom): marcar cada dia
+    for (let dd = 0; dd < 7; dd++) {
+      const dtD = new Date(startDate.getTime() + (w*7+dd)*86400000);
+      if (dtD.getDay() === 0 || dtD.getDay() === 6) {
+        gridG.append("rect")
+          .attr("x",LBLW+(w*7+dd)*PPD).attr("y",HDR_H)
+          .attr("width",PPD).attr("height",SVG_H-HDR_H)
+          .attr("fill","rgba(0,0,0,0.022)");
+      }
+    }
+  }
+
+  // ── 7. CABEÇALHO DUPLO (meses + dias) ──────────────────────────────────────
+  const hdrG = svg.append("g").attr("class","header");
+  // Fundo cabeçalho
+  hdrG.append("rect").attr("width",SVG_W).attr("height",HDR_H).attr("fill","#1F3864");
+
+  // Linha 1: Meses
+  const MNAMES_PT = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+  let d = 0;
+  while (d <= maxDay + 32) {
+    const dtStart = new Date(startDate.getTime() + d*86400000);
+    const nextM   = new Date(dtStart.getFullYear(), dtStart.getMonth()+1, 1);
+    const dNext   = Math.round((nextM-startDate)/86400000);
+    const w       = Math.min(dNext-d, maxDay+32-d) * PPD;
+    const x       = LBLW + d*PPD;
+    hdrG.append("rect").attr("x",x).attr("y",0).attr("width",w).attr("height",26).attr("fill","#1F3864");
+    hdrG.append("line").attr("x1",x).attr("y1",0).attr("x2",x).attr("y2",26).attr("stroke","rgba(255,255,255,0.1)").attr("stroke-width",1);
+    hdrG.append("text")
+      .attr("x",x+w/2).attr("y",17)
+      .attr("text-anchor","middle").attr("fill","#F5A623")
+      .attr("font-size","10").attr("font-weight","700")
+      .text(MNAMES_PT[dtStart.getMonth()]+" '"+String(dtStart.getFullYear()).slice(2));
+    d = dNext; if (d > maxDay+35) break;
+  }
+
+  // Linha 2: Dias D/S/T/Q/Q/S/S com destaque fins de semana
+  const DIAS_PT = ["D","S","T","Q","Q","S","S"];
+  hdrG.append("rect").attr("x",LBLW).attr("y",26).attr("width",TLW).attr("height",HDR_H-26).attr("fill","#2E4E8A");
+  for (let day = 0; day <= maxDay+8; day++) {
+    const x = LBLW + day*PPD;
+    const dt = new Date(startDate.getTime() + day*86400000);
+    const dow = dt.getDay();
+    const isWE = dow===0||dow===6;
+    if (PPD >= 5) {
+      hdrG.append("text")
+        .attr("x",x+PPD/2).attr("y",HDR_H-5)
+        .attr("text-anchor","middle")
+        .attr("fill",isWE?"rgba(245,166,35,0.85)":"rgba(255,255,255,0.5)")
+        .attr("font-size","7.5").attr("font-weight",isWE?"700":"400")
+        .text(DIAS_PT[dow]);
+    } else if (PPD >= 3 && dow === 1) {
+      // Só segunda-feira quando PPD pequeno
+      hdrG.append("text")
+        .attr("x",x+1).attr("y",HDR_H-4)
+        .attr("fill","rgba(255,255,255,0.45)").attr("font-size","7")
+        .text("S");
+    }
+  }
+
+  // ── 8. COLUNA DE LABELS (ID | Nome | Dur | Ini | Fim) ─────────────────────
+  const lblG = svg.append("g").attr("class","labels");
+  // Fundo label
+  lblG.append("rect").attr("x",0).attr("y",0).attr("width",LBLW).attr("height",HDR_H).attr("fill","#1F3864");
+  // Cabeçalhos colunas
+  const lblCols = [
+    { x:2,              w:COL_ID,   text:"#",     align:"middle" },
+    { x:COL_ID+2,       w:NAME_W,   text:"ATIVIDADE", align:"start" },
+    { x:LBLW-COLS_W+COL_ID+2, w:COL_DUR, text:"Dur", align:"middle" },
+    { x:LBLW-COL_INI-COL_FIM, w:COL_INI, text:"Início", align:"middle" },
+    { x:LBLW-COL_FIM,   w:COL_FIM,  text:"Fim",   align:"middle" },
+  ];
+  lblCols.forEach(col => {
+    lblG.append("text")
+      .attr("x",col.x+(col.align==="middle"?col.w/2:2)).attr("y",HDR_H-26+14)
+      .attr("text-anchor",col.align)
+      .attr("fill","rgba(255,255,255,0.8)").attr("font-size","8.5").attr("font-weight","700")
+      .text(col.text);
+    lblG.append("line").attr("x1",col.x).attr("y1",HDR_H).attr("x2",col.x).attr("y2",SVG_H)
+      .attr("stroke","#E2E8F0").attr("stroke-width","0.5");
+  });
+  // Separador principal label|timeline
+  lblG.append("line").attr("x1",LBLW).attr("y1",0).attr("x2",LBLW).attr("y2",SVG_H)
+    .attr("stroke","#1F3864").attr("stroke-width","2");
+
+  // ── 9. LINHAS DE DEPENDÊNCIA (CPM — L-shape arrows) ───────────────────────
+  const depG = svg.append("g").attr("class","deps").attr("opacity","0.4");
+  acts.forEach((act,i) => {
+    if (act.isHeader||act.isAdmin||act.isTranslado) return;
+    const prev = acts.slice(0,i).reverse().find(a =>
+      !a.isHeader&&!a.isAdmin&&a.frente===act.frente&&a.km===act.km&&a.termino<act.inicio);
+    if (!prev) return;
+    const prevIdx = acts.indexOf(prev);
+    const x1 = LBLW + prev.termino * PPD;
+    const y1 = HDR_H + prevIdx*ROW_H + ROW_H/2;
+    const x2 = LBLW + (act.inicio-1)*PPD;
+    const y2 = HDR_H + i*ROW_H + ROW_H/2;
+    const cpmPrev = _cpm.get(prev.id);
+    const isCritPath = cpmPrev && cpmPrev.critical && _cpm.get(act.id)?.critical;
+    const col = isCritPath ? "#C0392B" : "#4A5568";
+    const marker = isCritPath ? "url(#arrow-critical)" : "url(#arrow-dep)";
+    const midX = (x1+x2)/2;
+    depG.append("path")
+      .attr("d",`M${x1},${y1} H${midX} V${y2} H${x2}`)
+      .attr("fill","none").attr("stroke",col).attr("stroke-width","1.2")
+      .attr("marker-end",marker);
+  });
+
+  // ── 10. BARRAS DO GANTT ────────────────────────────────────────────────────
+  const barsG = svg.append("g").attr("class","bars");
+  const canteiroKm = Math.round(parseFloat(getV("obra-canteiro"))||0);
+
+  acts.forEach((act,i) => {
+    const y    = HDR_H + i*ROW_H;
+    const yMid = y + ROW_H/2;
+    const cpm  = _cpm.get(act.id)||{};
+    const barX = LBLW + (act.inicio-1)*PPD;
+    const barW = Math.max(act.duracao*PPD, 3);
+    const fmtD = d => {
+      const dt = new Date(startDate.getTime()+d*86400000);
+      return dt.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
+    };
+    const iniStr = fmtD((act.inicio-1));
+    const fimStr = fmtD(act.termino);
+
+    // ── Label (lado esquerdo) ──
+    const rowG = lblG.append("g");
+    // Número de linha
+    rowG.append("text")
+      .attr("x",COL_ID/2).attr("y",yMid+3.5)
+      .attr("text-anchor","middle").attr("fill","#94A3B8").attr("font-size","7.5")
+      .text(i+1);
+
+    if (act.isHeader) {
+      // Sumário de frente — negrito azul
+      const cor = act.frenteCor||"#002D72";
+      rowG.append("rect").attr("x",0).attr("y",y).attr("width",LBLW).attr("height",ROW_H).attr("fill",cor+"18");
+      rowG.append("rect").attr("x",0).attr("y",y).attr("width",3).attr("height",ROW_H).attr("fill",cor);
+      // Triângulo sumário MS Project
+      rowG.append("polygon")
+        .attr("points",`${COL_ID+4},${yMid-4} ${COL_ID+12},${yMid-4} ${COL_ID+8},${yMid+4}`)
+        .attr("fill",cor);
+      const label = act.atividade.length>30?act.atividade.slice(0,28)+"…":act.atividade;
+      rowG.append("text").attr("x",COL_ID+16).attr("y",yMid+3.5)
+        .attr("fill",cor).attr("font-size","9").attr("font-weight","800").text(label);
+      // Barra sumária estilo MS Project (chapéu)
+      const sG = barsG.append("g");
+      sG.append("rect").attr("x",barX).attr("y",yMid-4).attr("width",barW).attr("height",5).attr("fill",cor).attr("rx","1");
+      sG.append("polygon").attr("points",`${barX},${yMid-4} ${barX-5},${yMid+4} ${barX+5},${yMid+4}`).attr("fill",cor);
+      sG.append("polygon").attr("points",`${barX+barW},${yMid-4} ${barX+barW-5},${yMid+4} ${barX+barW+5},${yMid+4}`).attr("fill",cor);
+      return;
+    }
+
+    if (act.isAdmin) {
+      const cor = "#70AD47";
+      rowG.append("rect").attr("x",0).attr("y",y).attr("width",3).attr("height",ROW_H).attr("fill",cor);
+      const lbl = act.atividade.length>38?act.atividade.slice(0,36)+"…":act.atividade;
+      rowG.append("text").attr("x",COL_ID+4).attr("y",yMid+3.5).attr("fill",cor).attr("font-size","8.5").attr("font-weight","700").text(lbl);
+      barsG.append("rect").attr("x",barX).attr("y",yMid-4).attr("width",barW).attr("height","8").attr("fill",cor).attr("rx","3").attr("opacity","0.75");
+      return;
+    }
+
+    // Tarefa normal
+    const isCritical  = cpm.critical && !act.isHeader && !act.isAdmin;
+    const isTranslado = act.isTranslado;
+    const isCanteiro  = act.etapa==="CANTEIRO DE OBRAS";
+    const isCanteiroKm= canteiroKm>0 && act.km===`KM ${canteiroKm}`;
+    const barColor    = isTranslado?"#ED7D31":isCanteiro?"#1F3864":isCritical?"#C0392B":"#4472C4";
+    const barBorder   = isTranslado?"#BF6020":isCanteiro?"#001550":isCritical?"#922B21":"#2952A3";
+
+    // Recuo hierárquico se tem frente
+    const indent = act.frente ? COL_ID+8 : COL_ID+4;
+    // KM badge
+    const kmTxt = (act.km||"").replace("KM ","");
+    if (kmTxt) {
+      rowG.append("rect")
+        .attr("x",indent).attr("y",yMid-7).attr("width",kmTxt.length*5.5+8).attr("height",14)
+        .attr("fill",isCanteiroKm?"#F5A623":"#EBF0FA").attr("rx","3");
+      rowG.append("text").attr("x",indent+4).attr("y",yMid+3.5)
+        .attr("fill",isCanteiroKm?"#002D72":"#4472C4").attr("font-size","7.5")
+        .attr("font-weight",isCanteiroKm?"800":"600").text(kmTxt);
+    }
+    // Nome da atividade
+    const nameX = indent+(kmTxt?kmTxt.length*5.5+12:2);
+    const maxChars = Math.max(8, Math.floor((LBLW-COLS_W-nameX)/5.2));
+    const nameStr = act.atividade.length>maxChars?act.atividade.slice(0,maxChars-1)+"…":act.atividade;
+    rowG.append("text").attr("x",nameX).attr("y",yMid+3.5)
+      .attr("fill","#1A2540").attr("font-size","8.5").text(nameStr);
+    // Colunas Dur/Ini/Fim
+    rowG.append("text").attr("x",LBLW-COL_INI-COL_FIM-COL_DUR/2).attr("y",yMid+3.5)
+      .attr("text-anchor","middle").attr("fill",barColor).attr("font-size","8").attr("font-weight","700")
+      .text(act.duracao+"d");
+    rowG.append("text").attr("x",LBLW-COL_FIM-COL_INI/2).attr("y",yMid+3.5)
+      .attr("text-anchor","middle").attr("fill","#4A5568").attr("font-size","7.5").text(iniStr);
+    rowG.append("text").attr("x",LBLW-COL_FIM/2).attr("y",yMid+3.5)
+      .attr("text-anchor","middle").attr("fill","#4A5568").attr("font-size","7.5").text(fimStr);
+
+    // Barra do Gantt
+    const barH = ROW_H - 8;
+    const barY = y + 4;
+    const barG = barsG.append("g").attr("class","bar-group");
+    // Folga (TF > 0: linha tracejada à direita)
+    if (cpm.tf>0 && !isCritical) {
+      const tfW = cpm.tf*PPD;
+      barG.append("rect")
+        .attr("x",barX+barW).attr("y",barY+barH/2-1).attr("width",Math.min(tfW,60)).attr("height",2)
+        .attr("fill","#CBD5E0").attr("opacity","0.6");
+    }
+    // Barra principal
+    barG.append("rect")
+      .attr("x",barX).attr("y",barY).attr("width",barW).attr("height",barH)
+      .attr("fill",barColor).attr("rx","3")
+      .attr("stroke",barBorder).attr("stroke-width","0.5");
+    // Brilho superior
+    barG.append("rect")
+      .attr("x",barX+1).attr("y",barY+1)
+      .attr("width",Math.max(barW-2,1)).attr("height",Math.ceil(barH/3))
+      .attr("fill","rgba(255,255,255,0.2)").attr("rx","2");
+    // Label dentro da barra
+    if (barW > 32) {
+      const bl = act.atividade.split(" ")[0].slice(0,7);
+      barG.append("text").attr("x",barX+5).attr("y",barY+barH/2+3.5)
+        .attr("fill","white").attr("font-size","7").attr("font-weight","700").attr("opacity","0.9")
+        .text(bl);
+    }
+    // Contorno vermelho adicional no caminho crítico
+    if (isCritical) {
+      barG.append("rect")
+        .attr("x",barX-1).attr("y",barY-1).attr("width",barW+2).attr("height",barH+2)
+        .attr("fill","none").attr("rx","4")
+        .attr("stroke","#C0392B").attr("stroke-width","1.5").attr("opacity","0.5");
+    }
+  });
+
+  // ── 11. LINHA TODAY ────────────────────────────────────────────────────────
+  const todayDay = Math.round((new Date()-startDate)/86400000);
+  if (todayDay>=0 && todayDay<=maxDay+5) {
+    const tx = LBLW+todayDay*PPD;
+    const todayG = svg.append("g");
+    todayG.append("line").attr("x1",tx).attr("y1",HDR_H).attr("x2",tx).attr("y2",SVG_H)
+      .attr("stroke","#C0392B").attr("stroke-width","1.5")
+      .attr("stroke-dasharray","5,4").attr("opacity","0.8");
+    todayG.append("rect").attr("x",tx-18).attr("y",HDR_H-18).attr("width",36).attr("height",16)
+      .attr("fill","#C0392B").attr("rx","3");
+    todayG.append("text").attr("x",tx).attr("y",HDR_H-6)
+      .attr("text-anchor","middle").attr("fill","white").attr("font-size","7.5").attr("font-weight","700")
+      .text("HOJE");
+  }
+
+  // ── 12. TOOLTIP D3 ────────────────────────────────────────────────────────
+  let tipEl = document.getElementById("gantt-tip-d3");
+  if (!tipEl) {
+    tipEl = document.createElement("div");
+    tipEl.id = "gantt-tip-d3";
+    tipEl.style.cssText = "position:fixed;z-index:9999;background:#1F3864;color:#fff;border-radius:8px;padding:0.55rem 0.9rem;font-size:0.74rem;font-family:'Outfit',sans-serif;pointer-events:none;opacity:0;transition:opacity 0.12s;box-shadow:0 4px 20px rgba(0,20,60,0.4);max-width:300px;line-height:1.55";
+    document.body.appendChild(tipEl);
+  }
+  const svgEl = document.getElementById("gantt-svg-d3");
+  svgEl.addEventListener("mousemove", e => {
+    const rect = svgEl.getBoundingClientRect();
+    const relY = e.clientY - rect.top;
+    const idx  = Math.floor((relY-HDR_H)/ROW_H);
+    if (idx<0||idx>=acts.length){tipEl.style.opacity="0";return;}
+    const act  = acts[idx];
+    const cpm  = _cpm.get(act.id)||{};
+    const dtI  = new Date(startDate.getTime()+(act.inicio-1)*86400000).toLocaleDateString("pt-BR");
+    const dtF  = new Date(startDate.getTime()+(act.termino-1)*86400000).toLocaleDateString("pt-BR");
+    const ficV = _ficAtivo()?ficPorEtapa(act.etapaFull||act.etapa,_ficTipoNd()==="geotecnico"):0;
+    const tfLabel = cpm.tf!==undefined?`<span>Folga Total:</span><strong style="color:${cpm.tf===0?"#F5A623":"#fff"}">${cpm.tf} dias${cpm.tf===0?" ⚠ CRÍTICA":""}</strong>`:"";
+    tipEl.innerHTML = `
+      <div style="font-weight:800;color:#F5A623;font-size:0.78rem;margin-bottom:3px">${act.km||"GERAL"} — ${act.etapa||""}</div>
+      <div style="font-weight:600;color:#fff;margin-bottom:4px">${act.atividade}</div>
+      <div style="color:rgba(255,255,255,0.65);font-size:0.68rem;display:grid;grid-template-columns:auto auto;gap:1px 12px">
+        <span>Início:</span><strong style="color:#fff">${dtI}</strong>
+        <span>Término:</span><strong style="color:#fff">${dtF}</strong>
+        <span>Duração:</span><strong style="color:#F5A623">${act.duracao} dias</strong>
+        ${tfLabel}
+        ${ficV>0?`<span>FIC (AM):</span><strong style="color:#F5A623">${ficV.toFixed(5)}</strong>`:""}
+      </div>`;
+    tipEl.style.opacity="1";
+    tipEl.style.left=(e.clientX+16)+"px";
+    tipEl.style.top=(e.clientY-12)+"px";
+  });
+  svgEl.addEventListener("mouseleave",()=>{tipEl.style.opacity="0";});
+
+  // ── 13. LEGENDA ─────────────────────────────────────────────────────────────
+  const etapasU = [...new Set(GANTT_DATA.filter(a=>!a.isHeader).map(a=>a.etapa))];
+  const frentesU = FRENTES.length>0?FRENTES:[];
+  const critCount = [..._cpm.values()].filter(v=>v.critical&&v.ef>0).length;
+  legendEl.innerHTML = [
     ...etapasU.map(e=>`<div class="legend-item"><div class="legend-dot" style="background:${etapaCor(e)};border-radius:2px"></div>${e}</div>`),
-    ...(frentesU.length ? ['<span style="color:var(--cinza-aux);font-size:0.65rem;margin:0 8px">|</span>'] : []),
+    ...(frentesU.length?['<span style="color:var(--cinza-aux);font-size:0.65rem;margin:0 8px">|</span>']:[]),
     ...frentesU.map(f=>`<div class="legend-item"><div class="legend-dot" style="background:${f.cor};border-radius:2px"></div><strong>${f.nome}</strong>&nbsp;KM${f.kmInicio}–${f.kmFim}${f.paralelo?' <span style="background:#2E7D32;color:#fff;padding:0 4px;border-radius:3px;font-size:0.6rem">PAR</span>':''}</div>`),
-    ...(FRENTES.length?[]:[]),
-    _ficAtivo() ? [`<span style="margin-left:8px;background:#002D72;color:#F5A623;font-size:0.62rem;padding:0.1rem 0.5rem;border-radius:100px;font-weight:700">🌧️ FIC ATIVO</span>`] : [],
-  ].flat().join(""));
+    critCount>0?`<span style="margin-left:8px;background:#C0392B;color:#fff;font-size:0.62rem;padding:0.1rem 0.5rem;border-radius:100px;font-weight:700">⚠ ${critCount} ATIVIDADES CRÍTICAS</span>`:"",
+    _ficAtivo()?`<span style="margin-left:8px;background:#002D72;color:#F5A623;font-size:0.62rem;padding:0.1rem 0.5rem;border-radius:100px;font-weight:700">🌧️ FIC ATIVO</span>`:"",
+  ].filter(Boolean).join("");
 }
+
 
 // ═══════════════════════════════════════════════════════
 // HISTOGRAMAS
@@ -4021,20 +4174,191 @@ function _calcularTudoExec() {
   HIST_DATA  = gerarHistogramas();
   renderServicos();
   renderFrentes();
-  // Re-renderiza a aba que está visível para refletir imediatamente as alterações
   const abaAtiva = document.querySelector(".tab-btn.active")?.dataset?.tab;
-  if (abaAtiva === "eap")         renderEAP();
+  if (abaAtiva === "eap")              renderEAP();
   else if (abaAtiva === "gantt")       renderGantt();
   else if (abaAtiva === "histogramas") renderHistogramas();
+  else if (abaAtiva === "curvas")      renderCurvaS();
   else if (abaAtiva === "analise")     renderAnaliseCritica();
   else if (abaAtiva === "memorial")    renderMemorial();
-  // Atualiza badge de conflitos (sempre, em background)
   _atualizarBadgeConflitos();
 }
 
-// ═══════════════════════════════════════════════════════
-// EXPORTAR CSV
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// CURVA S — Avanço Físico Acumulado (REV-25)
+// Fonte teórica: PMBoK 7ª ed. (S-Curve de desempenho de MO planejada)
+// % acumulado de MO-hora ao longo dos meses do cronograma
+// ═══════════════════════════════════════════════════════════════════════════
+let _chartCurvaS = null;
+
+function renderCurvaS() {
+  const canvas = document.getElementById("chart-curvas");
+  const data   = HIST_DATA;
+  if (_chartCurvaS) { _chartCurvaS.destroy(); _chartCurvaS = null; }
+
+  const KEYS_EQP = ["escavadeira","rolo","caminhao","moto"];
+  const KEYS_MO  = data.length
+    ? Object.keys(data[0]).filter(k => k !== "mes" && !KEYS_EQP.includes(k))
+    : ["servente","pedreiro","operador","carpinteiro"];
+
+  const moMensal = data.map(d => KEYS_MO.reduce((s,k) => s+(d[k]||0),0));
+  const totalMO  = moMensal.reduce((a,b) => a+b, 0);
+  const labels   = data.map(d => d.mes);
+
+  // ── KPIs ──
+  const moTotalH = EAP_CALC.reduce((s,c) => s+c.moTotal, 0);
+  const mesesAtivos = moMensal.filter(v=>v>0).length;
+  const picoMes  = moMensal.indexOf(Math.max(...moMensal));
+  let acumFor50  = "—";
+
+  if (totalMO > 0) {
+    let ac = 0;
+    for (let i=0; i<moMensal.length; i++) {
+      ac += moMensal[i];
+      if (ac/totalMO >= 0.50) { acumFor50 = labels[i]; break; }
+    }
+  }
+
+  setEl("kpis-curvas", [
+    { label:"MO Total Planejada", v:numBR(moTotalH,0), unit:"horas·homem", cor:"var(--azul)" },
+    { label:"Meses c/ atividade", v:mesesAtivos, unit:"meses", cor:"#0277BD" },
+    { label:"Mês de pico (MO)",   v:labels[picoMes]||"—", unit:numBR(moMensal[picoMes]||0)+" h", cor:"var(--amarelo)" },
+    { label:"Cruzamento 50%",     v:acumFor50, unit:"mês que atinge 50% MO acum.", cor:"#2E7D32" },
+  ].map(k=>`<div class="kpi" style="border-top-color:${k.cor}">
+    <div class="kpi-label">${k.label}</div>
+    <div class="kpi-value" style="color:${k.cor}">${k.v}</div>
+    <div class="kpi-unit">${k.unit}</div>
+  </div>`).join(""));
+
+  if (!totalMO || !canvas) {
+    setEl("tbody-curvas","<tr><td colspan='5' style='text-align:center;color:var(--cinza-aux);padding:1.5rem'>Sem dados — cadastre serviços para gerar a Curva S.</td></tr>");
+    return;
+  }
+
+  // ── Percentuais acumulados ──
+  let acum = 0;
+  const pctMes   = moMensal.map(v => +((v/totalMO)*100).toFixed(2));
+  const pctAcum  = moMensal.map(v => { acum+=v; return +((acum/totalMO)*100).toFixed(2); });
+
+  // ── Chart.js: Curva S (linha suave) + barras mensais ──
+  _chartCurvaS = new Chart(canvas, {
+    data: {
+      labels,
+      datasets: [
+        {
+          type: "bar",
+          label: "% Mensal (MO)",
+          data: pctMes,
+          backgroundColor: pctMes.map((p,i) =>
+            i === picoMes ? "rgba(245,166,35,0.75)" : "rgba(0,45,114,0.18)"
+          ),
+          borderColor: "rgba(0,45,114,0.3)",
+          borderWidth: 1,
+          borderRadius: 3,
+          yAxisID: "yBar",
+          order: 2,
+        },
+        {
+          type: "line",
+          label: "% Acumulado (Curva S)",
+          data: pctAcum,
+          borderColor: "#002D72",
+          backgroundColor: "rgba(0,45,114,0.06)",
+          fill: true,
+          tension: 0.42,
+          pointBackgroundColor: pctAcum.map(p =>
+            p >= 90 ? "#2E7D32" : p >= 50 ? "#F5A623" : "#002D72"
+          ),
+          pointRadius: 4,
+          pointHoverRadius: 7,
+          borderWidth: 2.5,
+          yAxisID: "yLine",
+          order: 1,
+        },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode:"index", intersect:false },
+      animation: { duration:400 },
+      plugins: {
+        legend: { position:"top", labels:{ font:{family:"Outfit",size:11}, color:"#4A5568", boxWidth:14 } },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const v = ctx.parsed.y;
+              return ctx.datasetIndex === 0
+                ? ` ${v.toFixed(2)}% da MO no mês`
+                : ` ${v.toFixed(2)}% acumulado`;
+            },
+            afterBody: (items) => {
+              const idx = items[0]?.dataIndex;
+              if (idx == null) return [];
+              const moH = moMensal[idx];
+              return [`MO mês: ${numBR(moH,0)} h`];
+            }
+          }
+        }
+      },
+      scales: {
+        x: { grid:{display:false}, ticks:{font:{family:"Outfit",size:10},color:"#8896A8",maxRotation:45} },
+        yLine: {
+          type:"linear", position:"right",
+          min:0, max:100,
+          title:{ display:true, text:"% Acumulado", font:{family:"Outfit",size:10}, color:"#002D72" },
+          ticks:{ callback:v=>v+"%", font:{family:"Outfit",size:10}, color:"#002D72", stepSize:10 },
+          grid:{ color:"rgba(0,45,114,0.06)" }
+        },
+        yBar: {
+          type:"linear", position:"left",
+          title:{ display:true, text:"% Mensal", font:{family:"Outfit",size:10}, color:"#8896A8" },
+          ticks:{ callback:v=>v+"%", font:{family:"Outfit",size:10}, color:"#8896A8" },
+          grid:{ display:false }
+        }
+      }
+    }
+  });
+
+  // ── Tabela de avanço mensal ──
+  acum = 0;
+  const tbody = moMensal.map((mo,i) => {
+    if (!mo && pctAcum[i]===0) return "";
+    acum += mo;
+    const pct = pctMes[i];
+    const pctA = pctAcum[i];
+    const status = pctA >= 90
+      ? `<span style="color:#2E7D32;font-weight:700">▲ Avançado</span>`
+      : pctA >= 50
+      ? `<span style="color:#F5A623;font-weight:700">→ Meio prazo</span>`
+      : `<span style="color:#0277BD;font-weight:700">↑ Início</span>`;
+    const barW = Math.round(pct * 3);
+    return `<tr>
+      <td><strong>${labels[i]}</strong></td>
+      <td class="right">${numBR(mo,0)}</td>
+      <td class="right">
+        <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
+          <div style="width:${Math.max(barW,2)}px;height:8px;background:rgba(0,45,114,${i===picoMes?0.8:0.25});border-radius:2px"></div>
+          ${pct.toFixed(2)}%
+        </div>
+      </td>
+      <td class="right" style="font-weight:700;color:${pctA>=75?"#2E7D32":pctA>=50?"#F5A623":"var(--azul)"}">
+        ${pctA.toFixed(2)}%
+      </td>
+      <td class="right">${status}</td>
+    </tr>`;
+  }).join("");
+
+  setEl("tbody-curvas", tbody || "<tr><td colspan='5' style='text-align:center;color:var(--cinza-aux)'>—</td></tr>");
+  setEl("tfoot-curvas", `<tr style="background:var(--azul)">
+    <td style="color:white;font-weight:700">TOTAL</td>
+    <td class="right" style="color:white;font-weight:700">${numBR(totalMO,0)} h</td>
+    <td class="right" style="color:white">100,00%</td>
+    <td class="right" style="color:var(--amarelo);font-weight:800">100,00%</td>
+    <td class="right" style="color:var(--amarelo);font-weight:700">✓ Concluído</td>
+  </tr>`);
+}
+
+
 // RFC 4180: envolve em aspas duplas e duplica aspas internas
 const csvEsc = v => {
   if (v === null || v === undefined) return '""';
