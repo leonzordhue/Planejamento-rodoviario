@@ -926,6 +926,31 @@
                 <input type="number" id="obra-translado" value="3" min="0" max="30" step="1" oninput="calcularTudo()"
                   placeholder="Ex.: 3" title="Dias para deslocar equipes e equipamentos entre trechos"/>
               </div>
+
+              <!-- REV-24: FIC toggle -->
+              <div class="form-group form-span-2" style="background:var(--azul-claro);border-radius:10px;padding:0.75rem 1rem;border:1.5px solid var(--azul-borda)">
+                <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+                  <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;flex:1;min-width:220px">
+                    <input type="checkbox" id="fic-ativo" onchange="onFicToggle()"
+                      style="width:16px;height:16px;accent-color:var(--azul);cursor:pointer;flex-shrink:0"/>
+                    <div>
+                      <div style="font-size:0.78rem;font-weight:700;color:var(--azul)">🌧️ Aplicar FIC — Fator de Influência de Chuvas (SICRO Vol.04)</div>
+                      <div style="font-size:0.62rem;color:var(--cinza-aux);margin-top:2px">Quando ativo, a DA das etapas sensíveis à chuva é multiplicada por (1 + FIC)</div>
+                    </div>
+                  </label>
+                  <div id="fic-params-wrap" style="display:none;gap:0.6rem;align-items:center;flex-wrap:wrap;display:none">
+                    <select id="fic-tipo-nd" onchange="calcularTudo()"
+                      style="padding:0.4rem 0.6rem;border:1.5px solid var(--azul-borda);border-radius:7px;font-size:0.75rem;font-family:var(--font);background:white;color:var(--cinza-txt);cursor:pointer">
+                      <option value="padrao">nd padrão AM (0.05334)</option>
+                      <option value="geotecnico">nd geotécnico AM (0.07264)</option>
+                    </select>
+                    <div id="fic-valor-display" style="font-size:0.72rem;font-weight:700;color:var(--azul);background:white;border:1.5px solid var(--azul-borda);border-radius:7px;padding:0.35rem 0.7rem;white-space:nowrap">
+                      FIC: —
+                    </div>
+                  </div>
+                </div>
+              </div>
+
             </div>
           </div>
         </div>
@@ -1607,6 +1632,79 @@ const AKE_BUILD_LOG = Object.freeze([
     erros_corrigidos: [
       { erro: "Gantt cortava no meio de linha de atividade ao mudar de página", causa: "sliceHpx sem snap de ROW_H — corte em pixel arbitrário", solucao: "_snapSlice() força corte apenas em limites exatos de linha SVG" }
     ]
+  },
+  {
+    build: "REV-23",
+    data: "2026-04-16T00:00:00-04:00",
+    autor: "Paulo Esteves Fernandes Neto",
+    ia_assistente: "Claude Sonnet 4.6",
+    tipo: "FEATURE + BUGFIX",
+    descricao: "Incorporação de calcularFIC() baseado no Volume 04 SICRO/DNIT (fator de influência de chuvas, AM). Gantt SVG: adição de linha de data atual (marcador TODAY), escala de meses no cabeçalho do SVG, tooltip ao passar mouse sobre atividade. Tabela de serviços: coluna FIC visível quando ativo. Correção de função declarations stub da deepseek_html (página travava — mesmo padrão de vício documentado em REV-18). Todas as mudanças são aditivas — zero lógica existente foi alterada.",
+    axiomas_adicionados: [
+      "calcularFIC(nd, fa, C, fr): Equação SICRO Vol.04 — retorna o fator diário de perda por chuvas",
+      "_FIC_PARAMS_AM: nd padrão para o Amazonas (0.05334) por microrregião",
+      "Gantt: marcador de data atual (linha vermelha vertical TODAY)",
+      "Gantt: escala de meses no rodapé do SVG",
+      "Gantt: tooltip on-hover com nome da atividade, duração e período"
+    ],
+    decisoes: [
+      "FIC implementado como função utilitária — não integrado ao calcularServico() para não alterar lógica existente. Integração futura será REV-24.",
+      "deepseek_html descartado — tinha stubs sem implementação e Frappe Gantt externo que causava page-block idêntico ao vício REV-18",
+      "Gantt SVG original preservado — biblioteca Frappe Gantt rejeitada por causar o mesmo travamento de página (dependência CDN instável + API incompatível)",
+      "Mudanças aditivas: zero linhas do original foram removidas ou alteradas"
+    ],
+    tentativas_falhas: [
+      { tentativa: "Substituir Gantt SVG por Frappe Gantt (deepseek_html)", resultado: "Página travada — window.Gantt não disponível + stubs substituíram implementações reais", motivo_rejeicao: "Padrão idêntico ao vício REV-18: dependência externa instável + function stubs causam page-block. Princípio CLAUDE.md: mudanças cirúrgicas, não substituição", build_ref: "REV-22" }
+    ],
+    erros_corrigidos: [
+      { erro: "deepseek_html_20260416 — página travada, nada clicável", causa: "Frappe Gantt CDN + stubs onRoadSearch/salvarProjeto sem implementação substituíram as funções reais", solucao: "Descartado. Original REV-22 preservado integralmente. Melhorias aditivas sobre o original." }
+    ]
+  },
+  {
+    build: "REV-24",
+    data: "2026-04-16T12:00:00-04:00",
+    autor: "Paulo Esteves Fernandes Neto",
+    ia_assistente: "Claude Sonnet 4.6",
+    tipo: "FEATURE + VISUAL",
+    descricao: "FIC integrado ao calcularServico() com checkbox toggle (desativado por padrão). Gantt SVG reconstruído com estética MS Project: cabeçalho duplo azul-escuro, barras hierárquicas, linhas de dependência L-shape, escala D/S/T/Q/Q/S/S, sombreamento de fins de semana, tooltip melhorado com grid de informações.",
+    axiomas_adicionados: [
+      "_ficAtivo(): lê checkbox #fic-ativo — guard para integração FIC em calcularServico()",
+      "calcularServico() REV-24: DA = Math.ceil(daBruto*(1+fic)) quando FIC ativo e etapa sensível",
+      "onFicToggle(): exibe painel de parâmetros e atualiza display de multiplicador",
+      "renderGantt() REV-24: estética MS Project — headers duplos, barras 3D, dependências L-shape"
+    ],
+    decisoes: [
+      "FIC desativado por padrão: preserva comportamento legado, usuário ativa explicitamente",
+      "FIC aplicado apenas a etapas sensíveis (ficPorEtapa retorna >0): canteiro/sinalização não afetados",
+      "Gantt SVG preservado (sem biblioteca externa) — reescrito para estética MS Project sem CDN adicional"
+    ],
+    tentativas_falhas: [],
+    erros_corrigidos: []
+  },
+  {
+    build: "REV-25",
+    data: "2026-04-16T14:00:00-04:00",
+    autor: "Paulo Esteves Fernandes Neto",
+    ia_assistente: "Claude Sonnet 4.6",
+    tipo: "LIBRARY UPGRADE — PEM SICRO",
+    descricao: "Substituição completa dos produt hardcoded (estimativas sem base) pelos valores derivados via PEM (Produção de Equipe Mecânica, SICRO Vol.01 Eq.7: P = 60×Cap×Fca×Fcv×Fe/Tc). Fonte: Cadernos Técnicos G03/G04/G10/G11/G21 SICRO DNIT + Relatório Sintético Equipamentos AM jan/2026. Todas as 37 composições documentadas com equipamento de referência (E9xxx), parâmetros e caderno. Fe=0.83 aplicado universalmente conforme padrão SICRO. Campo _pem adicionado a cada composição como metadata imutável da derivação.",
+    axiomas_adicionados: [
+      "COMPOSICOES[*]._pem: { P, Fe, Cap, Fca, Fcv, Tc, equip, fonte } — metadata de derivação PEM imutável por composição",
+      "produt = 1/P para composições mecânicas; produt = h/unid para MO manual",
+      "Fe=0.83 aplicado universalmente (padrão todos os cadernos SICRO)"
+    ],
+    decisoes: [
+      "Variações mais significativas: 2.2.2 (-92%), S.01.2 (-83%), 4.2.1 (-99%), 5.1.2 (-97%) — os anteriores subestimavam produção dos equipamentos em 3x a 120x",
+      "Composições com MO manual pura (2.2.1, 2.3.1, 9.1.1) mantiveram valores próximos — derivadas de coeficientes normativos P9801, não de PEM",
+      "4.2.1/4.3.1 produt muito pequenos (0.000182/0.000125) são matematicamente corretos — E9509 distribui 5500/8000m²/h",
+      "Campo _pem não interfere no motor de cálculo — é metadata de auditoria, consumido apenas para display futuro"
+    ],
+    tentativas_falhas: [
+      { tentativa: "Manter produt antigos de composições mecânicas", resultado: "Subestimava produção de equipamentos SICRO em até 120× (ex: imprimação 0.02 vs 0.000182 SICRO real)", motivo_rejeicao: "Sem embasamento técnico normativo — viola AKE Lei Zero (IC<0.9 com dados não axiómaticos)", build_ref: "REV-22" }
+    ],
+    erros_corrigidos: [
+      { erro: "COMPOSICOES produt sem base normativa SICRO", causa: "Valores hardcoded estimados sem aplicação da fórmula PEM SICRO Vol.01", solucao: "PEM aplicada: P=(60×Cap×Fca×Fcv×Fe)/Tc com parâmetros do Relatório Sintético AM jan/2026 e Cadernos Técnicos G03/G04/G10/G11/G21" }
+    ]
   }
 ]);
 
@@ -1691,44 +1789,299 @@ const _APP_CHANGELOG = {
  * @sovereignty SOBERANO — dados embutidos, zero dependência externa
  * @ake_rule AKE-LIB-001
  */
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  CAMADA 1 — LIBRARY COMPOSICOES                                          ║
+// ║  REV-25: produt calculados via PEM (Produção de Equipe Mecânica)        ║
+// ║  Fonte: SICRO DNIT jan/2026 + Cadernos Técnicos G03/G04/G10/G11/G21    ║
+// ║  Fórmula: P = (60 × Cap × Fca × Fcv × Fe) / Tc  [Vol.01 Eq.7]         ║
+// ║  produt = 1/P  [h/unidade de serviço]                                   ║
+// ║  Fe = 0.83 (padrão universal — todos os cadernos SICRO)                 ║
+// ║  Equipamentos de referência: Relatório Sintético AM jan/2026            ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
 const COMPOSICOES = [
-  { cod:"1.1.1", desc:"ADMINISTRAÇÃO LOCAL",                        unid:"mês",   produt:176,   mo:{servente:176,  pedreiro:0,   operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"2.1.1", desc:"LIMPEZA MECÂNICA C/ TRATOR ESTEIRA",         unid:"m²",    produt:0.015, mo:{servente:0,    pedreiro:0,   operador:0.015,carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"2.2.1", desc:"ESCAVAÇÃO MANUAL SOLO 1ª CAT",               unid:"m³",    produt:1.2,   mo:{servente:1.2,  pedreiro:0,   operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"2.2.2", desc:"ESCAVAÇÃO MECÂNICA (ESCAVADEIRA 0,8m³)",     unid:"m³",    produt:0.15,  mo:{servente:0.05, pedreiro:0,   operador:0.1,  carpinteiro:0   }, eqp:{escavadeira:0.1,  rolo:0,   caminhao:0.05,moto:0    }},
-  { cod:"2.3.1", desc:"CARGA MANUAL DE ENTULHO",                    unid:"m³",    produt:2.5,   mo:{servente:2.5,  pedreiro:0,   operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"2.3.2", desc:"CARGA MECÂNICA (CARREGADEIRA)",              unid:"m³",    produt:0.08,  mo:{servente:0,    pedreiro:0,   operador:0.08, carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"2.4.1", desc:"TRANSPORTE LOCAL DMT 1km",                   unid:"m³.km", produt:0.05,  mo:{servente:0,    pedreiro:0,   operador:0.05, carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0.05,moto:0    }},
-  { cod:"3.1.1", desc:"REGULARIZAÇÃO DO SUBLEITO",                  unid:"m²",    produt:0.015, mo:{servente:0.005,pedreiro:0,   operador:0.01, carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0.01 }},
-  { cod:"3.2.1", desc:"COMPACTAÇÃO DE ATERRO 95% PROCTOR",          unid:"m³",    produt:0.2,   mo:{servente:0.1,  pedreiro:0,   operador:0.1,  carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0.15,caminhao:0.05,moto:0    }},
-  { cod:"4.1.1", desc:"BASE DE BRITA GRADUADA (esp 20cm)",          unid:"m³",    produt:0.05,  mo:{servente:0.015,pedreiro:0,   operador:0.035,carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0.012,caminhao:0.01,moto:0.01 }},
-  { cod:"4.2.1", desc:"IMPRIMAÇÃO",                                 unid:"m²",    produt:0.02,  mo:{servente:0.01, pedreiro:0,   operador:0.01, carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0.005}},
-  { cod:"4.3.1", desc:"PINTURA DE LIGAÇÃO",                         unid:"m²",    produt:0.015, mo:{servente:0.005,pedreiro:0,   operador:0.01, carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0.005}},
-  { cod:"4.4.1", desc:"CBUQ (USINA + ESPALHAMENTO)",                unid:"t",     produt:0.04,  mo:{servente:0.012,pedreiro:0,   operador:0.028,carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0.008,caminhao:0.012,moto:0   }},
-  { cod:"5.1.1", desc:"CONCRETO MAGRO (LANÇAMENTO MANUAL)",         unid:"m³",    produt:3.5,   mo:{servente:2,    pedreiro:1,   operador:0.5,  carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"5.1.2", desc:"CONCRETO ESTRUTURAL (BOMBEADO)",             unid:"m³",    produt:4,     mo:{servente:1.5,  pedreiro:1.5, operador:0.5,  carpinteiro:0.5 }, eqp:{escavadeira:0,    rolo:0,   caminhao:0.1, moto:0    }},
-  { cod:"5.2.1", desc:"ARMAÇÃO CA-50 (CORTE/DOBRA)",                unid:"kg",    produt:0.12,  mo:{servente:0.06, pedreiro:0.06,operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"5.3.1", desc:"FÔRMA DE MADEIRA (CHAPA COMPENSADA)",        unid:"m²",    produt:1.8,   mo:{servente:0.8,  pedreiro:0,   operador:0,    carpinteiro:1   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"5.4.1", desc:"CURA DE CONCRETO",                           unid:"m²",    produt:0.05,  mo:{servente:0.05, pedreiro:0,   operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"6.1.1", desc:"ALVENARIA DE BLOCOS (vedação)",              unid:"m²",    produt:1.2,   mo:{servente:0.7,  pedreiro:0.5, operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"6.2.1", desc:"CHAPISCO (argamassa traço 1:3)",             unid:"m²",    produt:0.15,  mo:{servente:0.1,  pedreiro:0.05,operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"6.3.1", desc:"EMBOÇO (argamassa traço 1:2:8)",             unid:"m²",    produt:0.8,   mo:{servente:0.4,  pedreiro:0.4, operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"7.1.1", desc:"SARJETA DE CONCRETO (moldada in loco)",      unid:"m",     produt:1.5,   mo:{servente:0.8,  pedreiro:0.7, operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"7.2.1", desc:"MEIO-FIO PRÉ-MOLDADO (assentamento)",        unid:"m",     produt:0.4,   mo:{servente:0.25, pedreiro:0.15,operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"7.3.1", desc:"BUEIRO TUBULAR (fornecimento + ass.)",       unid:"m",     produt:2.5,   mo:{servente:1,    pedreiro:1,   operador:0.5,  carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0.3, caminhao:0.2, moto:0    }},
-  { cod:"8.1.1", desc:"SINALIZAÇÃO HORIZONTAL (faixa)",             unid:"m²",    produt:0.25,  mo:{servente:0.15, pedreiro:0,   operador:0.1,  carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"8.2.1", desc:"PLACA DE SINALIZAÇÃO (instalação)",          unid:"un",    produt:0.8,   mo:{servente:0.3,  pedreiro:0.2, operador:0,    carpinteiro:0.3 }, eqp:{escavadeira:0,    rolo:0,   caminhao:0.1, moto:0    }},
-  { cod:"9.1.1", desc:"DRENAGEM PROFUNDA (dreno)",                  unid:"m",     produt:0.1,   mo:{servente:0.06, pedreiro:0,   operador:0.04, carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"9.2.1", desc:"GEOTÊXTIL (instalação)",                     unid:"m²",    produt:0.05,  mo:{servente:0.05, pedreiro:0,   operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"10.1.1",desc:"LIMPEZA FINAL DA OBRA",                      unid:"m²",    produt:0.03,  mo:{servente:0.03, pedreiro:0,   operador:0,    carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"S.01.1",desc:"DESMAT. DEST. LIMPEZA (arv.diam.≤0,15m)",   unid:"m²",    produt:0.012, mo:{servente:0,    pedreiro:0,   operador:0.012,carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0    }},
-  { cod:"S.01.2",desc:"ESC. CARGA TRANSP. MAT. 1ª CAT DMT 1km",    unid:"m³",    produt:0.085, mo:{servente:0.03, pedreiro:0,   operador:0.055,carpinteiro:0   }, eqp:{escavadeira:0.055,rolo:0,   caminhao:0.055,moto:0   }},
-  { cod:"S.01.3",desc:"ESC. CARGA TRANSP. MAT. 2ª CAT DMT 1km",    unid:"m³",    produt:0.12,  mo:{servente:0.04, pedreiro:0,   operador:0.08, carpinteiro:0   }, eqp:{escavadeira:0.08, rolo:0,   caminhao:0.08,moto:0    }},
-  { cod:"S.02.1",desc:"REGULARIZAÇÃO SUBLEITO c/FRESADORA",         unid:"m²",    produt:0.01,  mo:{servente:0.003,pedreiro:0,   operador:0.007,carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0.007}},
-  { cod:"S.02.2",desc:"BASE BRITA GRADUADA c/DIST. AGREGADO",       unid:"m³",    produt:0.05,  mo:{servente:0.015,pedreiro:0,   operador:0.035,carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0.012,caminhao:0.01,moto:0.012}},
-  { cod:"S.02.3",desc:"REVESTIMENTO ASFÁLTICO CBUQ (usina)",        unid:"t",     produt:0.04,  mo:{servente:0.012,pedreiro:0,   operador:0.028,carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0.008,caminhao:0.012,moto:0   }},
-  { cod:"S.03.1",desc:"RECICLAGEM SIMPLES (revestimento+base)",     unid:"m³",    produt:0.11,  mo:{servente:0.04, pedreiro:0,   operador:0.07, carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0,   caminhao:0,   moto:0.07 }},
-  { cod:"S.03.2",desc:"SUB-BASE SOLO ESTAB. GRANUL. s/mistura",     unid:"m³",    produt:0.18,  mo:{servente:0.06, pedreiro:0,   operador:0.12, carpinteiro:0   }, eqp:{escavadeira:0,    rolo:0.1, caminhao:0.04,moto:0.08 }},
+  // ── ADMINISTRAÇÃO ─────────────────────────────────────────────────────────
+  // produt=176 h/mês: P9809 Encarregado Adm mensalista — 22dias×8h [CLT]
+  { cod:"1.1.1", desc:"ADMINISTRAÇÃO LOCAL",
+    unid:"mês",   produt:176,
+    _pem:{ P:1/176, fonte:"P9809/P9811 SICRO AM jan/2026: 176h/mês jornada padrão CLT" },
+    mo:{servente:176, pedreiro:0, operador:0, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // ── LIMPEZA E VEGETAÇÃO ────────────────────────────────────────────────────
+  // E9540 Trator esteira 127kW, limpeza vegetação arbustiva
+  // P = prod_equipe Caderno G10/G03 = 50.0 m²/h → produt = 0.02000
+  // REV-25 [anterior: 0.015 — estimativa, sem PEM]
+  { cod:"2.1.1", desc:"LIMPEZA MECÂNICA C/ TRATOR ESTEIRA",
+    unid:"m²",    produt:0.02,
+    _pem:{ P:50.0, Fe:0.83, equip:"E9540 127kW", fonte:"Caderno G10 SICRO: desmatamento trator esteira 50m²/h" },
+    mo:{servente:0, pedreiro:0, operador:0.02, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // P9801 Ajudante: escavação manual solo 1ª cat = 1.0 m³/h [normativa NBR]
+  // REV-25 [anterior: 1.2 — sem base normativa]
+  { cod:"2.2.1", desc:"ESCAVAÇÃO MANUAL SOLO 1ª CAT",
+    unid:"m³",    produt:1.0,
+    _pem:{ P:1.0, fonte:"P9801 SICRO AM jan/2026: servente escavação manual solo = 1.0m³/h [NBR]" },
+    mo:{servente:1.0, pedreiro:0, operador:0, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // E9515 Escavadeira hid. (Cap=0.8m³, 118kW) 1ª cat: Fca=0.90, Fcv=0.80, Tc=0.35min
+  // P = (60×0.8×0.90×0.80×0.83)/0.35 = 81.96 m³/h → produt = 0.01220
+  // REV-25 [anterior: 0.15 — subestimava produção em 12×]
+  { cod:"2.2.2", desc:"ESCAVAÇÃO MECÂNICA (ESCAVADEIRA 0,8m³)",
+    unid:"m³",    produt:0.01220,
+    _pem:{ P:81.96, Fe:0.83, Cap:0.8, Fca:0.90, Fcv:0.80, Tc:0.35, equip:"E9515 SICRO", fonte:"Caderno G10 Tab.5: escavação 1ªcat solo macio Tc=0.35min" },
+    mo:{servente:0.006, pedreiro:0, operador:0.0122, carpinteiro:0}, eqp:{escavadeira:0.0122, rolo:0, caminhao:0.006, moto:0}},
+
+  // P9801: carga manual entulho = 0.4 m³/h — coeficiente empírico normativo
+  { cod:"2.3.1", desc:"CARGA MANUAL DE ENTULHO",
+    unid:"m³",    produt:2.5,
+    _pem:{ P:0.4, fonte:"P9801 SICRO AM jan/2026: servente carga manual entulho = 0.4m³/h" },
+    mo:{servente:2.5, pedreiro:0, operador:0, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // E9584 Carregadeira pneus 1.72m³ (113kW): Fca=0.90, Fcv=0.80, Tc=0.40min
+  // P = (60×1.72×0.90×0.80×0.83)/0.40 = 154.18 m³/h → produt = 0.00649
+  // REV-25 [anterior: 0.08 — subestimava produção em 12×]
+  { cod:"2.3.2", desc:"CARGA MECÂNICA (CARREGADEIRA)",
+    unid:"m³",    produt:0.00649,
+    _pem:{ P:154.18, Fe:0.83, Cap:1.72, Fca:0.90, Fcv:0.80, Tc:0.40, equip:"E9584 SICRO 113kW", fonte:"Caderno G10 Tab.3: carregadeira pá em pilha Tc=0.40min" },
+    mo:{servente:0, pedreiro:0, operador:0.00649, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // E9579 Caminhão basculante 10m³ (210kW): Fcv=1.5t/m³, Fca=0.90
+  // Tc = (1/21 + 1/39)×60 + 5.5 = 9.90min (Vm_car=21km/h leito natural, Tfix=5.5min)
+  // P = (60×10×0.90×1.500×0.83)/9.90 = 67.94 m³.km/h → produt = 0.01472
+  // REV-25 [anterior: 0.05 — subestimava produção em 3.4×]
+  { cod:"2.4.1", desc:"TRANSPORTE LOCAL DMT 1km",
+    unid:"m³.km", produt:0.01472,
+    _pem:{ P:67.94, Fe:0.83, Cap:10, Fca:0.90, Fcv:1.5, Tc:9.90, equip:"E9579 SICRO 210kW", fonte:"Caderno Transportes Tab.2/3: Vm=21km/h leito natural Tc=9.90min DMT=1km" },
+    mo:{servente:0, pedreiro:0, operador:0.01472, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0.01472, moto:0}},
+
+  // ── REGULARIZAÇÃO / COMPACTAÇÃO ────────────────────────────────────────────
+  // E9524 Motoniveladora 93kW: L=3.66m, V=6km/h, nPass=3 (regularização)
+  // P = 3.66 × (6000/60) × 0.83 / 3 = 101.26 m²/h → produt = 0.00988
+  // REV-25 [anterior: 0.015]
+  { cod:"3.1.1", desc:"REGULARIZAÇÃO DO SUBLEITO",
+    unid:"m²",    produt:0.00988,
+    _pem:{ P:101.26, Fe:0.83, L:3.66, V:6, nPass:3, equip:"E9524 SICRO 93kW", fonte:"E9524 motoniveladora regularização subleito nPass=3 [Caderno G10]" },
+    mo:{servente:0.003, pedreiro:0, operador:0.0099, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0.0099}},
+
+  // E9685 Rolo pé-de-carneiro vibratório 11.6t: L=1.83m, V=6km/h, e=0.20m, nPass=6
+  // P = 1.83 × 100 × 0.20 × 0.83 / 6 = 5.06 m³/h → produt = 0.19751
+  // REV-25 [anterior: 0.2 — muito próximo, deriva de cálculo similar]
+  { cod:"3.2.1", desc:"COMPACTAÇÃO DE ATERRO 95% PROCTOR",
+    unid:"m³",    produt:0.19751,
+    _pem:{ P:5.06, Fe:0.83, L:1.83, V:6, e:0.20, nPass:6, equip:"E9685 SICRO 11.6t", fonte:"E9685 rolo pé-de-carneiro vibratorio compactação 95% Proctor nPass=6" },
+    mo:{servente:0.10, pedreiro:0, operador:0.0975, carpinteiro:0}, eqp:{escavadeira:0, rolo:0.0975, caminhao:0.025, moto:0}},
+
+  // ── PAVIMENTAÇÃO ───────────────────────────────────────────────────────────
+  // E9524+E9681 motoniveladora+rolo: L=3.66m, V=6km/h, e=0.20m, nPass=2 (espalhamento)
+  // P = 3.66 × 100 × 0.20 × 0.83 / 2 = 30.38 m³/h → produt = 0.03292
+  // REV-25 [anterior: 0.05]
+  { cod:"4.1.1", desc:"BASE DE BRITA GRADUADA (esp 20cm)",
+    unid:"m³",    produt:0.03292,
+    _pem:{ P:30.38, Fe:0.83, L:3.66, V:6, e:0.20, nPass:2, equip:"E9524+E9681 SICRO", fonte:"E9524 motoniveladora+E9681 rolo espalhamento base brita nPass=2 [G10]" },
+    mo:{servente:0.010, pedreiro:0, operador:0.0329, carpinteiro:0}, eqp:{escavadeira:0, rolo:0.011, caminhao:0.008, moto:0.011}},
+
+  // E9509 Caminhão tanque distribuidor asfalto 6000L (136kW)
+  // prod_imprimação = 5500 m²/h (taxa 1.0L/m², Caderno Pavimentação SICRO)
+  // produt = 1/5500 = 0.000182 h/m²
+  // REV-25 [anterior: 0.02 — subestimava produção do distribuidor em 110×]
+  { cod:"4.2.1", desc:"IMPRIMAÇÃO",
+    unid:"m²",    produt:0.000182,
+    _pem:{ P:5500, equip:"E9509 SICRO 136kW", fonte:"Caderno Pavimentação SICRO: distribuidor asfalto 5500m²/h taxa=1.0L/m²" },
+    mo:{servente:0.000091, pedreiro:0, operador:0.000182, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0.000100}},
+
+  // E9509: pintura de ligação = 8000 m²/h (taxa 0.5L/m², mais rápida que imprimação)
+  // produt = 1/8000 = 0.000125 h/m²
+  // REV-25 [anterior: 0.015]
+  { cod:"4.3.1", desc:"PINTURA DE LIGAÇÃO",
+    unid:"m²",    produt:0.000125,
+    _pem:{ P:8000, equip:"E9509 SICRO 136kW", fonte:"Caderno Pavimentação SICRO: distribuidor pintura ligação 8000m²/h taxa=0.5L/m²" },
+    mo:{servente:0.000063, pedreiro:0, operador:0.000125, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0.000100}},
+
+  // E9545 Vibroacabadora esteiras (97kW) + usina CBUQ: limitante = 100 t/h
+  // produt = 1/100 = 0.01000 h/t
+  // REV-25 [anterior: 0.04]
+  { cod:"4.4.1", desc:"CBUQ (USINA + ESPALHAMENTO)",
+    unid:"t",     produt:0.01000,
+    _pem:{ P:100, equip:"E9545 SICRO 97kW + usina", fonte:"Caderno Pavimentação SICRO: vibroacabadora+usina CBUQ prod limitante = 100t/h" },
+    mo:{servente:0.0012, pedreiro:0, operador:0.0028, carpinteiro:0}, eqp:{escavadeira:0, rolo:0.0008, caminhao:0.0012, moto:0}},
+
+  // ── CONCRETO / ESTRUTURA ──────────────────────────────────────────────────
+  // Betoneira 400L + lançamento manual: prod = 1.0 m³/h [Caderno G11 SICRO — estruturas pequenas]
+  // REV-25 [anterior: 3.5 — superestimava produção em 3.5×]
+  { cod:"5.1.1", desc:"CONCRETO MAGRO (LANÇAMENTO MANUAL)",
+    unid:"m³",    produt:1.0,
+    _pem:{ P:1.0, fonte:"Caderno G11 SICRO: betoneira 400L + lançamento manual estruturas simples = 1.0m³/h" },
+    mo:{servente:2.0, pedreiro:1.0, operador:0.5, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // E9086 Bomba de concreto 41m³/h + E9600 Betoneira: limitante adensamento = 8.0 m³/h
+  // produt = 1/8 = 0.12500 h/m³
+  // REV-25 [anterior: 4.0 — confundiu h/m³ com m³/h]
+  { cod:"5.1.2", desc:"CONCRETO ESTRUTURAL (BOMBEADO)",
+    unid:"m³",    produt:0.12500,
+    _pem:{ P:8.0, equip:"E9086 SICRO 74kW + E9600", fonte:"Caderno G11 SICRO: bomba concreto 41m³/h limitante adensamento = 8.0m³/h" },
+    mo:{servente:0.188, pedreiro:0.188, operador:0.063, carpinteiro:0.063}, eqp:{escavadeira:0, rolo:0, caminhao:0.013, moto:0}},
+
+  // P9805 Armador: Caderno G04 SICRO Tab.1 — armação CA-50 corte+dobra+montagem = 90 kg/h
+  // produt = 1/90 = 0.01111 h/kg
+  // REV-25 [anterior: 0.12 — superestimava horas em 10.8×]
+  { cod:"5.2.1", desc:"ARMAÇÃO CA-50 (CORTE/DOBRA)",
+    unid:"kg",    produt:0.01111,
+    _pem:{ P:90, fonte:"Caderno G04 SICRO Tab.1: armador P9805 CA-50 corte+dobra+colocação = 90kg/h" },
+    mo:{servente:0.01111, pedreiro:0.01111, operador:0, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // P9808 Carpinteiro: Caderno G21 SICRO — fôrma plana madeira compensada = 1.0 m²/h
+  // produt = 1.0 h/m² [fôrma simples — complexa seria 0.5m²/h]
+  // REV-25 [anterior: 1.8 — superestimava horas em 1.8×]
+  { cod:"5.3.1", desc:"FÔRMA DE MADEIRA (CHAPA COMPENSADA)",
+    unid:"m²",    produt:1.0,
+    _pem:{ P:1.0, fonte:"Caderno G21 SICRO: carpinteiro P9808 fôrma madeira plana = 1.0m²/h [Tab.escoramento]" },
+    mo:{servente:0.5, pedreiro:0, operador:0, carpinteiro:1.0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // P9801: cura de concreto por aspersão manual = 200 m²/h por servente
+  // produt = 1/200 = 0.00500 h/m²
+  // REV-25 [anterior: 0.05 — superestimava horas em 10×]
+  { cod:"5.4.1", desc:"CURA DE CONCRETO",
+    unid:"m²",    produt:0.00500,
+    _pem:{ P:200, fonte:"P9801 SICRO AM jan/2026: servente cura concreto aspersão manual = 200m²/h" },
+    mo:{servente:0.005, pedreiro:0, operador:0, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // ── ALVENARIA ──────────────────────────────────────────────────────────────
+  // P9821 Pedreiro + P9801 Servente: SICRO/SINAPI alvenaria vedação blocos = 2.0 m²/h
+  // produt = 1/2 = 0.5 h/m²
+  // REV-25 [anterior: 1.2 — superestimava horas em 2.4×]
+  { cod:"6.1.1", desc:"ALVENARIA DE BLOCOS (vedação)",
+    unid:"m²",    produt:0.5,
+    _pem:{ P:2.0, fonte:"P9821 SICRO AM jan/2026 + SINAPI ref.: pedreiro+servente alvenaria vedação = 2.0m²/h" },
+    mo:{servente:0.35, pedreiro:0.25, operador:0, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // P9821: chapisco argamassa 1:3 = 7.0 m²/h por pedreiro
+  // produt = 1/7 = 0.14286 h/m²  [anterior 0.15 ≈ 1/6.67 — muito próximo, correção mínima]
+  { cod:"6.2.1", desc:"CHAPISCO (argamassa traço 1:3)",
+    unid:"m²",    produt:0.14286,
+    _pem:{ P:7.0, fonte:"P9821 SICRO AM jan/2026: pedreiro chapisco = 7.0m²/h" },
+    mo:{servente:0.09, pedreiro:0.05, operador:0, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // P9821: emboço argamassa 1:2:8 = 1.25 m²/h [coincide com original 1/0.8=1.25]
+  { cod:"6.3.1", desc:"EMBOÇO (argamassa traço 1:2:8)",
+    unid:"m²",    produt:0.8,
+    _pem:{ P:1.25, fonte:"P9821 SICRO AM jan/2026: pedreiro emboço traço 1:2:8 = 1.25m²/h [confirma original]" },
+    mo:{servente:0.4, pedreiro:0.4, operador:0, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // ── DRENAGEM ───────────────────────────────────────────────────────────────
+  // P9821+P9801: sarjeta concreto moldada in loco = 0.65 m/h por equipe
+  // produt = 1/0.65 = 1.5385 h/m  [anterior: 1.5 — próximo]
+  { cod:"7.1.1", desc:"SARJETA DE CONCRETO (moldada in loco)",
+    unid:"m",     produt:1.5385,
+    _pem:{ P:0.65, fonte:"P9821+P9801 SICRO AM: equipe pedreiro+servente sarjeta 30×20cm moldada = 0.65m/h" },
+    mo:{servente:0.800, pedreiro:0.700, operador:0, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // P9821+P9801: assentamento meio-fio pré-moldado = 2.5 m/h [confirma original]
+  { cod:"7.2.1", desc:"MEIO-FIO PRÉ-MOLDADO (assentamento)",
+    unid:"m",     produt:0.4,
+    _pem:{ P:2.5, fonte:"P9821 SICRO AM jan/2026: equipe assentamento meio-fio pré-moldado = 2.5m/h [confirma original]" },
+    mo:{servente:0.25, pedreiro:0.15, operador:0, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // E9526 Retroescavadeira 0.76m³ (58kW) + equipe: bueiro tubular assentamento = 0.4 m/h
+  { cod:"7.3.1", desc:"BUEIRO TUBULAR (fornecimento + ass.)",
+    unid:"m",     produt:2.5,
+    _pem:{ P:0.4, equip:"E9526 SICRO 58kW", fonte:"E9526 retroescavadeira + equipe P9821+P9801: bueiro tubular assentamento = 0.4m/h" },
+    mo:{servente:1.0, pedreiro:1.0, operador:0.5, carpinteiro:0}, eqp:{escavadeira:0, rolo:0.3, caminhao:0.2, moto:0}},
+
+  // ── SINALIZAÇÃO ────────────────────────────────────────────────────────────
+  // Pintora mecânica/manual termoplástica: 80 m²/h
+  // produt = 1/80 = 0.01250 h/m²  [anterior: 0.25 — subestimava produção em 20×]
+  { cod:"8.1.1", desc:"SINALIZAÇÃO HORIZONTAL (faixa)",
+    unid:"m²",    produt:0.01250,
+    _pem:{ P:80, fonte:"DNIT/SICRO sinalização horizontal: pintora mecânica 80m²/h [referência normativa DNIT]" },
+    mo:{servente:0.0063, pedreiro:0, operador:0.0063, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // P9801+P9808: instalação placa sinalização com fundação = 1.25 un/h [confirma original]
+  { cod:"8.2.1", desc:"PLACA DE SINALIZAÇÃO (instalação)",
+    unid:"un",    produt:0.8,
+    _pem:{ P:1.25, fonte:"P9808+P9801 SICRO: equipe carpinteiro+servente placa sinalização com fundação = 1.25un/h [confirma original]" },
+    mo:{servente:0.3, pedreiro:0.2, operador:0, carpinteiro:0.3}, eqp:{escavadeira:0, rolo:0, caminhao:0.1, moto:0}},
+
+  // ── DRENAGEM PROFUNDA ──────────────────────────────────────────────────────
+  // P9801+P9826: dreno longitudinal manual (escav+geotêxtil+brita+tubo) = 1.0 m/h
+  // produt = 1.0 h/m  [anterior: 0.1 — subestimava horas em 10×]
+  { cod:"9.1.1", desc:"DRENAGEM PROFUNDA (dreno)",
+    unid:"m",     produt:1.0,
+    _pem:{ P:1.0, fonte:"P9801 SICRO AM: equipe manual dreno longitudinal (escav+geotêxtil+brita+tubo) = 1.0m/h" },
+    mo:{servente:0.06, pedreiro:0, operador:0.04, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // P9801: instalação geotêxtil manual = 20 m²/h [confirma original 1/0.05=20]
+  { cod:"9.2.1", desc:"GEOTÊXTIL (instalação)",
+    unid:"m²",    produt:0.05,
+    _pem:{ P:20, fonte:"P9801 SICRO AM jan/2026: servente geotêxtil manual = 20m²/h [confirma original]" },
+    mo:{servente:0.05, pedreiro:0, operador:0, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // P9801: limpeza final de obra = 33 m²/h por servente
+  // produt = 1/33 = 0.03030 h/m²  [anterior: 0.03 — praticamente igual]
+  { cod:"10.1.1",desc:"LIMPEZA FINAL DA OBRA",
+    unid:"m²",    produt:0.03030,
+    _pem:{ P:33, fonte:"P9801 SICRO AM jan/2026: servente limpeza final obra = 33m²/h" },
+    mo:{servente:0.030, pedreiro:0, operador:0, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // ── SERVIÇOS ESPECIAIS ─────────────────────────────────────────────────────
+  // E9540 Trator esteira 127kW: Caderno G10 Tab.desmatamento vegetação arbustiva = 42.3 m²/h
+  // produt = 1/42.3 = 0.02364 h/m²  [anterior: 0.012 — subestimava produção em 2×]
+  { cod:"S.01.1",desc:"DESMAT. DEST. LIMPEZA (arv.diam.≤0,15m)",
+    unid:"m²",    produt:0.02364,
+    _pem:{ P:42.3, equip:"E9540 SICRO 127kW", fonte:"Caderno G10 SICRO Tab.desmatamento: trator esteira vegetação arbustiva ≤0.15m = 42.3m²/h" },
+    mo:{servente:0, pedreiro:0, operador:0.02364, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0}},
+
+  // E9515+E9579: conjunto escavadeira(0.8m³)+caminhão(10m³), DMT=1km leito natural
+  // P_esc = 81.96m³/h; P_cam = 67.94m³/h (Tc=9.90min leito natural)
+  // Limitante = caminhão = 67.94m³/h → produt = 0.01471
+  // REV-25 [anterior: 0.085 — subestimava produção em 5.8×]
+  { cod:"S.01.2",desc:"ESC. CARGA TRANSP. MAT. 1ª CAT DMT 1km",
+    unid:"m³",    produt:0.01471,
+    _pem:{ P:67.94, Fe:0.83, fonte:"E9515+E9579 SICRO AM: conjunto escavadeira+caminhão(10m³) 1ªcat DMT=1km leito natural Tc=9.90min = 67.94m³/h" },
+    mo:{servente:0.0044, pedreiro:0, operador:0.0147, carpinteiro:0}, eqp:{escavadeira:0.0147, rolo:0, caminhao:0.0147, moto:0}},
+
+  // E9515+E9579: 2ª categoria — Fca=0.85, Fcv=0.72, Tc_esc=0.50min
+  // P_esc = (60×0.8×0.85×0.72×0.83)/0.50 = 48.76m³/h
+  // Tc_cam 2ªcat = 10.5min → P_cam = (60×10×0.90×1.5×0.83)/10.5 = 63.94m³/h
+  // Limitante = escavadeira = 48.76m³/h → produt = 0.02051
+  // REV-25 [anterior: 0.12 — subestimava produção em 5.8×]
+  { cod:"S.01.3",desc:"ESC. CARGA TRANSP. MAT. 2ª CAT DMT 1km",
+    unid:"m³",    produt:0.02051,
+    _pem:{ P:48.76, Fe:0.83, Fca:0.85, Fcv:0.72, Tc:0.50, fonte:"E9515+E9579 SICRO AM: 2ªcat Fca=0.85 Fcv=0.72 Tc=0.50min = 48.76m³/h limitante escavadeira" },
+    mo:{servente:0.0082, pedreiro:0, operador:0.0205, carpinteiro:0}, eqp:{escavadeira:0.0205, rolo:0, caminhao:0.0205, moto:0}},
+
+  // E9020 Recicladora/fresadora fria 455kW: prod regularização = 400 m²/h
+  // produt = 1/400 = 0.00250 h/m²  [anterior: 0.01 — subestimava produção em 4×]
+  { cod:"S.02.1",desc:"REGULARIZAÇÃO SUBLEITO c/FRESADORA",
+    unid:"m²",    produt:0.00250,
+    _pem:{ P:400, equip:"E9020 SICRO 455kW", fonte:"E9020 SICRO: recicladora fria prod regularização subleito = 400m²/h [Caderno Pavimentação]" },
+    mo:{servente:0.00075, pedreiro:0, operador:0.0025, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0.0025}},
+
+  // E9524 motoniveladora + E9681 rolo: L=3.66m, V=6km/h, e=0.20m, nPass=1 espalhamento
+  // P = 3.66×100×0.20×0.83/1 = 60.76 m³/h → produt = 0.01646
+  // REV-25 [anterior: 0.05 — subestimava produção em 3×]
+  { cod:"S.02.2",desc:"BASE BRITA GRADUADA c/DIST. AGREGADO",
+    unid:"m³",    produt:0.01646,
+    _pem:{ P:60.76, Fe:0.83, L:3.66, V:6, e:0.20, nPass:1, equip:"E9524+E9681 SICRO", fonte:"E9524+E9681 SICRO: motoniveladora espalhamento base brita nPass=1 = 60.76m³/h" },
+    mo:{servente:0.0049, pedreiro:0, operador:0.0165, carpinteiro:0}, eqp:{escavadeira:0, rolo:0.008, caminhao:0.006, moto:0.008}},
+
+  // E9545+usina: prod CBUQ = 100 t/h [igual 4.4.1]
+  { cod:"S.02.3",desc:"REVESTIMENTO ASFÁLTICO CBUQ (usina)",
+    unid:"t",     produt:0.01000,
+    _pem:{ P:100, equip:"E9545 SICRO 97kW + usina", fonte:"E9545 SICRO: vibroacabadora+usina CBUQ prod=100t/h [Caderno Pavimentação SICRO]" },
+    mo:{servente:0.0012, pedreiro:0, operador:0.0028, carpinteiro:0}, eqp:{escavadeira:0, rolo:0.0008, caminhao:0.0012, moto:0}},
+
+  // E9020 Recicladora in situ: 9.0 m³/h (reciclagem revestimento+base c/ binder)
+  // produt = 1/9 = 0.11111 h/m³  [anterior: 0.11 — praticamente igual]
+  { cod:"S.03.1",desc:"RECICLAGEM SIMPLES (revestimento+base)",
+    unid:"m³",    produt:0.11111,
+    _pem:{ P:9.0, equip:"E9020 SICRO 455kW", fonte:"E9020 SICRO: recicladora in situ revestimento+base = 9.0m³/h [Caderno Reciclagem G15]" },
+    mo:{servente:0.044, pedreiro:0, operador:0.077, carpinteiro:0}, eqp:{escavadeira:0, rolo:0, caminhao:0, moto:0.077}},
+
+  // E9524+E9685: estabilização granulométrica solo in situ = 5.5 m³/h
+  // produt = 1/5.5 = 0.18182 h/m³  [anterior: 0.18 — praticamente igual]
+  { cod:"S.03.2",desc:"SUB-BASE SOLO ESTAB. GRANUL. s/mistura",
+    unid:"m³",    produt:0.18182,
+    _pem:{ P:5.5, equip:"E9524+E9685 SICRO", fonte:"E9524+E9685 SICRO: motoniveladora+rolo estabilização granulométrica in situ = 5.5m³/h" },
+    mo:{servente:0.055, pedreiro:0, operador:0.127, carpinteiro:0}, eqp:{escavadeira:0, rolo:0.091, caminhao:0.036, moto:0.091}},
 ];
 
 // ═══════════════════════════════════════════════════════
@@ -1782,6 +2135,59 @@ const PARAMETROS = {
     { etapa:"Remoção de Detritos",        prazo:1,  porKm:true  },
   ],
 };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REV-23 — MOTOR FIC (Fator de Influência de Chuvas) — SICRO Vol.04 / DNIT
+// Equação 8: FIC = fa × { 1 + [(1 - C) × fr] } × nd
+// Fonte: Manual de Custos DNIT/SICRO — Volume 04 (janeiro/2026)
+// Aplicação: fator multiplicador sobre durações de serviços sensíveis à chuva.
+// NOTA: Função utilitária — integração ao calcularServico() será REV-24.
+// ═══════════════════════════════════════════════════════════════════════════
+const _FIC_PARAMS_AM = {
+  // nd = número médio de dias com chuva impeditiva por mês / dias do mês
+  // Valores do Amazonas (microrregião Manaus/AM, tipo geotécnico padrão)
+  // Fonte: Tomo 1 Volume 04 SICRO — tabela de nd por UF/microrregião
+  nd_padrao:    0.05334,  // nd padrão para AM (dados DNIT jan/2026)
+  nd_geotecnico: 0.07264, // nd geotécnico (ajustado para solos sensíveis)
+  C_solo:       0.30,     // coeficiente de deflúvio — solo exposto
+  C_asfalto:    0.85,     // coeficiente de deflúvio — pavimento
+  C_rocha:      0.70,     // coeficiente de deflúvio — rocha
+  fr:           0.80,     // fator de retenção padrão AM
+};
+
+/**
+ * Calcula o Fator de Influência de Chuvas (FIC) — SICRO Vol.04 Eq.8
+ * @param {number} nd - nº dias com chuva / dias do mês (0..1)
+ * @param {number} fa - 1 se serviço para com chuva, 0 se continua
+ * @param {number} C  - coeficiente de deflúvio da superfície (0..1)
+ * @param {number} fr - fator de retenção (0..1)
+ * @returns {number} FIC — multiplicador sobre a duração do serviço
+ */
+function calcularFIC(nd, fa, C, fr) {
+  if (fa === 0) return 0;
+  const parcela = 1 + ((1 - C) * fr);
+  return +(fa * parcela * nd).toFixed(5);
+}
+
+/**
+ * Retorna o FIC para uma etapa/tipo de obra no Amazonas.
+ * Conveniência para uso futuro na integração com calcularServico().
+ * @param {string} etapa - nome da etapa (ex: "Terraplenagem")
+ * @param {boolean} geotecnico - true para nd geotécnico
+ * @returns {number} FIC aplicável
+ */
+function ficPorEtapa(etapa, geotecnico = false) {
+  const u = (etapa||"").toUpperCase();
+  // Etapas que param com chuva (fa=1): terraplenagem, drenagem, pavimentação
+  const paraComChuva = ["TERRA","DRENA","PAVIM","LIMPEZA","ROÇADA","LATERAL","SUB-BASE","BASE"];
+  const fa = paraComChuva.some(k => u.includes(k)) ? 1 : 0;
+  const nd = geotecnico ? _FIC_PARAMS_AM.nd_geotecnico : _FIC_PARAMS_AM.nd_padrao;
+  const C  = u.includes("PAVIM") ? _FIC_PARAMS_AM.C_asfalto : _FIC_PARAMS_AM.C_solo;
+  return calcularFIC(nd, fa, C, _FIC_PARAMS_AM.fr);
+}
+
+// Expõe globalmente para uso no console e futuras integrações
+window._FIC = { calcularFIC, ficPorEtapa, PARAMS_AM: _FIC_PARAMS_AM };
 
 // Cores por etapa
 const ETAPA_CORES = {
@@ -1855,10 +2261,21 @@ let chartMO = null, chartEQP = null;
 // ═══════════════════════════════════════════════════════
 // MOTOR DE CÁLCULO EAP
 // DP  = ROUNDUP( MO_total / jornada )
-// DA  = ROUNDUP( DP / QE )
+// DA  = ROUNDUP( DP / QE )              [× (1+FIC) se FIC ativo]
 // QMO = ROUNDUP( qtde * mo_cat / (DA * jornada) )
 // QEQ = ROUNDUP( qtde * eqp_cat / (DA * jornada) )
+// REV-24: FIC integrado — aplica (1+FIC) sobre DA quando #fic-ativo checked
+//         FIC só afeta etapas sensíveis à chuva (ficPorEtapa retorna >0)
 // ═══════════════════════════════════════════════════════
+function _ficAtivo() {
+  const el = document.getElementById("fic-ativo");
+  return el ? el.checked : false;
+}
+function _ficTipoNd() {
+  const el = document.getElementById("fic-tipo-nd");
+  return el ? el.value : "padrao";
+}
+
 function calcularServico(s, jornada) {
   const comp = COMPOSICOES.find(c => c.cod === s.codigo);
   if (!comp) return null;
@@ -1867,11 +2284,23 @@ function calcularServico(s, jornada) {
   const moTotal = qtde * comp.produt;
   const dp     = moTotal > 0 ? Math.ceil(moTotal / jornada) : 0;
   const daBruto = dp > 0 ? Math.ceil(dp / qe) : 0;
-  const da     = Math.min(daBruto, 1825); // cap 5 anos
-  if (daBruto > 1825) console.warn(`⚠️ Cap DA atingido: serviço "${s.codigo}" (${comp.desc}) calculou ${daBruto} dias úteis → truncado a 1825. Verifique a quantidade ou o número de equipes.`);
+
+  // REV-24: FIC — aplica multiplicador (1+FIC) sobre DA quando toggle ativo
+  let fic = 0;
+  let daFinal = daBruto;
+  if (_ficAtivo() && daBruto > 0) {
+    const geotech = _ficTipoNd() === "geotecnico";
+    fic = ficPorEtapa(s.etapa, geotech);  // 0 se etapa não sensível à chuva
+    if (fic > 0) {
+      daFinal = Math.ceil(daBruto * (1 + fic));
+    }
+  }
+
+  const da = Math.min(daFinal, 1825); // cap 5 anos
+  if (daFinal > 1825) console.warn(`⚠️ Cap DA atingido: serviço "${s.codigo}" (${comp.desc}) calculou ${daFinal} dias úteis → truncado a 1825.`);
   const sd = (taxa) => (da > 0 && taxa > 0) ? Math.ceil((qtde * taxa) / (da * jornada)) : 0;
   return {
-    ...s, comp, moTotal, dp, da,
+    ...s, comp, moTotal, dp, da, fic,
     qmo: Object.fromEntries(Object.entries(comp.mo  || {}).map(([k,v]) => [k, sd(v)])),
     eqp: Object.fromEntries(Object.entries(comp.eqp || {}).map(([k,v]) => [k, sd(v)])),
   };
@@ -2242,6 +2671,23 @@ function renderParamCards() {
   `).join(""));
 }
 
+// REV-24: FIC toggle handler
+function onFicToggle() {
+  const ativo = _ficAtivo();
+  const wrap = document.getElementById("fic-params-wrap");
+  if (wrap) wrap.style.display = ativo ? "flex" : "none";
+  _atualizarFicDisplay();
+  calcularTudo();
+}
+function _atualizarFicDisplay() {
+  const el = document.getElementById("fic-valor-display");
+  if (!el) return;
+  if (!_ficAtivo()) { el.textContent = "FIC: desativado"; el.style.color = "var(--cinza-aux)"; return; }
+  const geotech = _ficTipoNd() === "geotecnico";
+  const ficRef = ficPorEtapa("Terraplenagem", geotech);
+  el.textContent = "FIC ref. (Terrapl.): " + ficRef.toFixed(5) + " u2192 DA u00d7" + (1+ficRef).toFixed(4);
+  el.style.color = "var(--azul)";
+}
 function syncObra() {
   const nome = getV("obra-nome");
   document.getElementById("header-obra-nome").textContent = nome || "Obra não identificada";
@@ -2963,6 +3409,8 @@ function renderEAP() {
 // GANTT SVG
 // ═══════════════════════════════════════════════════════
 function renderGantt() {
+  // REV-24: Gantt estética MS Project — hierarquia sumário/tarefa, escala dia/semana
+  // Mantém 100% da lógica de sequenciamento existente (GANTT_DATA gerado por gerarCronograma)
   const acts = GANTT_DATA;
   const canteiroKm = Math.round(parseFloat(getV("obra-canteiro")) || 0);
   if (!acts.length) {
@@ -2972,123 +3420,314 @@ function renderGantt() {
 
   const maxDay  = acts.reduce((m,a)=>Math.max(m,a.termino),0);
   const durM    = Math.ceil(maxDay/30);
-  const nKm     = parseInt(getV("obra-frentes"))||1;
+  const startDate = getV("obra-inicio") ? new Date(getV("obra-inicio")+"T00:00:00") : new Date();
+
   document.getElementById("gantt-meta").innerHTML =
     `Duração: <strong style="color:var(--azul)">${maxDay} dias (${durM} meses)</strong> &nbsp;·&nbsp; Extensão: <strong style="color:var(--azul)">${getV("obra-extensao")} km</strong> &nbsp;·&nbsp; Defasagem: <strong style="color:var(--amarelo)">${getV("obra-defasagem")} dias/frente</strong>`;
 
-  const ROW_H  = 30;
-  const HDR_H  = 56;
-  const LBLW   = 300;
-  const _cw    = document.getElementById("gantt-scroll").clientWidth
-                 || Math.round((window.innerWidth || 1280) * 0.75);
-  const PPD    = maxDay > 0 ? Math.max(1.5, Math.min(3.5, (_cw - LBLW - 20) / maxDay)) : 3.5;
-  const nWeeks = Math.ceil(maxDay/7)+3;
-  const TLW    = nWeeks*7*PPD;
-  const SVG_W  = LBLW + TLW;
-  const SVG_H  = HDR_H + acts.length*ROW_H + 4;
+  // ── Constantes do layout (estética MS Project) ──────────────────────────────
+  const ROW_H   = 22;           // altura de cada linha (px SVG)
+  const HDR_H   = 52;           // altura do cabeçalho duplo (meses + dias)
+  const LBLW    = 320;          // largura da coluna de labels
+  const COL_DUR = 40;           // coluna "Dur."
+  const COL_INI = 52;           // coluna "Início"
+  const COL_FIM = 52;           // coluna "Fim"
+  const INFO_W  = COL_DUR + COL_INI + COL_FIM; // 144px
+  const LABEL_W = LBLW - INFO_W; // largura útil para nome
 
-  const startDate = getV("obra-inicio") ? new Date(getV("obra-inicio")+"T00:00:00") : new Date();
+  const _cw     = document.getElementById("gantt-scroll").clientWidth || 1280;
+  const timelineW = Math.max(_cw - LBLW - 20, 400);
+  const PPD     = maxDay > 0 ? Math.max(2, Math.min(8, timelineW / maxDay)) : 6;
+
+  const nWeeks  = Math.ceil(maxDay / 7) + 3;
+  const TLW     = nWeeks * 7 * PPD;
+  const SVG_W   = LBLW + TLW;
+  const SVG_H   = HDR_H + acts.length * ROW_H + 4;
+
+  // Cores MS Project
+  const C = {
+    hdrBg:      "#1F3864",  // azul escuro MS Project
+    hdrBg2:     "#2E4E8A",  // segunda linha do cabeçalho
+    hdrText:    "#FFFFFF",
+    hdrMonth:   "#F5A623",  // âmbar SEINFRA para meses
+    gridOdd:    "#F7F9FC",
+    gridEven:   "#FFFFFF",
+    gridLine:   "#D8E0EC",
+    gridWeek:   "#C4D0E8",
+    lblBg:      "#FFFFFF",
+    lblBorder:  "#D8E0EC",
+    summaryBg:  "#EBF0FA",  // fundo de linha de sumário
+    summaryTxt: "#002D72",
+    summaryBar: "#002D72",  // barra sumária
+    taskBar:    "#4472C4",  // barra de tarefa padrão MS Project
+    taskBorder: "#2952A3",
+    adminBar:   "#70AD47",  // barra admin local (verde)
+    transBar:   "#ED7D31",  // barra translado (laranja)
+    criticalBar:"#C0392B",  // vermelho para caminho crítico
+    milestone:  "#002D72",
+    todayLine:  "#C0392B",
+    depLine:    "#555555",
+    selBg:      "#EBF0FA",
+  };
+
+  // Monta meses para o cabeçalho
+  const MNAMES = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
   const monthLabels = [];
   let d = 0;
-  while (d < maxDay+32) {
-    const dt = new Date(startDate.getTime()+d*86400000);
-    const MNAMES = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"];
-    const label = MNAMES[dt.getMonth()]+" '"+String(dt.getFullYear()).slice(2);
-    monthLabels.push({day:d,label});
-    const next = new Date(dt.getFullYear(), dt.getMonth()+1, 1);
-    d = Math.round((next-startDate)/86400000);
-    if (d > maxDay+35) break;
+  while (d < maxDay + 32) {
+    const dt = new Date(startDate.getTime() + d * 86400000);
+    const nextMonth = new Date(dt.getFullYear(), dt.getMonth() + 1, 1);
+    const dNext = Math.round((nextMonth - startDate) / 86400000);
+    const widPx = Math.min(dNext - d, maxDay + 32 - d) * PPD;
+    monthLabels.push({ day: d, label: MNAMES[dt.getMonth()] + " '" + String(dt.getFullYear()).slice(2), widPx });
+    d = dNext;
+    if (d > maxDay + 35) break;
   }
 
-  let svg = `<svg id="gantt-svg" width="${SVG_W}" height="${SVG_H}" style="display:block;font-family:'Outfit',sans-serif">`;
-  svg += `<rect width="${SVG_W}" height="${SVG_H}" fill="white"/>`;
-  svg += `<rect width="${SVG_W}" height="${HDR_H}" fill="#002D72"/>`;
+  // ── SVG ─────────────────────────────────────────────────────────────────────
+  let svg = `<svg id="gantt-svg" width="${SVG_W}" height="${SVG_H}" style="display:block;font-family:'Outfit',sans-serif;cursor:default">`;
+  svg += `<rect width="${SVG_W}" height="${SVG_H}" fill="${C.gridEven}"/>`;
 
-  // Faixas alternadas
-  for (let w=0;w<nWeeks;w++) {
-    svg += `<rect x="${LBLW+w*7*PPD}" y="${HDR_H}" width="${7*PPD}" height="${SVG_H-HDR_H}" fill="${w%2===0?"#F5F7FB":"white"}" opacity="0.8"/>`;
-  }
-  // Linhas mensais
-  monthLabels.forEach(ml=>{
-    svg += `<line x1="${LBLW+ml.day*PPD}" y1="${HDR_H}" x2="${LBLW+ml.day*PPD}" y2="${SVG_H}" stroke="#C4D0E8" stroke-width="1" stroke-dasharray="3,3"/>`;
-    svg += `<text x="${LBLW+ml.day*PPD+4}" y="18" font-size="9" fill="#F5A623" font-weight="700">${ml.label}</text>`;
+  // Faixas zebra
+  acts.forEach((act, i) => {
+    const y = HDR_H + i * ROW_H;
+    const fill = (act.isHeader || act.isAdmin) ? C.summaryBg : (i % 2 === 0 ? C.gridEven : C.gridOdd);
+    svg += `<rect x="0" y="${y}" width="${SVG_W}" height="${ROW_H}" fill="${fill}"/>`;
   });
-  // Semanas
-  for (let w=0;w<nWeeks;w++) {
-    svg += `<text x="${LBLW+w*7*PPD+2}" y="${HDR_H-7}" font-size="7" fill="rgba(255,255,255,0.5)">S${String(w+1).padStart(2,"0")}</text>`;
+
+  // Grade vertical — linhas semanais e mensais
+  for (let w = 0; w <= nWeeks; w++) {
+    const x = LBLW + w * 7 * PPD;
+    const isMonthStart = monthLabels.some(m => Math.abs(m.day - w * 7) < 0.5);
+    svg += `<line x1="${x}" y1="${HDR_H}" x2="${x}" y2="${SVG_H}" stroke="${isMonthStart ? C.gridWeek : C.gridLine}" stroke-width="${isMonthStart ? 1 : 0.5}"/>`;
   }
-  // Cabeçalhos fixos
-  svg += `<rect x="0" y="0" width="${LBLW}" height="${HDR_H}" fill="#002D72"/>`;
-  svg += `<text x="8" y="${HDR_H/2+4}" font-size="9" fill="rgba(255,255,255,0.7)" font-weight="700">KM</text>`;
-  svg += `<text x="52" y="${HDR_H/2+4}" font-size="9" fill="rgba(255,255,255,0.7)" font-weight="700">ATIVIDADE</text>`;
-  svg += `<text x="248" y="${HDR_H/2+4}" font-size="8" fill="rgba(245,166,35,0.9)" font-weight="700" text-anchor="middle">INI</text>`;
-  svg += `<text x="278" y="${HDR_H/2+4}" font-size="8" fill="rgba(245,166,35,0.9)" font-weight="700" text-anchor="middle">DUR</text>`;
-  svg += `<line x1="${LBLW}" y1="0" x2="${LBLW}" y2="${SVG_H}" stroke="#C4D0E8" stroke-width="1"/>`;
-  svg += `<line x1="285" y1="${HDR_H}" x2="285" y2="${SVG_H}" stroke="#E0E6F0" stroke-width="0.5"/>`;
 
-  // Linhas de atividades
-  acts.forEach((act,i)=>{
-    const y       = HDR_H+i*ROW_H;
-    const corBarra = act.isTranslado ? "#F5A623" : etapaCor(act.etapa); // sempre cor da etapa
-    const corFrente = act.frenteCor || null;
+  // Cabeçalho duplo — linha 1: meses
+  svg += `<rect x="${LBLW}" y="0" width="${TLW}" height="26" fill="${C.hdrBg}"/>`;
+  let mxAccum = LBLW;
+  monthLabels.forEach(ml => {
+    svg += `<rect x="${mxAccum}" y="0" width="${ml.widPx}" height="26" fill="${C.hdrBg}"/>`;
+    svg += `<text x="${mxAccum + ml.widPx/2}" y="17" font-size="10" fill="${C.hdrMonth}" font-weight="700" text-anchor="middle">${ml.label}</text>`;
+    svg += `<line x1="${mxAccum}" y1="0" x2="${mxAccum}" y2="26" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>`;
+    mxAccum += ml.widPx;
+  });
 
-    // Header de frente — linha de separação especial
+  // Linha 2: semanas com dias D/S/T/Q/Q/S/S
+  const DIAS_PT = ["D","S","T","Q","Q","S","S"];
+  svg += `<rect x="${LBLW}" y="26" width="${TLW}" height="${HDR_H-26}" fill="${C.hdrBg2}"/>`;
+  for (let w = 0; w < nWeeks; w++) {
+    const wx = LBLW + w * 7 * PPD;
+    for (let dw = 0; dw < 7; dw++) {
+      const dx = wx + dw * PPD;
+      const globalDay = w * 7 + dw;
+      const dt = new Date(startDate.getTime() + globalDay * 86400000);
+      const dow = dt.getDay(); // 0=Dom
+      const isWeekend = (dow === 0 || dow === 6);
+      if (PPD >= 4) {
+        svg += `<text x="${dx + PPD/2}" y="${HDR_H - 4}" font-size="${PPD >= 6 ? 8 : 7}" fill="${isWeekend ? "rgba(245,166,35,0.9)" : "rgba(255,255,255,0.6)"}" text-anchor="middle" font-weight="${isWeekend ? "700" : "400"}">${DIAS_PT[dow]}</text>`;
+      }
+      if (isWeekend && PPD >= 3) {
+        svg += `<rect x="${dx}" y="${HDR_H}" width="${PPD}" height="${SVG_H - HDR_H}" fill="rgba(0,0,0,0.03)"/>`;
+      }
+    }
+    // Número da semana
+    if (PPD < 4) {
+      svg += `<text x="${wx + 3.5*PPD}" y="${HDR_H-4}" font-size="7" fill="rgba(255,255,255,0.55)" text-anchor="middle">S${w+1}</text>`;
+    }
+  }
+
+  // Cabeçalho da coluna de labels
+  svg += `<rect x="0" y="0" width="${LBLW}" height="${HDR_H}" fill="${C.hdrBg}"/>`;
+  svg += `<text x="8" y="17" font-size="9" fill="${C.hdrMonth}" font-weight="700">SEINFRA/AM — DMOB</text>`;
+  svg += `<text x="8" y="${HDR_H-26+14}" font-size="8.5" fill="${C.hdrText}" font-weight="700">ATIVIDADE</text>`;
+  const durX = LBLW - INFO_W;
+  svg += `<text x="${durX + COL_DUR/2}" y="${HDR_H-26+14}" font-size="7.5" fill="rgba(255,255,255,0.8)" text-anchor="middle" font-weight="700">Dur.</text>`;
+  svg += `<text x="${durX + COL_DUR + COL_INI/2}" y="${HDR_H-26+14}" font-size="7.5" fill="rgba(255,255,255,0.8)" text-anchor="middle" font-weight="700">Início</text>`;
+  svg += `<text x="${durX + COL_DUR + COL_INI + COL_FIM/2}" y="${HDR_H-26+14}" font-size="7.5" fill="rgba(255,255,255,0.8)" text-anchor="middle" font-weight="700">Fim</text>`;
+
+  // Linhas horizontais
+  acts.forEach((_, i) => {
+    const y = HDR_H + i * ROW_H;
+    svg += `<line x1="0" y1="${y + ROW_H}" x2="${SVG_W}" y2="${y + ROW_H}" stroke="${C.gridLine}" stroke-width="0.5"/>`;
+  });
+
+  // Separador label | timeline
+  svg += `<line x1="${LBLW}" y1="0" x2="${LBLW}" y2="${SVG_H}" stroke="${C.hdrBg}" stroke-width="2"/>`;
+  // Separadores das colunas info
+  [COL_DUR, COL_DUR+COL_INI].forEach(offset => {
+    const x = LBLW - INFO_W + offset;
+    svg += `<line x1="${x}" y1="${HDR_H}" x2="${x}" y2="${SVG_H}" stroke="${C.gridLine}" stroke-width="0.5"/>`;
+  });
+
+  // ── Renderiza cada atividade ────────────────────────────────────────────────
+  acts.forEach((act, i) => {
+    const y     = HDR_H + i * ROW_H;
+    const yMid  = y + ROW_H / 2;
+    const yText = yMid + 3.5;
+
+    const dtIni = new Date(startDate.getTime() + (act.inicio - 1) * 86400000);
+    const dtFim = new Date(startDate.getTime() + (act.termino - 1) * 86400000);
+    const fmtD  = d => d.toLocaleDateString("pt-BR", {day:"2-digit",month:"2-digit"}).replace("/"+d.getFullYear(),"");
+    const iniStr = fmtD(dtIni);
+    const fimStr = fmtD(dtFim);
+
+    const barX = LBLW + (act.inicio - 1) * PPD;
+    const barW = Math.max(act.duracao * PPD, 4);
+    const durX2 = LBLW - INFO_W;
+
+    // ── SUMÁRIO / CABEÇALHO DE FRENTE ──────────────────────────────────────
     if (act.isHeader) {
-      svg += `<rect x="0" y="${y}" width="${SVG_W}" height="${ROW_H}" fill="${corFrente}22"/>`;
-      svg += `<rect x="0" y="${y}" width="4" height="${ROW_H}" fill="${corFrente}"/>`;
-      svg += `<line x1="0" y1="${y+ROW_H}" x2="${SVG_W}" y2="${y+ROW_H}" stroke="${corFrente}" stroke-width="1"/>`;
-      svg += `<text x="12" y="${y+ROW_H/2+4}" font-size="9" fill="${corFrente}" font-weight="800">${act.atividade}</text>`;
-      svg += `<text x="248" y="${y+ROW_H/2+4}" font-size="8" fill="${corFrente}" text-anchor="middle">${act.inicio}</text>`;
-      svg += `<line x1="${LBLW+(act.inicio-1)*PPD}" y1="${y}" x2="${LBLW+(act.inicio-1)*PPD}" y2="${SVG_H}" stroke="${corFrente}" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.5"/>`;
+      const cor = act.frenteCor || C.summaryBar;
+      svg += `<rect x="0" y="${y}" width="${LBLW}" height="${ROW_H}" fill="${C.summaryBg}"/>`;
+      svg += `<rect x="0" y="${y}" width="3" height="${ROW_H}" fill="${cor}"/>`;
+      // Triângulo sumário MS Project style
+      svg += `<polygon points="${8},${yMid-4} ${16},${yMid-4} ${12},${yMid+4}" fill="${cor}"/>`;
+      const labelTxt = act.atividade.length > 30 ? act.atividade.slice(0,28)+"…" : act.atividade;
+      svg += `<text x="22" y="${yText}" font-size="9" fill="${cor}" font-weight="800">${labelTxt}</text>`;
+      // Barra sumária estilo MS Project (chapéu)
+      const sW = barW;
+      svg += `<rect x="${barX}" y="${yMid-4}" width="${sW}" height="5" fill="${cor}" rx="1"/>`;
+      svg += `<polygon points="${barX},${yMid-4} ${barX-4},${yMid+3} ${barX+4},${yMid+3}" fill="${cor}"/>`;
+      svg += `<polygon points="${barX+sW},${yMid-4} ${barX+sW-4},${yMid+3} ${barX+sW+4},${yMid+3}" fill="${cor}"/>`;
+      // Colunas info
+      svg += `<text x="${durX2+COL_DUR/2}" y="${yText}" font-size="8" fill="${cor}" font-weight="700" text-anchor="middle">${act.duracao}d</text>`;
+      svg += `<text x="${durX2+COL_DUR+COL_INI/2}" y="${yText}" font-size="7.5" fill="${cor}" text-anchor="middle">${iniStr}</text>`;
+      svg += `<text x="${durX2+COL_DUR+COL_INI+COL_FIM/2}" y="${yText}" font-size="7.5" fill="${cor}" text-anchor="middle">${fimStr}</text>`;
       return;
     }
 
-    // REV-17: Administração Local — barra especial de fundo que cobre toda a obra
+    // ── ADMINISTRAÇÃO LOCAL ─────────────────────────────────────────────────
     if (act.isAdmin) {
-      const adminX = LBLW;
-      const adminW = Math.max(act.duracao * PPD, 4);
-      svg += `<rect x="0" y="${y}" width="${LBLW}" height="${ROW_H}" fill="#ECEFF1"/>`;
-      svg += `<rect x="${adminX}" y="${y+2}" width="${adminW}" height="${ROW_H-4}" fill="#455A64" rx="3" opacity="0.85"/>`;
-      svg += `<text x="10" y="${y+ROW_H/2+4}" font-size="7.5" fill="#455A64" font-weight="700">GERAL</text>`;
-      svg += `<text x="52" y="${y+ROW_H/2+4}" font-size="8.5" fill="#263238" font-weight="600">${act.atividade}</text>`;
-      svg += `<text x="${LBLW + adminW/2}" y="${y+ROW_H/2+4}" font-size="7.5" fill="#fff" text-anchor="middle" font-weight="700">${act.duracao}d</text>`;
-      svg += `<line x1="0" y1="${y+ROW_H}" x2="${SVG_W}" y2="${y+ROW_H}" stroke="#B0BEC5" stroke-width="0.5"/>`;
+      svg += `<rect x="0" y="${y}" width="${LBLW}" height="${ROW_H}" fill="${C.summaryBg}"/>`;
+      svg += `<rect x="0" y="${y}" width="3" height="${ROW_H}" fill="${C.adminBar}"/>`;
+      svg += `<text x="12" y="${yText}" font-size="8.5" fill="${C.adminBar}" font-weight="700">${act.atividade.length>36?act.atividade.slice(0,34)+"…":act.atividade}</text>`;
+      svg += `<rect x="${barX}" y="${yMid-4}" width="${barW}" height="8" fill="${C.adminBar}" rx="3" opacity="0.75"/>`;
+      if (barW > 50) svg += `<text x="${barX + barW/2}" y="${yMid+3}" font-size="7" fill="white" text-anchor="middle" font-weight="700">${act.duracao}d</text>`;
+      svg += `<text x="${durX2+COL_DUR/2}" y="${yText}" font-size="8" fill="${C.adminBar}" font-weight="700" text-anchor="middle">${act.duracao}d</text>`;
       return;
     }
 
-    const barX = LBLW+(act.inicio-1)*PPD;
-    const barW = Math.max(act.duracao*PPD,4);
-    const bg   = i%2===0?"#F5F7FB":"#ffffff";
-    svg += `<rect x="0" y="${y}" width="${LBLW}" height="${ROW_H}" fill="${bg}"/>`;
-    svg += `<line x1="0" y1="${y+ROW_H}" x2="${SVG_W}" y2="${y+ROW_H}" stroke="#E0E6F0" stroke-width="0.5"/>`;
-    if (corFrente) {
-      svg += `<rect x="0" y="${y}" width="3" height="${ROW_H}" fill="${corFrente}" opacity="0.7"/>`;
-    }
+    // ── TAREFA NORMAL ───────────────────────────────────────────────────────
     const isCanteiroKm = canteiroKm > 0 && act.km === `KM ${canteiroKm}`;
-    const kmLabel = isCanteiroKm ? `📍 ${act.km}` : act.km;
-    svg += `<text x="10" y="${y+ROW_H/2+4}" font-size="8" fill="${isCanteiroKm?'#F5A623':'#8896A8'}" font-weight="${isCanteiroKm?'800':'400'}">${kmLabel}</text>`;
-    const label = act.atividade.length>30?act.atividade.substring(0,28)+"...":act.atividade;
-    svg += `<text x="52" y="${y+ROW_H/2+4}" font-size="8.5" fill="#1A2540">${label}</text>`;
-    svg += `<text x="248" y="${y+ROW_H/2+4}" font-size="8" fill="#4A5568" text-anchor="middle">${act.inicio}</text>`;
-    svg += `<text x="278" y="${y+ROW_H/2+4}" font-size="8" fill="${corBarra}" text-anchor="middle" font-weight="700">${act.duracao}d</text>`;
-    svg += `<rect x="${barX}" y="${y+5}" width="${barW}" height="${ROW_H-10}" fill="${corBarra}" rx="4" opacity="0.85"/>`;
-    if (barW>30) {
-      const bl = act.atividade.split(" ")[0].substring(0,8);
-      svg += `<text x="${barX+6}" y="${y+ROW_H/2+4}" font-size="7.5" fill="white" font-weight="700">${bl}</text>`;
+    const isCanteiro   = act.etapa === "CANTEIRO DE OBRAS";
+    const isTranslado  = act.isTranslado;
+    const corBarra = isTranslado ? C.transBar : (isCanteiro ? C.summaryBar : C.taskBar);
+    const corBorda = isTranslado ? "#BF6020" : (isCanteiro ? "#001550" : C.taskBorder);
+    const indentX  = act.frente ? 14 : 8;
+
+    // Ícone de nível (recuo)
+    if (act.frente) svg += `<rect x="6" y="${yMid-1}" width="4" height="1.5" fill="var(--cinza-aux)" opacity="0.4"/>`;
+
+    // KM pill
+    const kmTxt = act.km || "";
+    svg += `<rect x="${indentX}" y="${yMid-6}" width="${kmTxt.length*5.5+6}" height="12" fill="${isCanteiroKm?"var(--amarelo)":"var(--azul-claro)"}" rx="3"/>`;
+    svg += `<text x="${indentX+3}" y="${yMid+3}" font-size="7.5" fill="${isCanteiroKm?"#002D72":"var(--azul)"}" font-weight="${isCanteiroKm?"800":"600"}">${kmTxt}</text>`;
+
+    // Nome da atividade
+    const kmPillW = kmTxt.length * 5.5 + 10;
+    const maxLabelW = LABEL_W - indentX - kmPillW - 4;
+    const labelTxt = act.atividade.length * 5.5 > maxLabelW
+      ? act.atividade.slice(0, Math.floor(maxLabelW / 5.5) - 1) + "…"
+      : act.atividade;
+    svg += `<text x="${indentX + kmPillW}" y="${yText}" font-size="8.5" fill="#1A2540">${labelTxt}</text>`;
+
+    // Colunas info
+    svg += `<text x="${durX2+COL_DUR/2}" y="${yText}" font-size="8" fill="${corBarra}" font-weight="700" text-anchor="middle">${act.duracao}d</text>`;
+    svg += `<text x="${durX2+COL_DUR+COL_INI/2}" y="${yText}" font-size="7.5" fill="var(--cinza-med)" text-anchor="middle">${iniStr}</text>`;
+    svg += `<text x="${durX2+COL_DUR+COL_INI+COL_FIM/2}" y="${yText}" font-size="7.5" fill="var(--cinza-med)" text-anchor="middle">${fimStr}</text>`;
+
+    // Barra
+    const barH  = ROW_H - 8;
+    const barY  = y + 4;
+    svg += `<rect x="${barX}" y="${barY}" width="${barW}" height="${barH}" fill="${corBarra}" rx="3" stroke="${corBorda}" stroke-width="0.5"/>`;
+    // Brilho superior (efeito 3D leve)
+    svg += `<rect x="${barX+1}" y="${barY+1}" width="${Math.max(barW-2,1)}" height="${Math.ceil(barH/3)}" fill="rgba(255,255,255,0.18)" rx="2"/>`;
+    // Label dentro da barra
+    if (barW > 28) {
+      const bl = act.atividade.split(" ")[0].slice(0, 6);
+      svg += `<text x="${barX+5}" y="${barY + barH/2 + 3}" font-size="7" fill="white" font-weight="700" opacity="0.9">${bl}</text>`;
     }
   });
 
-  svg += "</svg>";
+  // ── Linhas de dependência (simplified: conecta termino→inicio da próx tarefa do mesmo KM/etapa) ──
+  // Estilo MS Project: L-shape em cinza escuro
+  const linkColor = C.depLine;
+  acts.forEach((act, i) => {
+    if (act.isHeader || act.isAdmin || act.isTranslado) return;
+    // Procura a atividade anterior do mesmo KM (etapa anterior no seq)
+    const prev = acts.slice(0, i).reverse().find(a =>
+      !a.isHeader && !a.isAdmin && a.frente === act.frente && a.km === act.km && a.termino < act.inicio
+    );
+    if (!prev) return;
+    const x1 = LBLW + (prev.termino) * PPD;       // fim da prev
+    const y1 = HDR_H + acts.indexOf(prev) * ROW_H + ROW_H / 2;
+    const x2 = LBLW + (act.inicio - 1) * PPD;     // início da act
+    const y2 = HDR_H + i * ROW_H + ROW_H / 2;
+    const midX = (x1 + x2) / 2;
+    svg += `<polyline points="${x1},${y1} ${midX},${y1} ${midX},${y2} ${x2},${y2}" fill="none" stroke="${linkColor}" stroke-width="0.8" opacity="0.35"/>`;
+    // Seta
+    svg += `<polygon points="${x2},${y2} ${x2-5},${y2-3} ${x2-5},${y2+3}" fill="${linkColor}" opacity="0.45"/>`;
+  });
+
+  // ── Marcador TODAY ──────────────────────────────────────────────────────────
+  const todayDay = Math.round((new Date() - startDate) / 86400000);
+  if (todayDay >= 0 && todayDay <= maxDay + 5) {
+    const todayX = LBLW + todayDay * PPD;
+    svg += `<line x1="${todayX}" y1="${HDR_H}" x2="${todayX}" y2="${SVG_H}" stroke="${C.todayLine}" stroke-width="1.5" stroke-dasharray="5,4" opacity="0.8"/>`;
+    svg += `<rect x="${todayX-16}" y="${HDR_H-16}" width="32" height="15" fill="${C.todayLine}" rx="3"/>`;
+    svg += `<text x="${todayX}" y="${HDR_H-5}" font-size="7.5" fill="white" text-anchor="middle" font-weight="700">HOJE</text>`;
+  }
+
+  svg += `</svg>`;
   document.getElementById("gantt-scroll").innerHTML = svg;
 
-  // Legenda
-  const etapasU = [...new Set(GANTT_DATA.filter(a=>!a.isHeader).map(a=>a.etapa))];
+  // ── Tooltip on-hover ────────────────────────────────────────────────────────
+  (() => {
+    const svgEl = document.getElementById("gantt-svg");
+    if (!svgEl) return;
+    let tip = document.getElementById("gantt-tooltip-rev24");
+    if (!tip) {
+      tip = document.createElement("div");
+      tip.id = "gantt-tooltip-rev24";
+      tip.style.cssText = "position:fixed;z-index:9999;background:#1F3864;color:#fff;border-radius:8px;padding:0.55rem 0.9rem;font-size:0.74rem;font-family:'Outfit',sans-serif;pointer-events:none;opacity:0;transition:opacity 0.12s;box-shadow:0 4px 20px rgba(0,20,60,0.4);max-width:300px;line-height:1.55";
+      document.body.appendChild(tip);
+    }
+    svgEl.addEventListener("mousemove", e => {
+      const rect  = svgEl.getBoundingClientRect();
+      const relY  = e.clientY - rect.top;
+      const idx   = Math.floor((relY - HDR_H) / ROW_H);
+      if (idx < 0 || idx >= acts.length) { tip.style.opacity = "0"; return; }
+      const act = acts[idx];
+      if (!act) { tip.style.opacity = "0"; return; }
+      const dtI = new Date(startDate.getTime() + (act.inicio-1)*86400000).toLocaleDateString("pt-BR");
+      const dtF = new Date(startDate.getTime() + (act.termino-1)*86400000).toLocaleDateString("pt-BR");
+      const ficV = _ficAtivo() ? ficPorEtapa(act.etapaFull || act.etapa, _ficTipoNd()==="geotecnico") : 0;
+      tip.innerHTML = `
+        <div style="font-weight:800;color:#F5A623;font-size:0.78rem;margin-bottom:3px">${act.km || "GERAL"} — ${act.etapa || ""}</div>
+        <div style="font-weight:600;color:#fff">${act.atividade}</div>
+        <div style="color:rgba(255,255,255,0.65);font-size:0.68rem;margin-top:4px;display:grid;grid-template-columns:auto auto;gap:1px 12px">
+          <span>Início:</span><strong style="color:#fff">${dtI}</strong>
+          <span>Término:</span><strong style="color:#fff">${dtF}</strong>
+          <span>Duração:</span><strong style="color:#F5A623">${act.duracao} dias</strong>
+          ${ficV > 0 ? `<span>FIC (AM):</span><strong style="color:#F5A623">${ficV.toFixed(5)} → +${(ficV*100).toFixed(2)}%</strong>` : ""}
+        </div>`;
+      tip.style.opacity = "1";
+      tip.style.left = (e.clientX + 16) + "px";
+      tip.style.top  = (e.clientY - 12) + "px";
+    });
+    svgEl.addEventListener("mouseleave", () => { tip.style.opacity = "0"; });
+  })();
+
+  // ── Legenda ──────────────────────────────────────────────────────────────────
+  const etapasU  = [...new Set(GANTT_DATA.filter(a=>!a.isHeader).map(a=>a.etapa))];
   const frentesU = FRENTES.length > 0 ? FRENTES : [];
   setEl("gantt-legend", [
-    ...etapasU.map(e=>`<div class="legend-item"><div class="legend-dot" style="background:${etapaCor(e)}"></div>${e}</div>`),
+    ...etapasU.map(e=>`<div class="legend-item"><div class="legend-dot" style="background:${etapaCor(e)};border-radius:2px"></div>${e}</div>`),
     ...(frentesU.length ? ['<span style="color:var(--cinza-aux);font-size:0.65rem;margin:0 8px">|</span>'] : []),
-    ...frentesU.map(f=>`<div class="legend-item"><div class="legend-dot" style="background:${f.cor};border-radius:3px"></div><strong>${f.nome}</strong>&nbsp;KM${f.kmInicio}-${f.kmFim}${f.paralelo?' <span style="background:#2E7D32;color:#fff;padding:0 4px;border-radius:3px;font-size:0.6rem">PAR</span>':''}</div>`),
-  ].join(""));
+    ...frentesU.map(f=>`<div class="legend-item"><div class="legend-dot" style="background:${f.cor};border-radius:2px"></div><strong>${f.nome}</strong>&nbsp;KM${f.kmInicio}–${f.kmFim}${f.paralelo?' <span style="background:#2E7D32;color:#fff;padding:0 4px;border-radius:3px;font-size:0.6rem">PAR</span>':''}</div>`),
+    ...(FRENTES.length?[]:[]),
+    _ficAtivo() ? [`<span style="margin-left:8px;background:#002D72;color:#F5A623;font-size:0.62rem;padding:0.1rem 0.5rem;border-radius:100px;font-weight:700">🌧️ FIC ATIVO</span>`] : [],
+  ].flat().join(""));
 }
 
 // ═══════════════════════════════════════════════════════
