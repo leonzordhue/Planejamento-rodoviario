@@ -3048,11 +3048,14 @@ function renderGantt() {
   // Zoom
   const PPD = [1.4, 3.5, 8.5][_ganttZoomLevel] || 3.5;
 
-  // Layout
-  const COL_ID=44, COL_NM=220, COL_IN=46, COL_DU=44;
-  const LBLW = COL_ID+COL_NM+COL_IN+COL_DU; // 354
-  const DX1=COL_ID, DX2=COL_ID+COL_NM, DX3=COL_ID+COL_NM+COL_IN;
+  // Layout — grade estilo MS Project: KM/ID · Atividade · Duração · Início · Término
+  const COL_ID=38, COL_NM=188, COL_DU=42, COL_IN=50, COL_FM=52;
+  const LBLW = COL_ID+COL_NM+COL_DU+COL_IN+COL_FM; // 370
+  const DX1=COL_ID, DX2=DX1+COL_NM, DX3=DX2+COL_DU, DX4=DX3+COL_IN; // bordas de coluna
   const ROW_H=28, H1=28, H2=26, HDR_H=H1+H2;
+  // datas → texto curto p/ colunas Início/Término
+  const _gd0 = getV("obra-inicio") ? new Date(getV("obra-inicio")+"T00:00:00") : null;
+  const fmtCol = d => _gd0 ? new Date(_gd0.getTime()+(d-1)*86400000).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"}) : `D${d}`;
 
   const nWeeks = Math.ceil(maxDay/7)+3;
   const TLW = nWeeks*7*PPD;
@@ -3130,6 +3133,15 @@ function renderGantt() {
       const fc=act.frenteCor||'#1F285B';
       B+=`<rect x="${LBLW}" y="${y}" width="${TLW}" height="${ROW_H}" fill="${fc}15"/>`;
       B+=`<line x1="${LBLW}" y1="${y+ROW_H}" x2="${SVG_W}" y2="${y+ROW_H}" stroke="${fc}" stroke-width="1" opacity="0.4"/>`;
+      // Barra-resumo (rollup MS Project): abrange início/fim das atividades da frente
+      const kids = acts.filter(k=>!k.isHeader && !k.isAdmin && k.frente===act.frente);
+      if(kids.length){
+        const s=Math.min(...kids.map(k=>k.inicio)), e=Math.max(...kids.map(k=>k.termino));
+        const sx=LBLW+(s-1)*PPD, ew=Math.max((e-s+1)*PPD,6), cy=y+ROW_H/2;
+        B+=`<rect x="${sx}" y="${cy-3}" width="${ew}" height="5" fill="#2B3550"/>`;
+        B+=`<path d="M${sx} ${cy-3} L${sx} ${cy+6} L${sx+7} ${cy-3} Z" fill="#2B3550"/>`;
+        B+=`<path d="M${sx+ew} ${cy-3} L${sx+ew} ${cy+6} L${sx+ew-7} ${cy-3} Z" fill="#2B3550"/>`;
+      }
       return;
     }
     const bg=i%2===0?'#FFFFFF':'#F5F7FC';
@@ -3147,14 +3159,40 @@ function renderGantt() {
     }
 
     const bx=LBLW+(act.inicio-1)*PPD, bw=Math.max(act.duracao*PPD,5);
+    const cy=y+ROW_H/2;
+    // Marco (duração 0) → losango estilo MS Project
+    if((act.duracao||0)<=0){
+      const m=6;
+      B+=`<g class="gantt-bar" data-idx="${i}"><path d="M${bx} ${cy-m} L${bx+m} ${cy} L${bx} ${cy+m} L${bx-m} ${cy} Z" fill="#1F285B"/></g>`;
+      return;
+    }
     const gid=act.isTranslado?'gtg':(eGMap[act.etapa]||null);
     const fill=gid?`url(#${gid})`:etapaCor(act.etapa);
     B+=`<g class="gantt-bar" data-idx="${i}">`;
     B+=`<rect x="${bx}" y="${y+5}" width="${bw}" height="${ROW_H-10}" fill="${fill}" rx="5" filter="url(#gsf)"/>`;
     B+=`<rect x="${bx+2}" y="${y+6}" width="${Math.min(bw-4,45)}" height="3" fill="rgba(255,255,255,0.35)" rx="2"/>`;
-    if(bw>40) B+=`<text x="${bx+7}" y="${y+ROW_H/2+4.5}" font-size="7.5" fill="white" font-weight="700">${act.atividade.split(' ')[0].substring(0,10)}</text>`;
+    // % concluído (linha de progresso interna, vs hoje)
+    if(showToday){
+      const elapsed=Math.max(0,Math.min(act.duracao, todayDay-(act.inicio-1)));
+      const pct=act.duracao>0?elapsed/act.duracao:0;
+      if(pct>0) B+=`<rect x="${bx}" y="${cy-1.5}" width="${bw*pct}" height="3" fill="rgba(0,0,0,0.58)" rx="1.5"/>`;
+    }
+    if(bw>40) B+=`<text x="${bx+7}" y="${cy+4.5}" font-size="7.5" fill="white" font-weight="700">${act.atividade.split(' ')[0].substring(0,10)}</text>`;
     B+=`</g>`;
   });
+
+  // ── Setas de dependência (FS) — encadeamento sequencial dentro da frente ──
+  for(let i=0;i<acts.length-1;i++){
+    const a=acts[i], b2=acts[i+1];
+    if(a.isHeader||a.isAdmin||b2.isHeader||b2.isAdmin) continue;
+    if(a.frente!==b2.frente) continue;
+    if((b2.duracao||0)<=0 || (a.duracao||0)<=0) continue;
+    if(b2.inicio < a.termino) continue; // apenas Finish-to-Start
+    const ay=HDR_H+i*ROW_H+ROW_H/2, by=HDR_H+(i+1)*ROW_H+ROW_H/2;
+    const ax=LBLW+(a.termino)*PPD, bx2=LBLW+(b2.inicio-1)*PPD;
+    B+=`<path d="M${ax} ${ay} L${ax+5} ${ay} L${ax+5} ${by} L${bx2-3} ${by}" fill="none" stroke="#8593A8" stroke-width="0.8" opacity="0.65"/>`;
+    B+=`<path d="M${bx2-3} ${by} l-4 -2.4 l0 4.8 Z" fill="#8593A8" opacity="0.8"/>`;
+  }
 
   // ── GRUPO CABEÇALHO (sticky top) ──
   let H=`<g id="gantt-hdr-g" transform="translate(0,0)">`;
@@ -3186,18 +3224,17 @@ function renderGantt() {
   let L=`<g id="gantt-left-g" transform="translate(0,0)">`;
   // Canto superior (cobre LBLW × HDR_H)
   L+=`<rect x="0" y="0" width="${LBLW}" height="${HDR_H}" fill="url(#ghg)"/>`;
-  // Rótulos linha 1
+  // Rótulos linha 1 — colunas MS Project
   L+=`<text x="${DX1/2}" y="${H1/2+5}" font-size="8" fill="rgba(255,255,255,0.88)" text-anchor="middle" font-weight="700">KM</text>`;
-  L+=`<text x="${DX1+10}" y="${H1/2+5}" font-size="8.5" fill="rgba(255,255,255,0.9)" font-weight="700">ATIVIDADE</text>`;
-  L+=`<text x="${DX2+COL_IN/2}" y="${H1/2+5}" font-size="8" fill="rgba(245,166,35,0.95)" text-anchor="middle" font-weight="700">INÍ.</text>`;
-  L+=`<text x="${DX3+COL_DU/2}" y="${H1/2+5}" font-size="8" fill="rgba(245,166,35,0.95)" text-anchor="middle" font-weight="700">DUR.</text>`;
+  L+=`<text x="${DX1+8}" y="${H1/2+5}" font-size="8.5" fill="rgba(255,255,255,0.9)" font-weight="700">ATIVIDADE</text>`;
+  L+=`<text x="${DX2+COL_DU/2}" y="${H1/2+5}" font-size="8" fill="#FBDC27" text-anchor="middle" font-weight="700">DUR.</text>`;
+  L+=`<text x="${DX3+COL_IN/2}" y="${H1/2+5}" font-size="8" fill="#FBDC27" text-anchor="middle" font-weight="700">INÍCIO</text>`;
+  L+=`<text x="${DX4+COL_FM/2}" y="${H1/2+5}" font-size="8" fill="#FBDC27" text-anchor="middle" font-weight="700">TÉRMINO</text>`;
   // Linha 2 do canto
   L+=`<rect x="0" y="${H1}" width="${LBLW}" height="${H2}" fill="#001E50"/>`;
-  L+=`<text x="${LBLW/2}" y="${H1+H2/2+4}" font-size="7.5" fill="rgba(255,255,255,0.42)" text-anchor="middle" letter-spacing="0.05em">IDENTIFICAÇÃO DA ATIVIDADE</text>`;
+  L+=`<text x="${LBLW/2}" y="${H1+H2/2+4}" font-size="7.5" fill="rgba(255,255,255,0.42)" text-anchor="middle" letter-spacing="0.05em">ESTRUTURA DO CRONOGRAMA</text>`;
   // Divisores de coluna no header
-  L+=`<line x1="${DX1}" y1="0" x2="${DX1}" y2="${HDR_H}" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>`;
-  L+=`<line x1="${DX2}" y1="0" x2="${DX2}" y2="${HDR_H}" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>`;
-  L+=`<line x1="${DX3}" y1="0" x2="${DX3}" y2="${HDR_H}" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>`;
+  [DX1,DX2,DX3,DX4].forEach(dx=>{ L+=`<line x1="${dx}" y1="0" x2="${dx}" y2="${HDR_H}" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>`; });
   L+=`<line x1="0" y1="${HDR_H}" x2="${LBLW}" y2="${HDR_H}" stroke="rgba(0,0,0,0.1)" stroke-width="1"/>`;
   // Borda direita do painel
   L+=`<line x1="${LBLW}" y1="0" x2="${LBLW}" y2="${SVG_H}" stroke="#C4D0E8" stroke-width="1.5"/>`;
@@ -3216,22 +3253,25 @@ function renderGantt() {
     const bg=i%2===0?'#FFFFFF':'#F5F7FC';
     L+=`<rect x="0" y="${y}" width="${LBLW}" height="${ROW_H}" fill="${act.isAdmin?'#ECEFF1':bg}"/>`;
     if(!act.isAdmin && act.frenteCor) L+=`<rect x="0" y="${y}" width="4" height="${ROW_H}" fill="${act.frenteCor}" opacity="0.75"/>`;
+    const truncN = s => s && s.length>23 ? s.substring(0,22)+'…' : (s||'');
     if(act.isAdmin) {
       L+=`<text x="${DX1/2}" y="${y+ROW_H/2+4}" font-size="7" fill="#607D8B" font-weight="700" text-anchor="middle">ADMIN</text>`;
-      L+=`<text x="${DX1+8}" y="${y+ROW_H/2+4}" font-size="8.5" fill="#37474F" font-weight="600">${act.atividade.length>26?act.atividade.substring(0,24)+'…':act.atividade}</text>`;
+      L+=`<text x="${DX1+6}" y="${y+ROW_H/2+4}" font-size="8.5" fill="#37474F" font-weight="600">${truncN(act.atividade)}</text>`;
+      L+=`<text x="${DX2+COL_DU/2}" y="${y+ROW_H/2+4}" font-size="8" fill="#607D8B" text-anchor="middle">${act.duracao}d</text>`;
+      L+=`<text x="${DX3+COL_IN/2}" y="${y+ROW_H/2+4}" font-size="7.5" fill="#90A4AE" text-anchor="middle">${fmtCol(act.inicio)}</text>`;
+      L+=`<text x="${DX4+COL_FM/2}" y="${y+ROW_H/2+4}" font-size="7.5" fill="#90A4AE" text-anchor="middle">${fmtCol(act.termino)}</text>`;
       L+=`<line x1="0" y1="${y+ROW_H}" x2="${LBLW}" y2="${y+ROW_H}" stroke="#CFD8DC" stroke-width="0.5"/>`;
       return;
     }
     const isC=canteiroKm>0 && act.km===`KM ${canteiroKm}`;
     const bc=act.isTranslado?'#F5A623':etapaCor(act.etapa);
     L+=`<text x="${4+DX1/2}" y="${y+ROW_H/2+4.5}" font-size="8" fill="${isC?'#F5A623':'#8896A8'}" font-weight="${isC?'800':'500'}" text-anchor="middle">${act.km||'—'}</text>`;
-    L+=`<text x="${DX1+8}" y="${y+ROW_H/2+4.5}" font-size="8.5" fill="#1A2540">${act.atividade.length>26?act.atividade.substring(0,24)+'…':act.atividade}</text>`;
-    L+=`<text x="${DX2+COL_IN/2}" y="${y+ROW_H/2+4.5}" font-size="8" fill="#607D8B" text-anchor="middle">D${act.inicio}</text>`;
-    L+=`<text x="${DX3+COL_DU/2}" y="${y+ROW_H/2+4.5}" font-size="8" fill="${bc}" text-anchor="middle" font-weight="700">${act.duracao}d</text>`;
+    L+=`<text x="${DX1+6}" y="${y+ROW_H/2+4.5}" font-size="8.5" fill="#1A2540">${truncN(act.atividade)}</text>`;
+    L+=`<text x="${DX2+COL_DU/2}" y="${y+ROW_H/2+4.5}" font-size="8" fill="${bc}" text-anchor="middle" font-weight="700">${act.duracao}d</text>`;
+    L+=`<text x="${DX3+COL_IN/2}" y="${y+ROW_H/2+4.5}" font-size="7.5" fill="#607D8B" text-anchor="middle">${fmtCol(act.inicio)}</text>`;
+    L+=`<text x="${DX4+COL_FM/2}" y="${y+ROW_H/2+4.5}" font-size="7.5" fill="#37474F" text-anchor="middle" font-weight="600">${fmtCol(act.termino)}</text>`;
     L+=`<line x1="0" y1="${y+ROW_H}" x2="${LBLW}" y2="${y+ROW_H}" stroke="#E8ECF4" stroke-width="0.5"/>`;
-    L+=`<line x1="${DX1}" y1="${y}" x2="${DX1}" y2="${y+ROW_H}" stroke="#EDF1F8" stroke-width="0.5"/>`;
-    L+=`<line x1="${DX2}" y1="${y}" x2="${DX2}" y2="${y+ROW_H}" stroke="#EDF1F8" stroke-width="0.5"/>`;
-    L+=`<line x1="${DX3}" y1="${y}" x2="${DX3}" y2="${y+ROW_H}" stroke="#EDF1F8" stroke-width="0.5"/>`;
+    [DX1,DX2,DX3,DX4].forEach(dx=>{ L+=`<line x1="${dx}" y1="${y}" x2="${dx}" y2="${y+ROW_H}" stroke="#EDF1F8" stroke-width="0.5"/>`; });
   });
   L+='</g>';
   B+=L;
@@ -3271,7 +3311,15 @@ function renderGantt() {
 
   // Legenda
   const etapasLeg=[...new Set(GANTT_DATA.filter(a=>!a.isHeader).map(a=>a.etapa))];
+  const legGlyphs=[
+    `<div class="legend-item"><span style="display:inline-block;width:22px;height:5px;background:#2B3550;position:relative"></span>&nbsp;Resumo (frente)</div>`,
+    `<div class="legend-item"><span style="display:inline-block;width:22px;height:8px;background:#90A4AE;border-radius:3px;position:relative;overflow:hidden"><span style="position:absolute;left:0;top:2.5px;width:60%;height:3px;background:rgba(0,0,0,.58)"></span></span>&nbsp;% concluído</div>`,
+    `<div class="legend-item"><span style="display:inline-block;width:10px;height:10px;background:#1F285B;transform:rotate(45deg)"></span>&nbsp;Marco</div>`,
+    `<div class="legend-item"><span style="display:inline-block;width:14px;border-top:1.5px dashed #E53935"></span>&nbsp;Hoje</div>`,
+  ];
   setEl("gantt-legend",[
+    ...legGlyphs,
+    '<span style="color:var(--cinza-aux);font-size:.65rem;margin:0 8px">|</span>',
     ...etapasLeg.map(e=>`<div class="legend-item"><div class="legend-dot" style="background:${etapaCor(e)}"></div>${e}</div>`),
     ...(frentesU.length?['<span style="color:var(--cinza-aux);font-size:.65rem;margin:0 8px">|</span>']:[]),
     ...frentesU.map(f=>`<div class="legend-item"><div class="legend-dot" style="background:${f.cor};border-radius:3px"></div><strong>${f.nome}</strong>&nbsp;KM${f.kmInicio}-${f.kmFim}${f.paralelo?' <span style="background:#2E7D32;color:#fff;padding:0 4px;border-radius:3px;font-size:.6rem">PAR</span>':''}</div>`),
@@ -3289,7 +3337,7 @@ function ganttScrollToday() {
   if(!sc) return;
   const PPD = [1.4,3.5,8.5][_ganttZoomLevel];
   const sd  = getV("obra-inicio") ? new Date(getV("obra-inicio")+"T00:00:00") : new Date();
-  const tx  = 354 + Math.round((new Date()-sd)/86400000)*PPD;
+  const tx  = 370 + Math.round((new Date()-sd)/86400000)*PPD;
   sc.scrollLeft = Math.max(0, tx - sc.clientWidth/2);
 }
 function ganttScrollStart() {
