@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <meta name="theme-color" content="#1A2B5E" />
+  <meta name="theme-color" content="#1F285B" />
   <title>SEINFRA/AM — Plataforma de Planejamento de Obras</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -22,25 +22,31 @@
 
   <style>
     :root {
-      /* ── Paleta institucional DMOB · Identidade 2026 ── */
-      --azul:         #1A2B5E;   /* navy primário — identidade 2026 */
-      --azul-dk:      #001E50;
-      --azul-hover:   #152347;
-      --azul-mid:     #1E3575;
-      --azul-claro:   #EBF0FA;
-      --azul-borda:   #C4D0E8;
-      --azul-soft:    rgba(26,43,94,0.06);
+      /* ── Paleta oficial GOVERNO DO AMAZONAS · SEINFRA 2026 ── */
+      /* Marca: azul #1F285B · verde #007433 · verde-claro #42A435 · ouro #FBDC27 */
+      --azul:         #1F285B;   /* navy institucional oficial (marca AM) */
+      --azul-dk:      #141B40;
+      --azul-hover:   #182048;
+      --azul-mid:     #2A3670;
+      --azul-claro:   #EBEFF8;
+      --azul-borda:   #C2CBE3;
+      --azul-soft:    rgba(31,40,91,0.06);
 
-      --amarelo:      #F5A623;
+      --amarelo:      #F5A623;   /* laranja semântico (status leito natural / alerta) */
       --amarelo-dk:   #D48C10;
       --amarelo-cl:   #FEF3DC;
       --amarelo-brd:  #F5C878;
 
-      --verde:        #2D8540;   /* verde institucional AM 2026 */
-      --verde-gov:    #2D8540;
+      --ouro:         #FBDC27;   /* ouro da marca (brasão / destaque institucional) */
+      --ouro-dk:      #E0B800;
+      --ouro-cl:      #FFF9DB;
+
+      --verde:        #007433;   /* verde institucional oficial (marca AM) */
+      --verde-gov:    #007433;
+      --verde-claro:  #42A435;   /* verde-claro da marca (ondas / destaque) */
       --verde-dk:     #005C2E;
-      --verde-cl:     #E8F5EC;
-      --verde-brd:    rgba(45,133,64,0.28);
+      --verde-cl:     #E4F3E6;
+      --verde-brd:    rgba(0,116,51,0.28);
 
       --vermelho:     #C0392B;
       --vermelho-dk:  #962D22;
@@ -117,6 +123,8 @@
       box-shadow: 0 2px 20px rgba(26,43,94,0.08);
     }
     .header-brand { display: flex; align-items: center; gap: 1.1rem; }
+    .brand-marca-oficial { height: 48px; width: auto; display: block; }
+    @media (max-width: 640px) { .brand-marca-oficial { height: 36px; } }
     .brand-gov    { display: flex; align-items: center; gap: 0.65rem; }
     .brand-brasao { height: 50px; width: auto; display: block; }
     .brand-gov-text { display: flex; flex-direction: column; line-height: 1; gap: 0.1rem; }
@@ -393,13 +401,13 @@
     .gantt-toolbar-row { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
     .gantt-ctrl-btn {
       background: var(--azul-claro, #EBF0FA); border: 1px solid var(--azul-borda, #C4D0E8);
-      color: var(--azul, #1A2B5E); border-radius: 7px; padding: 0.32rem 0.7rem;
+      color: var(--azul, #1F285B); border-radius: 7px; padding: 0.32rem 0.7rem;
       font-family: 'Outfit', sans-serif; font-size: 0.72rem; font-weight: 700;
       cursor: pointer; transition: all 0.15s; line-height: 1;
     }
-    .gantt-ctrl-btn:hover { background: var(--azul, #1A2B5E); color: #fff; border-color: var(--azul); }
+    .gantt-ctrl-btn:hover { background: var(--azul, #1F285B); color: #fff; border-color: var(--azul); }
     .gantt-zoom-mode {
-      background: var(--azul, #1A2B5E); color: #fff; border-radius: 6px;
+      background: var(--azul, #1F285B); color: #fff; border-radius: 6px;
       padding: 0.3rem 0.65rem; font-size: 0.68rem; font-weight: 800;
       letter-spacing: 0.06em; min-width: 52px; text-align: center;
       font-family: 'Outfit', sans-serif;
@@ -804,20 +812,20 @@
       .print-gantt-wrap svg { max-width: 100% !important; width: 100% !important; height: auto !important; display: block !important; }
 
       /* Capa azul forçada */
-      .print-page-capa { background: #1A2B5E !important; }
-      .print-capa-grid { background: #1A2B5E !important; border-color: rgba(255,255,255,0.12) !important; }
-      .print-capa-item { background: #1A2B5E !important; }
+      .print-page-capa { background: #1F285B !important; }
+      .print-capa-grid { background: #1F285B !important; border-color: rgba(255,255,255,0.12) !important; }
+      .print-capa-item { background: #1F285B !important; }
       .print-capa-val { color: #ffffff !important; }
       .print-capa-lbl { color: rgba(255,255,255,0.5) !important; }
       .print-capa-nome { color: #F5A623 !important; }
 
       /* Titles */
-      .print-section-title { background: #EBF0FA !important; border-color: #1A2B5E !important; color: #1A2B5E !important; }
+      .print-section-title { background: #EBF0FA !important; border-color: #1F285B !important; color: #1F285B !important; }
 
       /* Tabelas */
-      .ptable thead tr { background: #1A2B5E !important; }
+      .ptable thead tr { background: #1F285B !important; }
       .ptable thead th { color: rgba(255,255,255,0.9) !important; }
-      .ptable tfoot tr { background: #1A2B5E !important; }
+      .ptable tfoot tr { background: #1F285B !important; }
       .ptable tfoot td { color: white !important; }
       .ptable tbody tr:nth-child(even) { background: #F5F7FB !important; }
       .ptable { font-size: 0.6rem !important; }
@@ -825,11 +833,11 @@
 
       /* KPIs */
       .print-kpi { background: #F5F7FB !important; }
-      .print-kpi-val { color: #1A2B5E !important; }
+      .print-kpi-val { color: #1F285B !important; }
 
       /* Memorial */
-      .print-memorial-card-hdr { background: #1A2B5E !important; color: white !important; }
-      .print-memorial-val { color: #1A2B5E !important; }
+      .print-memorial-card-hdr { background: #1F285B !important; color: white !important; }
+      .print-memorial-val { color: #1F285B !important; }
     }
   </style>
   <!-- Leaflet para o mapa -->
@@ -870,21 +878,16 @@
 <!-- ══ HEADER ══ -->
 <header class="site-header">
   <div class="header-brand">
-    <div class="brand-gov">
-      <img src="https://leonzordhue.github.io/atlas-amazonas/assets/brasao_am.png"
-           alt="Brasão do Amazonas" class="brand-brasao"
-           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
-      <div style="display:none;width:50px;height:50px;border-radius:8px;background:var(--azul);color:#fff;align-items:center;justify-content:center;font-size:1.6rem;flex-shrink:0">🦅</div>
+    <img src="assets/marca-gov-seinfra-azul.png"
+         alt="Secretaria de Infraestrutura · Governo do Amazonas — A Força da Nossa Gente"
+         class="brand-marca-oficial"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+    <div class="brand-fallback" style="display:none;align-items:center;gap:.6rem">
+      <div style="width:46px;height:46px;border-radius:8px;background:var(--azul);color:var(--ouro);display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0">🦅</div>
       <div class="brand-gov-text">
-        <div class="brand-gov-label">Governo do</div>
-        <div class="brand-gov-estado">Amazonas</div>
-        <div class="brand-gov-slogan">A Força da Nossa Gente</div>
+        <div class="brand-gov-estado">Governo do Amazonas</div>
+        <div class="brand-gov-slogan">Secretaria de Infraestrutura</div>
       </div>
-    </div>
-    <div class="brand-divider"></div>
-    <div class="brand-seinfra">
-      <div class="brand-seinfra-pre">Secretaria de</div>
-      <div class="brand-seinfra-name">Infraestrutura</div>
     </div>
   </div>
   <div class="header-right">
@@ -1589,7 +1592,7 @@
 <!-- ══ MODAL PROJETOS ══ -->
 <div id="projOverlay" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,20,60,0.6);align-items:center;justify-content:center;padding:1rem">
   <div style="background:var(--branco);border-radius:14px;width:100%;max-width:620px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,20,60,0.3);overflow:hidden">
-    <div style="background:#1A2B5E;padding:.9rem 1.2rem;display:flex;align-items:center;gap:.8rem">
+    <div style="background:#1F285B;padding:.9rem 1.2rem;display:flex;align-items:center;gap:.8rem">
       <div style="font-size:.95rem;font-weight:800;color:#fff;flex:1">📂 Projetos Salvos</div>
       <div style="font-size:.68rem;color:rgba(255,255,255,.6)" id="proj-fonte-label">local + Google Sheets</div>
       <button onclick="fecharModalProjetos()" style="background:rgba(255,255,255,.12);border:none;color:rgba(255,255,255,.8);font-size:1rem;width:28px;height:28px;border-radius:6px;cursor:pointer">✕</button>
@@ -1706,7 +1709,7 @@ window._VERSION_LOG = [
   { rev:"REV-17",data:"2026-03-19", descricao:"Fix PDF Gantt fatiamento vertical + Excel visual" },
   { rev:"REV-17.1",data:"2026-05-24",descricao:"DMOB Core v1.0: tokens v2, glassmorphism, AKE pipeline" },
   { rev:"REV-17.2",data:"2026-05-24",descricao:"Gantt MS Project: sticky SVG groups, header 2 níveis, gradientes, marcador HOJE, tooltip, zoom 3 níveis (Mês/Semana/Dia)" },
-  { rev:"REV-17.3",data:"2026-05-25",descricao:"Identidade Visual 2026: fontes Lexend/Barlow, navy #1A2B5E, verde #2D8540, header Gov AM, footer 3 colunas institucional" },
+  { rev:"REV-17.3",data:"2026-05-25",descricao:"Identidade Visual 2026: fontes Lexend/Barlow, navy #1F285B, verde #007433, header Gov AM, footer 3 colunas institucional" },
 ];
 window._VICIOS_CONHECIDOS  = [
   { id:"VK-01", desc:"API_KEY Google exposta no client — aguarda proxy backend" },
@@ -1818,7 +1821,7 @@ const PARAMETROS = {
 
 // Cores por etapa
 const ETAPA_CORES = {
-  "CANTEIRO":    "#1A2B5E",
+  "CANTEIRO":    "#1F285B",
   "LIMPEZA":     "#2E7D32",
   "TERRAPLAN":   "#5D4037",  // marrom terra — distinto do amarelo sinalização
   "DRENAGEM":    "#0277BD",
@@ -2772,7 +2775,7 @@ function renderServicos() {
       separador = `<tr style="background:#EBF0FA;border-top:2px solid var(--azul-borda)">
         <td colspan="10" style="padding:0.4rem 0.8rem;font-size:0.68rem;font-weight:700;color:var(--azul);letter-spacing:0.1em;text-transform:uppercase">
           📍 KM ${s.km}${badge}
-          ${_modoMultiTrecho ? `<span style="margin-left:0.6rem;background:#1A2B5E;color:#fff;font-size:0.6rem;padding:0.1rem 0.5rem;border-radius:100px">${getLabelTrecho(parseInt(s.km)||0)}</span>` : ""}
+          ${_modoMultiTrecho ? `<span style="margin-left:0.6rem;background:#1F285B;color:#fff;font-size:0.6rem;padding:0.1rem 0.5rem;border-radius:100px">${getLabelTrecho(parseInt(s.km)||0)}</span>` : ""}
           <button onclick="addServicoKm('${s.km}')" style="margin-left:0.8rem;font-size:0.65rem;font-weight:700;padding:0.15rem 0.5rem;background:var(--azul);color:white;border:none;border-radius:4px;cursor:pointer">+ Serviço neste KM</button>
         </td>
       </tr>`;
@@ -2997,7 +3000,7 @@ function renderGantt() {
   acts.forEach((act,i)=>{
     const y=HDR_H+i*ROW_H;
     if(act.isHeader) {
-      const fc=act.frenteCor||'#1A2B5E';
+      const fc=act.frenteCor||'#1F285B';
       B+=`<rect x="${LBLW}" y="${y}" width="${TLW}" height="${ROW_H}" fill="${fc}15"/>`;
       B+=`<line x1="${LBLW}" y1="${y+ROW_H}" x2="${SVG_W}" y2="${y+ROW_H}" stroke="${fc}" stroke-width="1" opacity="0.4"/>`;
       return;
@@ -3076,7 +3079,7 @@ function renderGantt() {
   acts.forEach((act,i)=>{
     const y=HDR_H+i*ROW_H;
     if(act.isHeader) {
-      const fc=act.frenteCor||'#1A2B5E';
+      const fc=act.frenteCor||'#1F285B';
       L+=`<rect x="0" y="${y}" width="${LBLW}" height="${ROW_H}" fill="${fc}15"/>`;
       L+=`<rect x="0" y="${y}" width="5" height="${ROW_H}" fill="${fc}"/>`;
       L+=`<text x="14" y="${y+ROW_H/2+4.5}" font-size="9" fill="${fc}" font-weight="800" letter-spacing="0.05em">${act.atividade}</text>`;
@@ -3243,7 +3246,7 @@ function renderHistogramas() {
     return `<tr>
       <td><strong>${m.mes}</strong></td>
       ${td(m.servente,"#0277BD")}${td(m.pedreiro,"#0277BD")}${td(m.operador,"#0277BD")}${td(m.carpinteiro,"#0277BD")}
-      <td class="right" style="color:${totMO>0?"#1A2B5E":"var(--cinza-aux)"};font-weight:700">${totMO||"—"}</td>
+      <td class="right" style="color:${totMO>0?"#1F285B":"var(--cinza-aux)"};font-weight:700">${totMO||"—"}</td>
       ${td(m.escavadeira,"#2E7D32")}${td(m.rolo,"#2E7D32")}${td(m.caminhao,"#2E7D32")}${td(m.moto,"#2E7D32")}
       <td class="right" style="color:${totEQP>0?"#1B5E20":"var(--cinza-aux)"};font-weight:700">${totEQP||"—"}</td>
     </tr>`;
@@ -3432,7 +3435,7 @@ function _toastRecalcular() {
   t.id = "toast-recalcular";
   t.style.cssText = `
     position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);z-index:3000;
-    background:#1A2B5E;color:#fff;border-radius:10px;
+    background:#1F285B;color:#fff;border-radius:10px;
     padding:0.65rem 1.4rem;font-size:0.82rem;font-weight:600;
     box-shadow:0 6px 24px rgba(0,20,60,0.3);
     display:flex;align-items:center;gap:0.6rem;
@@ -5032,7 +5035,7 @@ function gerarPreviewImpressao() {
             return `<tr>
               <td><strong>${m.mes}</strong></td>
               ${c(m.servente,"#0277BD")}${c(m.pedreiro,"#0277BD")}${c(m.operador,"#0277BD")}${c(m.carpinteiro,"#0277BD")}
-              <td class="r" style="color:${tMO>0?"#1A2B5E":"var(--cinza-aux)"};font-weight:700">${tMO||"—"}</td>
+              <td class="r" style="color:${tMO>0?"#1F285B":"var(--cinza-aux)"};font-weight:700">${tMO||"—"}</td>
               ${c(m.escavadeira,"#2E7D32")}${c(m.rolo,"#2E7D32")}${c(m.caminhao,"#2E7D32")}${c(m.moto,"#2E7D32")}
               <td class="r" style="color:${tEQP>0?"#1B5E20":"var(--cinza-aux)"};font-weight:700">${tEQP||"—"}</td>
             </tr>`;
@@ -5767,7 +5770,7 @@ async function highlightRoadOnMap(road) {
       const fim = p.FIM || p.final || "";
       layer.bindPopup(`
         <div style="font-family:'Outfit',sans-serif;font-size:0.82rem;min-width:200px;">
-          <div style="font-weight:800;color:#1A2B5E;font-size:0.95rem;margin-bottom:6px;">${rod}</div>
+          <div style="font-weight:800;color:#1F285B;font-size:0.95rem;margin-bottom:6px;">${rod}</div>
           ${cod ? `<div style="color:#4A5568;margin-bottom:2px;"><strong>Código:</strong> ${cod}</div>` : ""}
           ${sit ? `<div style="color:#4A5568;margin-bottom:2px;"><strong>Situação:</strong> ${sit}</div>` : ""}
           ${rev ? `<div style="color:#4A5568;margin-bottom:2px;"><strong>Revestimento:</strong> ${rev}</div>` : ""}
@@ -6652,7 +6655,7 @@ function _mostrarFeedbackNiv(estrategia, n, msg) {
   const toast = document.createElement("div");
   toast.style.cssText = `
     position:fixed;bottom:1.5rem;right:1.5rem;z-index:2000;
-    background:#1A2B5E;color:#fff;border-radius:10px;
+    background:#1F285B;color:#fff;border-radius:10px;
     padding:0.8rem 1.2rem;font-size:0.82rem;font-weight:600;
     box-shadow:0 8px 24px rgba(0,20,60,0.35);
     display:flex;align-items:center;gap:0.6rem;
@@ -6923,7 +6926,7 @@ async function carregarProjeto(id, origem) {
   // Toast
   const t = document.createElement("div");
   t.style.cssText = `position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);z-index:3000;
-    background:#1A2B5E;color:#fff;border-radius:10px;padding:.7rem 1.4rem;font-size:.82rem;
+    background:#1F285B;color:#fff;border-radius:10px;padding:.7rem 1.4rem;font-size:.82rem;
     font-weight:600;box-shadow:0 6px 24px rgba(0,20,60,.3);display:flex;align-items:center;
     gap:.6rem;white-space:nowrap;pointer-events:none;animation:fadeInUp .2s ease`;
   t.innerHTML = `<span style="font-size:1rem">📂</span> Projeto carregado — calcule para atualizar os gráficos`;
@@ -7651,8 +7654,8 @@ window._VICIOS_CONHECIDOS = [
 ];
 
 // Exibe no console para debug (visível no DevTools)
-console.groupCollapsed("%c SEINFRA/AM Plataforma REV-15 ", "background:#1A2B5E;color:#F5A623;font-weight:bold;padding:2px 6px;border-radius:3px");
-console.log("%c Versão atual: REV-17 (2026-03-20)", "color:#1A2B5E;font-weight:bold");
+console.groupCollapsed("%c SEINFRA/AM Plataforma REV-15 ", "background:#1F285B;color:#F5A623;font-weight:bold;padding:2px 6px;border-radius:3px");
+console.log("%c Versão atual: REV-17 (2026-03-20)", "color:#1F285B;font-weight:bold");
 console.log("%c Fixes desta versão:", "color:#2E7D32;font-weight:bold");
 window._VERSION_LOG_LEGACY[0].fixes.forEach(f => console.log(`  ✅ [${f.id}] ${f.desc}`));
 if(window._VERSION_LOG_LEGACY[0].bugs_pendentes?.length){
