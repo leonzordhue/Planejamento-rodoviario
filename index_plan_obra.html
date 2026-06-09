@@ -428,6 +428,11 @@
     .critica-kpi.normal .critica-kpi-value  { color: var(--verde); }
     .critica-kpi.atencao .critica-kpi-value { color: var(--amarelo); }
     .critica-kpi.critico .critica-kpi-value { color: var(--vermelho); }
+    .ritmo-readout { background: var(--cinza-bg); border-radius: var(--radius); padding: 0.9rem 1rem; }
+    .ritmo-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 0.6rem; }
+    .ritmo-kpi { display: flex; flex-direction: column; gap: 0.15rem; }
+    .ritmo-kpi span { font-size: 0.58rem; font-weight: 700; color: var(--cinza-aux); text-transform: uppercase; letter-spacing: 0.06em; }
+    .ritmo-kpi strong { font-size: 1.05rem; font-weight: 800; color: var(--azul); font-family: var(--font-cond); line-height: 1; }
     .semaforo-legenda { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.8rem; align-items: center; }
     .semaforo-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.7rem; color: var(--cinza-med); }
     .semaforo-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
@@ -1419,6 +1424,40 @@
       </div>
     </div>
 
+    <!-- ─── RITMO / PRAZO-ALVO ─── -->
+    <div class="card" style="margin-bottom:1.2rem;border-left:4px solid var(--azul)">
+      <div class="card-header">
+        <div class="card-header-icon">🎚️</div>
+        <div class="card-header-title">Ritmo da Obra — Acelerar / Desacelerar por Prazo</div>
+        <div style="margin-left:auto;font-size:0.68rem;color:var(--cinza-aux)">Comprime ou estica o prazo redistribuindo equipes/recursos por dia</div>
+      </div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:1.4rem;align-items:center">
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:0.35rem">
+              <label style="font-size:0.72rem;font-weight:700;color:var(--cinza-aux);text-transform:uppercase;letter-spacing:0.06em">Ritmo</label>
+              <span id="ritmo-label" style="font-size:0.95rem;font-weight:800;color:var(--azul);font-family:var(--font-cond)">1,00× (neutro)</span>
+            </div>
+            <input type="range" id="ritmo-slider" min="0.5" max="3" step="0.05" value="1"
+              oninput="aplicarRitmo(parseFloat(this.value))"
+              style="width:100%;accent-color:var(--azul);cursor:pointer"/>
+            <div style="display:flex;justify-content:space-between;font-size:0.62rem;color:var(--cinza-aux);margin-top:2px">
+              <span>← + lento (menos recurso/dia)</span><span>neutro</span><span>+ rápido (mais recurso/dia) →</span>
+            </div>
+            <div style="display:flex;gap:0.5rem;align-items:flex-end;margin-top:0.9rem;flex-wrap:wrap">
+              <div class="form-group" style="margin:0">
+                <label style="font-size:0.66rem">🎯 Prazo-alvo (dias corridos)</label>
+                <input type="number" id="ritmo-prazo-alvo" min="1" step="1" placeholder="ex.: 180" class="input-inline" style="width:130px"/>
+              </div>
+              <button class="btn btn-azul btn-sm" onclick="resolverPrazoAlvo()" style="font-size:0.72rem">Ajustar ao prazo</button>
+              <button class="btn btn-outline btn-sm" onclick="aplicarRitmo(1)" style="font-size:0.72rem" title="Voltar ao ritmo-base (1,00×)">↩ Restaurar</button>
+            </div>
+          </div>
+          <div id="ritmo-readout" class="ritmo-readout"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- KPIs rápidos -->
     <div class="critica-kpi-row" id="critica-kpis"></div>
 
@@ -1904,11 +1943,15 @@ function calcularServico(s, jornada) {
   const moTotal = qtde * comp.produt;
   const dp     = moTotal > 0 ? Math.ceil(moTotal / jornada) : 0;
   const daBruto = dp > 0 ? Math.ceil(dp / qe) : 0;
-  const da     = Math.min(daBruto, 1825); // cap 5 anos
+  const daBase = Math.min(daBruto, 1825); // cap 5 anos
   if (daBruto > 1825) console.warn(`⚠️ Cap DA atingido: serviço "${s.codigo}" (${comp.desc}) calculou ${daBruto} dias úteis → truncado a 1825. Verifique a quantidade ou o número de equipes.`);
+  // RITMO: fator global de aceleração/desaceleração (acelera → comprime prazo, sobe recurso/dia).
+  // fator > 1 = mais rápido; < 1 = mais lento; 1 = neutro (idêntico ao cálculo-base).
+  const ritmo = Math.max(0.25, Math.min(4, window.RITMO_FATOR || 1));
+  const da     = Math.max(daBase > 0 ? 1 : 0, Math.round(daBase / ritmo));
   const sd = (taxa) => (da > 0 && taxa > 0) ? Math.ceil((qtde * taxa) / (da * jornada)) : 0;
   return {
-    ...s, comp, moTotal, dp, da,
+    ...s, comp, moTotal, dp, da, daBase, ritmo,
     qmo: Object.fromEntries(Object.entries(comp.mo  || {}).map(([k,v]) => [k, sd(v)])),
     eqp: Object.fromEntries(Object.entries(comp.eqp || {}).map(([k,v]) => [k, sd(v)])),
   };
@@ -3419,6 +3462,98 @@ function calcPicoRecursos() {
     Object.keys(pico).forEach(k => { pico[k] = Math.max(pico[k], g[k]); });
   });
   return pico;
+}
+
+// ═══════════════════════════════════════════════════════
+// RITMO DA OBRA — acelerar / desacelerar por prazo
+// Escala o DA efetivo de cada serviço (fator global RITMO_FATOR):
+//   fator > 1  → comprime prazo, sobe recurso/dia (acelera)
+//   fator < 1  → estica prazo, reduz recurso/dia (desacelera)
+//   fator = 1  → idêntico ao cálculo-base
+// ═══════════════════════════════════════════════════════
+window.RITMO_FATOR = window.RITMO_FATOR || 1;
+
+const _maxDiaCrono = (arr) => (arr || GANTT_DATA || [])
+  .reduce((mx, a) => Math.max(mx, a.isAdmin ? 0 : (a.termino || 0)), 0);
+
+// Mede o prazo (dias) para um fator dado, sem renderizar nem sujar o estado.
+function _simularPrazo(fator) {
+  const prevF = window.RITMO_FATOR, prevEAP = EAP_CALC;
+  window.RITMO_FATOR = fator;
+  const jornada = parseInt(getV("obra-jornada")) || 8;
+  EAP_CALC = SERVICOS.map(s => calcularServico(s, jornada)).filter(Boolean);
+  const g = gerarCronograma();
+  const dias = _maxDiaCrono(g);
+  EAP_CALC = prevEAP; window.RITMO_FATOR = prevF;
+  return dias;
+}
+
+// Separa chaves de MO e EQP a partir do banco de composições
+function _keysMOEQP() {
+  const mo = new Set(), eqp = new Set();
+  COMPOSICOES.forEach(c => {
+    Object.keys(c.mo || {}).forEach(k => mo.add(k));
+    Object.keys(c.eqp || {}).forEach(k => eqp.add(k));
+  });
+  return { mo: [...mo], eqp: [...eqp] };
+}
+
+function aplicarRitmo(f) {
+  f = Math.max(0.5, Math.min(3, parseFloat(f) || 1));
+  window.RITMO_FATOR = f;
+  const sl = document.getElementById("ritmo-slider"); if (sl) sl.value = f;
+  const lab = document.getElementById("ritmo-label");
+  if (lab) lab.textContent = f.toFixed(2).replace(".", ",") + "× " +
+    (f > 1.01 ? "(acelerado)" : f < 0.99 ? "(desacelerado)" : "(neutro)");
+  calcularTudo();                       // recalcula EAP/gantt/hist + render da aba ativa
+  setTimeout(_ritmoReadout, 230);       // após o debounce (150ms) + render
+}
+
+// Resolve o fator que mais aproxima o prazo do alvo (itera medindo o prazo real)
+function resolverPrazoAlvo() {
+  const alvo = parseInt(getV("ritmo-prazo-alvo")) || 0;
+  if (alvo < 1) { alert("Informe um prazo-alvo em dias (corridos)."); return; }
+  let f = window.RITMO_FATOR || 1;
+  for (let i = 0; i < 6; i++) {
+    const dias = _simularPrazo(f);
+    if (!dias) break;
+    if (Math.abs(dias - alvo) <= Math.max(1, alvo * 0.01)) break;
+    f = Math.max(0.5, Math.min(3, f * (dias / alvo)));
+  }
+  aplicarRitmo(+f.toFixed(2));
+}
+
+function _ritmoReadout() {
+  const el = document.getElementById("ritmo-readout"); if (!el) return;
+  const f = window.RITMO_FATOR || 1;
+  const diasAtual = _maxDiaCrono(GANTT_DATA);
+  const diasBase  = _simularPrazo(1) || diasAtual;
+  const dataIni = getV("obra-inicio");
+  const fimTxt = (dataIni && diasAtual)
+    ? new Date(new Date(dataIni + "T00:00:00").getTime() + (diasAtual - 1) * 86400000)
+        .toLocaleDateString("pt-BR") : "—";
+  const dDias = diasAtual - diasBase;
+  const dPct  = diasBase ? Math.round((dDias / diasBase) * 100) : 0;
+  const { mo, eqp } = _keysMOEQP();
+  const pico = calcPicoRecursos();
+  const picoMO  = mo.reduce((a, k) => a + (pico[k] || 0), 0);
+  const picoEQP = eqp.reduce((a, k) => a + (pico[k] || 0), 0);
+  const cor = f > 1.01 ? "var(--vermelho)" : f < 0.99 ? "var(--verde)" : "var(--cinza-aux)";
+  const sinal = dDias > 0 ? "+" : "";
+  const nota = f > 1.01
+    ? `Entrega <strong>${Math.abs(dDias)} dia(s)</strong> mais cedo que o ritmo-base, exigindo mais recurso/dia (custo de mobilização maior).`
+    : f < 0.99
+    ? `Entrega <strong>${Math.abs(dDias)} dia(s)</strong> mais tarde, aliviando o pico de recursos/dia (menos equipes simultâneas).`
+    : `Ritmo-base — equilíbrio padrão entre prazo e recursos.`;
+  el.innerHTML = `
+    <div class="ritmo-kpis">
+      <div class="ritmo-kpi"><span>Prazo atual</span><strong>${diasAtual} dias</strong></div>
+      <div class="ritmo-kpi"><span>Δ vs base</span><strong style="color:${cor}">${sinal}${dDias} d (${sinal}${dPct}%)</strong></div>
+      <div class="ritmo-kpi"><span>Término aprox.</span><strong>${fimTxt}</strong></div>
+      <div class="ritmo-kpi"><span>Pico MO/dia</span><strong>${picoMO}</strong></div>
+      <div class="ritmo-kpi"><span>Pico equip./dia</span><strong>${picoEQP}</strong></div>
+    </div>
+    <div style="font-size:0.7rem;color:var(--cinza-med);margin-top:0.5rem;line-height:1.4">${nota}</div>`;
 }
 
 let _calcTimer = null;
@@ -5962,6 +6097,7 @@ function renderAnaliseCritica() {
   _renderChartCalor(_agruparPorSemana(dados));
   _renderTabelaCritica(dados);
   renderConflitos();
+  _ritmoReadout();   // painel de ritmo/prazo-alvo
 
   const el = document.getElementById("critica-periodo");
   if (el && dados.length)
