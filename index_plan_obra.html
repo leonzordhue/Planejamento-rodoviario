@@ -428,6 +428,8 @@
     .critica-kpi.normal .critica-kpi-value  { color: var(--verde); }
     .critica-kpi.atencao .critica-kpi-value { color: var(--amarelo); }
     .critica-kpi.critico .critica-kpi-value { color: var(--vermelho); }
+    .bdi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.7rem; }
+    #tabela-orcamento tfoot td { font-weight: 800; color: var(--azul); background: var(--azul-claro); border-top: 2px solid var(--azul-borda); }
     .ritmo-readout { background: var(--cinza-bg); border-radius: var(--radius); padding: 0.9rem 1rem; }
     .ritmo-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 0.6rem; }
     .ritmo-kpi { display: flex; flex-direction: column; gap: 0.15rem; }
@@ -932,6 +934,7 @@
   <button class="tab-btn" data-tab="gantt">📅 Cronograma</button>
   <button class="tab-btn" data-tab="histogramas">📈 Histogramas</button>
   <button class="tab-btn" data-tab="analise">⚠️ Análise <span class="tab-badge" id="badge-analise" style="display:none">!</span></button>
+  <button class="tab-btn" data-tab="orcamento">💰 Orçamento <span class="tab-badge verde" id="badge-orcamento">0</span></button>
   <button class="tab-btn" data-tab="memorial">📄 Memorial</button>
   <div style="margin-left:auto;display:flex;align-items:center;padding:0 0.5rem;">
     <button class="btn-imprimir" onclick="abrirModalImpressao()">🖨️ Imprimir / PDF</button>
@@ -1570,6 +1573,86 @@
     </div>
 
   </div><!-- /tab-analise -->
+
+  <!-- ─── ABA ORÇAMENTO (SICRO) ─── -->
+  <div id="tab-orcamento" class="tab-panel" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.8rem">
+      <div class="sec-title" style="margin-bottom:0"><div class="sec-title-bar"></div><h2>Orçamento — Composições SICRO</h2></div>
+      <div class="btn-group">
+        <button class="btn btn-outline btn-sm" onclick="exportarOrcamentoCSV()">⬇ CSV</button>
+        <button class="btn btn-outline btn-sm" onclick="importarServicosOrcamento()" title="Tenta casar os serviços do cronograma com códigos SICRO">↳ Puxar serviços</button>
+      </div>
+    </div>
+
+    <div id="orcamento-load-status" style="font-size:0.72rem;color:var(--cinza-aux);margin-bottom:0.8rem"></div>
+
+    <!-- BDI -->
+    <div class="card" style="margin-bottom:1.2rem;border-left:4px solid var(--ouro)">
+      <div class="card-header">
+        <div class="card-header-icon">📐</div>
+        <div class="card-header-title">BDI — Benefícios e Despesas Indiretas</div>
+        <div style="margin-left:auto;font-size:0.95rem;font-weight:800;color:var(--azul);font-family:var(--font-cond)">BDI = <span id="bdi-resultado">—</span></div>
+      </div>
+      <div class="card-body">
+        <div style="display:flex;gap:0.8rem;align-items:flex-end;flex-wrap:wrap;margin-bottom:0.7rem">
+          <div class="form-group" style="margin:0">
+            <label style="font-size:0.66rem">Natureza da obra (admin. central)</label>
+            <select id="bdi-natureza" class="input-inline" style="width:auto" onchange="_bdiPreset();calcBDI()">
+              <option value="6">Construção rodoviária (6%)</option>
+              <option value="6">Restauração rodoviária (6%)</option>
+              <option value="9">Conservação rodoviária (9%)</option>
+              <option value="8">Construção OAE (8%)</option>
+            </select>
+          </div>
+          <label style="font-size:0.7rem;color:var(--cinza-med);display:flex;align-items:center;gap:0.35rem;margin:0 0 0.4rem">
+            <input type="checkbox" id="bdi-desonerado" onchange="renderOrcamento()"/> Mão de obra desonerada (CPRB)
+          </label>
+        </div>
+        <div class="bdi-grid">
+          <div class="form-group"><label>Administração central (%)</label><input class="input-inline" type="number" id="bdi-adm" value="6" step="0.1" oninput="calcBDI()"/></div>
+          <div class="form-group"><label>Risco (%)</label><input class="input-inline" type="number" id="bdi-risco" value="1.0" step="0.1" oninput="calcBDI()"/></div>
+          <div class="form-group"><label>Despesas financeiras (%)</label><input class="input-inline" type="number" id="bdi-df" value="1.0" step="0.1" oninput="calcBDI()"/></div>
+          <div class="form-group"><label>Lucro (%)</label><input class="input-inline" type="number" id="bdi-lucro" value="7.0" step="0.1" oninput="calcBDI()"/></div>
+          <div class="form-group"><label>PIS (%)</label><input class="input-inline" type="number" id="bdi-pis" value="0.65" step="0.01" oninput="calcBDI()"/></div>
+          <div class="form-group"><label>COFINS (%)</label><input class="input-inline" type="number" id="bdi-cofins" value="3.0" step="0.1" oninput="calcBDI()"/></div>
+          <div class="form-group"><label>ISSQN (%)</label><input class="input-inline" type="number" id="bdi-iss" value="3.0" step="0.1" oninput="calcBDI()"/></div>
+        </div>
+        <div style="font-size:0.64rem;color:var(--cinza-aux);margin-top:0.5rem">BDI(%) = ((1+ΣcustoDireto)/(1−ΣpreçoVenda) − 1)×100 · Acórdão 2.622/2013-TCU (admin. local fora do BDI). Custos SICRO já incluem FIC.</div>
+      </div>
+    </div>
+
+    <!-- Busca + itens -->
+    <div class="card" style="margin-bottom:1.2rem">
+      <div class="card-header"><div class="card-header-icon">🔎</div><div class="card-header-title">Adicionar composição SICRO</div></div>
+      <div class="card-body">
+        <div class="road-search-wrap" style="position:relative">
+          <input type="text" id="sicro-search" placeholder="Digite código (ex.: 0307731) ou descrição (ex.: pavimento, dreno, aterro)…" oninput="onSicroSearch(this.value)" onfocus="onSicroSearch(this.value)" autocomplete="off" style="width:100%"/>
+          <div id="sicro-dropdown" class="road-dropdown" style="display:none"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabela orçamento -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">💰</div><div class="card-header-title">Planilha Orçamentária</div>
+        <div style="margin-left:auto;font-size:0.7rem;color:var(--cinza-aux)" id="orcamento-count"></div>
+      </div>
+      <div class="card-body" style="padding:0">
+        <div class="table-wrap">
+          <table id="tabela-orcamento">
+            <thead><tr>
+              <th>Código</th><th>Descrição</th><th>Unid</th>
+              <th class="right">Qtde</th><th class="right">Custo unit. (R$)</th>
+              <th class="right">Custo direto (R$)</th><th class="right">Preço c/ BDI (R$)</th><th></th>
+            </tr></thead>
+            <tbody id="tbody-orcamento"></tbody>
+            <tfoot id="tfoot-orcamento"></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div><!-- /tab-orcamento -->
 
   <!-- ─── ABA MEMORIAL ─── -->
   <div id="tab-memorial" class="tab-panel" style="display:none">
@@ -2291,6 +2374,7 @@ function switchTab(name) {
   if (name==="gantt") renderGantt();
   if (name==="histogramas") renderHistogramas();
   if (name==="analise") renderAnaliseCritica();
+  if (name==="orcamento") renderOrcamento();
   if (name==="memorial") renderMemorial();
 }
 
@@ -3554,6 +3638,142 @@ function _ritmoReadout() {
       <div class="ritmo-kpi"><span>Pico equip./dia</span><strong>${picoEQP}</strong></div>
     </div>
     <div style="font-size:0.7rem;color:var(--cinza-med);margin-top:0.5rem;line-height:1.4">${nota}</div>`;
+}
+
+// ═══════════════════════════════════════════════════════
+// MOTOR DE ORÇAMENTO — composições sintéticas SICRO AM 01/2026
+// custo_unitario já inclui FIC (base AM). Aplica-se apenas o BDI.
+// BDI(%) = ((1+ΣCD)/(1−ΣPV) − 1)×100  (Acórdão 2.622/2013-TCU)
+// ═══════════════════════════════════════════════════════
+let ORCAMENTO_ITENS = [];
+let SICRO_SINT = null;
+let _sicroLoading = false;
+const _esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+
+async function loadSicroSinteticas() {
+  const urls = [
+    "sicro/composicoes_sinteticas.json",
+    "https://raw.githubusercontent.com/leonzordhue/Planejamento-rodoviario/main/sicro/composicoes_sinteticas.json",
+  ];
+  let err;
+  for (const u of urls) {
+    try { const r = await fetch(u); if (!r.ok) throw new Error("HTTP " + r.status); return await r.json(); }
+    catch (e) { err = e; }
+  }
+  throw err || new Error("sem fonte");
+}
+
+async function renderOrcamento() {
+  const st = document.getElementById("orcamento-load-status");
+  if (!SICRO_SINT && !_sicroLoading) {
+    _sicroLoading = true;
+    if (st) st.textContent = "⏳ Carregando base SICRO AM 01/2026…";
+    try {
+      SICRO_SINT = await loadSicroSinteticas();
+      if (st) st.textContent = "✅ Base SICRO AM 01/2026 — " + SICRO_SINT.length.toLocaleString("pt-BR") + " composições sintéticas (custo já com FIC).";
+    } catch (e) {
+      if (st) st.textContent = "⚠️ Falha ao carregar a base SICRO (" + e.message + "). No GitHub Pages funciona; em arquivo local pode ser bloqueado.";
+    }
+    _sicroLoading = false;
+  }
+  calcBDI();
+}
+
+function _bdiPreset() {
+  const sel = document.getElementById("bdi-natureza"), adm = document.getElementById("bdi-adm");
+  if (sel && adm) adm.value = sel.value;
+}
+
+function calcBDI() {
+  const g = id => parseFloat(getV(id)) || 0;
+  const sCD = (g("bdi-adm") + g("bdi-risco") + g("bdi-df")) / 100;
+  const sPV = (g("bdi-lucro") + g("bdi-pis") + g("bdi-cofins") + g("bdi-iss")) / 100;
+  const bdi = sPV < 1 ? ((1 + sCD) / (1 - sPV) - 1) * 100 : 0;
+  window._BDI_PCT = bdi;
+  const el = document.getElementById("bdi-resultado");
+  if (el) el.textContent = bdi.toFixed(2).replace(".", ",") + "%";
+  renderTabelaOrcamento();
+  return bdi;
+}
+
+function onSicroSearch(q) {
+  const dd = document.getElementById("sicro-dropdown"); if (!dd) return;
+  q = (q || "").trim().toLowerCase();
+  if (!SICRO_SINT || q.length < 2) { dd.style.display = "none"; return; }
+  const terms = q.split(/\s+/);
+  const res = SICRO_SINT.filter(c => {
+    const hay = (c.codigo + " " + c.descricao).toLowerCase();
+    return terms.every(t => hay.includes(t));
+  }).slice(0, 40);
+  dd.innerHTML = res.length
+    ? res.map(c => `<div class="road-dropdown-item" onclick="addOrcamentoItem('${c.codigo}')">
+        <div class="rd-name">${c.codigo} — ${_esc(c.descricao)}</div>
+        <div class="rd-meta">${_esc(c.unidade)} · R$ ${numBR(c.custo_unitario, 2)}</div></div>`).join("")
+    : `<div class="road-dropdown-item rd-meta">Nada encontrado</div>`;
+  dd.style.display = "block";
+}
+
+function addOrcamentoItem(codigo) {
+  const c = SICRO_SINT && SICRO_SINT.find(x => x.codigo === codigo); if (!c) return;
+  ORCAMENTO_ITENS.push({ id: mkId(), codigo: c.codigo, descricao: c.descricao, unidade: c.unidade, custo_unit: c.custo_unitario, qtde: 1 });
+  const dd = document.getElementById("sicro-dropdown"); if (dd) dd.style.display = "none";
+  const si = document.getElementById("sicro-search"); if (si) si.value = "";
+  renderTabelaOrcamento();
+}
+
+function updateOrcQtde(id, v) { const it = ORCAMENTO_ITENS.find(x => x.id === id); if (it) { it.qtde = parseFloat(v) || 0; renderTabelaOrcamento(); } }
+function removeOrcItem(id) { ORCAMENTO_ITENS = ORCAMENTO_ITENS.filter(x => x.id !== id); renderTabelaOrcamento(); }
+
+function renderTabelaOrcamento() {
+  const tb = document.getElementById("tbody-orcamento"); if (!tb) return;
+  const fb = 1 + (window._BDI_PCT || 0) / 100;
+  let cd = 0, pv = 0;
+  tb.innerHTML = ORCAMENTO_ITENS.map(it => {
+    const cdi = (parseFloat(it.qtde) || 0) * it.custo_unit, pvi = cdi * fb;
+    cd += cdi; pv += pvi;
+    return `<tr>
+      <td>${it.codigo}</td><td>${_esc(it.descricao)}</td><td>${_esc(it.unidade)}</td>
+      <td class="right"><input class="input-inline" style="width:90px;text-align:right" type="number" min="0" step="0.01" value="${it.qtde}" oninput="updateOrcQtde(${it.id},this.value)"/></td>
+      <td class="right">${numBR(it.custo_unit, 2)}</td>
+      <td class="right">${numBR(cdi, 2)}</td>
+      <td class="right">${numBR(pvi, 2)}</td>
+      <td class="right"><button onclick="removeOrcItem(${it.id})" title="Remover" style="background:none;border:none;color:var(--cinza-aux);cursor:pointer;font-size:0.9rem">✕</button></td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="8" style="text-align:center;color:var(--cinza-aux);padding:1.5rem">Nenhuma composição. Use a busca acima para adicionar.</td></tr>`;
+  const tf = document.getElementById("tfoot-orcamento");
+  if (tf) tf.innerHTML = ORCAMENTO_ITENS.length
+    ? `<tr><td colspan="5" class="right">TOTAIS</td><td class="right">R$ ${numBR(cd, 2)}</td><td class="right">R$ ${numBR(pv, 2)}</td><td></td></tr>` : "";
+  const cnt = document.getElementById("orcamento-count");
+  if (cnt) cnt.textContent = ORCAMENTO_ITENS.length + " itens · BDI " + (window._BDI_PCT || 0).toFixed(2).replace(".", ",") + "%";
+  const badge = document.getElementById("badge-orcamento"); if (badge) badge.textContent = ORCAMENTO_ITENS.length;
+  window._ORC_TOTAIS = { custoDireto: cd, precoVenda: pv };
+}
+
+function importarServicosOrcamento() {
+  if (!SICRO_SINT) { alert("Aguarde a base SICRO carregar (abra a aba Orçamento)."); return; }
+  let add = 0, skip = 0;
+  SERVICOS.forEach(s => {
+    const c = SICRO_SINT.find(x => x.codigo === String(s.codigo));
+    if (c) { ORCAMENTO_ITENS.push({ id: mkId(), codigo: c.codigo, descricao: c.descricao, unidade: c.unidade, custo_unit: c.custo_unitario, qtde: parseFloat(s.qtde) || 0 }); add++; }
+    else skip++;
+  });
+  renderTabelaOrcamento();
+  alert(`Importados ${add} serviço(s) com código SICRO.\n${skip} sem correspondência — os códigos internos do cronograma não são códigos SICRO; adicione-os manualmente pela busca.`);
+}
+
+function exportarOrcamentoCSV() {
+  if (!ORCAMENTO_ITENS.length) { alert("Orçamento vazio."); return; }
+  const fb = 1 + (window._BDI_PCT || 0) / 100;
+  const head = ["Codigo", "Descricao", "Unidade", "Qtde", "CustoUnit", "CustoDireto", "PrecoComBDI"];
+  const rows = ORCAMENTO_ITENS.map(it => {
+    const cd = (parseFloat(it.qtde) || 0) * it.custo_unit;
+    return [it.codigo, csvEsc(it.descricao), it.unidade, it.qtde, it.custo_unit.toFixed(2), cd.toFixed(2), (cd * fb).toFixed(2)].join(";");
+  });
+  const csv = "﻿" + head.join(";") + "\n" + rows.join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "orcamento_sicro_am.csv"; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 let _calcTimer = null;
