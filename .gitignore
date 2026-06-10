@@ -1,0 +1,8 @@
+node_modules/
+package.json
+package-lock.json
+_cdp_*.cjs
+_out.pdf
+_pdf_*.png
+_gantt_shot.png
+_chk_*.js
