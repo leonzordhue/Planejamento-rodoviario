@@ -3147,6 +3147,12 @@ function renderGantt() {
     const bg=i%2===0?'#FFFFFF':'#F5F7FC';
     B+=`<rect x="0" y="${y}" width="${SVG_W}" height="${ROW_H}" fill="${bg}"/>`;
     B+=`<line x1="0" y1="${y+ROW_H}" x2="${SVG_W}" y2="${y+ROW_H}" stroke="#E8ECF4" stroke-width="0.5"/>`;
+    // Separador de mudança de KM (faixa) — deixa visível "KM a KM" na timeline
+    {
+      const _pv=i>0?acts[i-1]:null;
+      if(_pv && !_pv.isHeader && !_pv.isAdmin && !act.isAdmin && _pv.km!==act.km)
+        B+=`<line x1="${LBLW}" y1="${y}" x2="${SVG_W}" y2="${y}" stroke="#B9C4DC" stroke-width="1.2"/>`;
+    }
 
     if(act.isAdmin) {
       const bx=LBLW+(act.inicio-1)*PPD, bw=Math.max(act.duracao*PPD,6);
@@ -3265,7 +3271,13 @@ function renderGantt() {
     }
     const isC=canteiroKm>0 && act.km===`KM ${canteiroKm}`;
     const bc=act.isTranslado?'#F5A623':etapaCor(act.etapa);
-    L+=`<text x="${4+DX1/2}" y="${y+ROW_H/2+4.5}" font-size="8" fill="${isC?'#F5A623':'#8896A8'}" font-weight="${isC?'800':'500'}" text-anchor="middle">${act.km||'—'}</text>`;
+    // Destaque "KM a KM": chip + KM em negrito no início de cada grupo de KM
+    const _pv=i>0?acts[i-1]:null;
+    const kmChanged=!_pv || _pv.isHeader || _pv.isAdmin || _pv.km!==act.km;
+    if(kmChanged) L+=`<line x1="0" y1="${y}" x2="${LBLW}" y2="${y}" stroke="#B9C4DC" stroke-width="1.2"/>`;
+    if(kmChanged && !act.isTranslado) L+=`<rect x="2" y="${y+4}" width="${COL_ID-4}" height="${ROW_H-8}" rx="3" fill="${act.frenteCor||'#1F285B'}" opacity="0.16"/>`;
+    const _kmCor=isC?'#F5A623':(kmChanged?(act.frenteCor||'#1F285B'):'#8896A8');
+    L+=`<text x="${4+DX1/2}" y="${y+ROW_H/2+4.5}" font-size="8" fill="${_kmCor}" font-weight="${(isC||kmChanged)?'800':'500'}" text-anchor="middle">${act.km||'—'}</text>`;
     L+=`<text x="${DX1+6}" y="${y+ROW_H/2+4.5}" font-size="8.5" fill="#1A2540">${truncN(act.atividade)}</text>`;
     L+=`<text x="${DX2+COL_DU/2}" y="${y+ROW_H/2+4.5}" font-size="8" fill="${bc}" text-anchor="middle" font-weight="700">${act.duracao}d</text>`;
     L+=`<text x="${DX3+COL_IN/2}" y="${y+ROW_H/2+4.5}" font-size="7.5" fill="#607D8B" text-anchor="middle">${fmtCol(act.inicio)}</text>`;
@@ -4190,11 +4202,16 @@ function _capturarGanttImg(cb) {
 
       const svgW = parseInt(svgEl.getAttribute("width"))  || 2400;
       const svgH = parseInt(svgEl.getAttribute("height")) || 600;
-      const SCALE = 2;
+      // Limite de escala p/ não estourar o tamanho máximo de canvas do browser (~16k px / área)
+      let SCALE = 2;
+      const MAXPX = 12000;
+      if (svgW * SCALE > MAXPX) SCALE = Math.max(1, MAXPX / svgW);
+      if (svgH * SCALE > MAXPX) SCALE = Math.min(SCALE, Math.max(1, MAXPX / svgH));
 
       // Clona e limpa fontes externas + remove emojis que quebram canvas cross-origin
       const clone = svgEl.cloneNode(true);
       clone.setAttribute("xmlns","http://www.w3.org/2000/svg");
+      clone.setAttribute("xmlns:xlink","http://www.w3.org/1999/xlink");
       clone.querySelectorAll("style").forEach(function(s) {
         s.textContent = s.textContent.replace(/@import[^;]+;/g,"").replace(/font-family\s*:[^;"{]+/gi,"font-family:helvetica,sans-serif");
       });
@@ -4207,33 +4224,40 @@ function _capturarGanttImg(cb) {
         }
       });
 
-      const svgStr = new XMLSerializer().serializeToString(clone);
-      const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgStr);
+      // Blob URL (não data-URI): evita falha de carga em SVG grande — causa comum do fallback de tabela
+      const svgStr = '<?xml version="1.0" encoding="UTF-8"?>' + new XMLSerializer().serializeToString(clone);
+      const blob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const _cleanup = function(){ try { URL.revokeObjectURL(url); } catch(e){} };
       const img = new Image();
       var _timedOut = false;
       const _timer = setTimeout(function() {
-        _timedOut = true;
+        _timedOut = true; _cleanup();
         if (wasH && tabG) tabG.style.display = "none";
+        console.warn("Gantt PDF: captura excedeu o tempo limite — usando tabela.");
         cb(null);
-      }, 8000);
+      }, 14000);
       img.onload = function() {
         if (_timedOut) return;
         clearTimeout(_timer);
         if (wasH && tabG) tabG.style.display = "none";
         try {
           const canv = document.createElement("canvas");
-          canv.width = svgW * SCALE; canv.height = svgH * SCALE;
+          canv.width = Math.round(svgW * SCALE); canv.height = Math.round(svgH * SCALE);
           const ctx  = canv.getContext("2d");
           ctx.fillStyle = "#ffffff";
           ctx.fillRect(0, 0, canv.width, canv.height);
-          ctx.scale(SCALE, SCALE);
+          ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
           ctx.drawImage(img, 0, 0, svgW, svgH);
-          cb(canv.toDataURL("image/png"));
-        } catch(e) { cb(null); }
+          const out = canv.toDataURL("image/png");
+          _cleanup();
+          cb(out && out.length > 2000 ? out : null);
+        } catch(e) { _cleanup(); console.warn("Gantt PDF: canvas falhou —", e.message); cb(null); }
       };
-      img.onerror = function() {
-        clearTimeout(_timer);
+      img.onerror = function(e) {
+        clearTimeout(_timer); _cleanup();
         if (wasH && tabG) tabG.style.display = "none";
+        console.warn("Gantt PDF: SVG não carregou como imagem — usando tabela.");
         cb(null);
       };
       img.src = url;
