@@ -1,0 +1,118 @@
+{
+ "_meta": {
+  "fonte": "Manual de Custos de Infraestrutura de Transportes (DNIT) - Modulos 1 a 5 do curso de Orcamentacao de Obras Rodoviarias",
+  "referencia_base_dados": "SICRO AM 01/2026 - Amazonas - Janeiro/2026",
+  "observacao": "Constantes e parametros da METODOLOGIA. Os precos unitarios estao nas tabelas de dados (csv/json). BDI nao integra as composicoes do SICRO (Acordao 2.622/2013-TCU): deve ser aplicado no orcamento.",
+  "build": "SICRO-20260609"
+ },
+ "equipamento": {
+  "custo_horario_produtivo": "Chp = Dh + Jh + Mh + Cc + Cmo + Ih  (depreciacao + juros_capital + manutencao + combustivel + mo_operacao + seguros_impostos)",
+  "custo_horario_improdutivo": "Chi = Cmo + Dh + Jh + Ih",
+  "depreciacao_linear": "Dh = (Va - Vr) / (n * HTA)",
+  "valor_medio_capital": "Vm = ((n+1)/(2n)) * Va",
+  "juros_oportunidade": "Jh = (Vm * i) / HTA",
+  "taxa_juros_anual_i": 0.06,
+  "taxa_juros_obs": "Referencia poupanca 6,0% a.a.; atrelada a Selic (variavel).",
+  "combustivel": "Cc = P * Fc * Vc  (potencia * coef_consumo * preco_combustivel)",
+  "coef_consumo_Fc": {
+   "diesel_equipamentos_l_por_kWh": 0.18,
+   "diesel_caminhoes_l_por_kWh": 0.18,
+   "gasolina_l_por_kWh": 0.20,
+   "alcool_l_por_kWh": 0.28,
+   "eletrico_kWh_por_kWh": 0.85
+  }
+ },
+ "fator_eficiencia_tempo_fe": {
+  "construcao_recuperacao": 0.83,
+  "conservacao": 0.75,
+  "obs": "0,83 = 50min/60min; 0,75 = 45min/60min. Ajustes via FIT."
+ },
+ "fator_carga_peso": {
+  "primeira_categoria": 0.90,
+  "segunda_categoria": 0.80,
+  "terceira_categoria": 0.70
+ },
+ "mao_de_obra": {
+  "custo_total": "Custo = Salario + EncargosTotais(R$) + Periculosidade(R$)",
+  "encargos_totais_rs": "EncargosTotais(R$) = EncSociaisTrab(R$) + EncComplementares(R$) + EncAdicionais(R$)",
+  "grupos_encargos": {
+   "A": "Encargos sociais basicos (Previdencia, FGTS, Salario Educacao, SESI/SESC, SENAI/SEBRAE, INCRA, Seguro Acidente, Seconci, FAE)",
+   "B": "Encargos trabalhistas que recebem incidencia de A (RSR, feriados, ferias+1/3, auxilio enfermidade/acidente, licenca paternidade, 13o, faltas justificadas, reciclagem)",
+   "C": "Verbas rescisorias (aviso previo indenizado/trabalhado, ferias indenizadas+1/3, deposito rescisao, indenizacao adicional)",
+   "D": "Reincidencias (de A sobre B, de A sobre aviso previo)"
+  },
+  "previdencia_social_A1": {"sem_desoneracao_pct": 20.0, "com_desoneracao_pct": 10.0},
+  "desoneracao_CPRB": {
+   "base_legal": "Lei 12.546/2011 e Lei 13.161/2015",
+   "aliquota_sobre_receita_bruta_pct": 4.5,
+   "obs": "Substitui 20% sobre folha por CPRB. Reflete-se no encargo A1 (Previdencia): 20% -> 10% na base de dados com_desoneracao."
+  }
+ },
+ "FIC": {
+  "formula": "FIC = 1 + (fa * fp * fe * nd)",
+  "descricao": "Fator de Influencia de Chuvas. fa=natureza atividade; fp=permeabilidade solo; fe=escoamento superficial; nd=intensidade de chuvas (por UF).",
+  "fa_natureza_atividade": {
+   "0.25": "Aterro 3a cat., brita produzida, desmonte de rocha, misturas asfalticas",
+   "0.50": "Base/sub-base brita graduada, macadame, compactacao de aterro de rocha, escavacao 2a cat.",
+   "1.00": "Reciclagem de pavimentos, tapa-buraco",
+   "1.50": "Escavacao 1a cat., compactacao de aterros em solo, reforco de subleito"
+  },
+  "fp_permeabilidade_solo": {
+   "areia": 0.50, "areia_siltosa": 0.65, "areia_argilosa": 0.75,
+   "argila_arenosa": 0.75, "argila_siltosa": 0.85, "argila": 1.00
+  },
+  "fe_escoamento_superficial": {
+   "D_menor_igual_1pct": 1.00, "entre_1_e_5pct": 0.90, "D_maior_igual_5pct": 0.80
+  },
+  "nd_intensidade_chuvas_por_UF": {
+   "AC": 0.03145, "AM": 0.05334, "PA": 0.04583, "DF": 0.02255,
+   "SP": 0.02656, "RJ": 0.02580, "BA": 0.01434, "CE": 0.01382
+  },
+  "nd_obs": "Valores medios por UF (exemplos do Manual). Para UF nao listada, consultar Volume 06 do Manual de Custos. A base AM 01/2026 ja traz o FIC aplicado por composicao (campo 'fic')."
+ },
+ "FIT": {
+  "descricao": "Fator de Interferencia de Trafego. Aplica-se a obras que interditam pista ou exigem medidas de seguranca (restauracao, 3a faixa, duplicacao em pista contigua, conservacao na pista).",
+  "calculo": "Funcao do volume medio diario de trafego e presenca de centros urbanos (Grafico 1 do Manual, Volume 10).",
+  "obs": "Substitui a antiga distincao construcao (fe=0,83) vs restauracao (fe=0,75)."
+ },
+ "transporte": {
+  "tempo_fixo": "Custo de carga, descarga e manobras (apropriado em composicoes especificas).",
+  "momento_transporte": "Produto do volume transportado pela distancia media de transporte (DMT).",
+  "tipos_pavimento_DMT": ["rodovia_pavimentada (RP)", "leito_natural (LN)", "revestimento_primario (P)"],
+  "obs": "Precos tabelados do SICRO NAO incluem fretes. O orcamentista pesquisa fretes localmente e usa as composicoes de momento de transporte."
+ },
+ "BDI": {
+  "formula_pct": "BDI(%) = ((1 + Sigma_CD) / (1 - Sigma_PV) - 1) * 100",
+  "Sigma_CD": "Somatorio das parcelas que incidem sobre o Custo Direto (ex.: administracao central, risco, despesas financeiras)",
+  "Sigma_PV": "Somatorio das parcelas que incidem sobre o Preco de Venda (ex.: lucro, tributos PIS/COFINS/ISSQN, seguros/garantias)",
+  "preco_venda": "PV = CustoDireto * (1 + BDI/100)",
+  "administracao_central_pct": {
+   "construcao_rodoviaria": 6.0,
+   "restauracao_rodoviaria": 6.0,
+   "conservacao_rodoviaria": 9.0,
+   "construcao_OAE": 8.0,
+   "recuperacao_reforco_alargamento_OAE": 9.0,
+   "construcao_ferroviaria": 6.0,
+   "obras_hidroviarias": 7.0
+  },
+  "despesas_financeiras_mensal": "DF = (1 + SELIC)^(1/2) - 1",
+  "tributos": {
+   "PIS_pct": 0.65,
+   "COFINS_pct": "3,0 (cumulativo) ou 7,6 (nao cumulativo) conforme regime",
+   "ISSQN_pct": "Municipal - usar aliquota do(s) municipio(s) da obra (respeitar deducoes legais). SICRO usa referencial; exemplo ponderado BR-280/SC = 3,64%"
+  },
+  "administracao_local": "NAO integra o BDI desde Acordao 2.622/2013-TCU. Deve ser orcada separadamente (Volume 08 do Manual).",
+  "obs": "BDI diferenciado por faixas conforme porte e natureza da obra. Lucro, risco e seguros variam por obra (matriz de risco)."
+ },
+ "reajustamento": {
+  "formula": "R = V * ((Ii / I0) - 1)",
+  "R": "valor do reajuste", "V": "valor da parcela a precos iniciais",
+  "Ii": "indice no mes do reajuste", "I0": "indice no mes-base do contrato",
+  "base_legal": "Instrucao de Servico DG/DNIT no 01/2019"
+ },
+ "base_legal_geral": {
+  "decreto_7983_2013": "Custo global de referencia para infraestrutura de transportes obtido das composicoes do SICRO (<= custos do sistema).",
+  "lei_14133_2021": "Nova Lei de Licitacoes (arts. 191 e 193 - transicao).",
+  "precos_novos": "IN no 44/2021 - quando servico nao consta no SICRO nem SINAPI."
+ }
+}
