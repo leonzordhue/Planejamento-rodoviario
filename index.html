@@ -4665,16 +4665,21 @@ function _capturarGanttImg(cb) {
     // sem isso clientWidth retorna 0 quando a tab estava oculta
     const _doRender = function() {
       try { renderGantt(); } catch(e) {}
-      const svgEl = document.getElementById("gantt-svg");
+      // FIX: o gantt D3 cria o SVG com id "gantt-svg-d3" (antes procurava "gantt-svg" → null → caía na tabela)
+      const svgEl = document.getElementById("gantt-svg-d3") || document.getElementById("gantt-svg") || document.querySelector("#tab-gantt svg");
 
-      if (!svgEl || !svgEl.getAttribute("width")) {
+      if (!svgEl) {
         if (wasH && tabG) tabG.style.display = "none";
+        console.warn("Gantt PDF: SVG nao encontrado.");
         cb(null); return;
       }
-
-      const svgW = parseInt(svgEl.getAttribute("width"))  || 2400;
-      const svgH = parseInt(svgEl.getAttribute("height")) || 600;
-      const SCALE = 2;
+      const _bb = (svgEl.getBBox && (()=>{try{return svgEl.getBBox();}catch(e){return null;}})()) || null;
+      const svgW = parseInt(svgEl.getAttribute("width"))  || (_bb && Math.ceil(_bb.width))  || svgEl.clientWidth  || 2400;
+      const svgH = parseInt(svgEl.getAttribute("height")) || (_bb && Math.ceil(_bb.height)) || svgEl.clientHeight || 600;
+      let SCALE = 2;
+      const MAXPX = 12000;
+      if (svgW * SCALE > MAXPX) SCALE = Math.max(1, MAXPX / svgW);
+      if (svgH * SCALE > MAXPX) SCALE = Math.min(SCALE, Math.max(1, MAXPX / svgH));
 
       // Clona e limpa fontes externas + remove emojis que quebram canvas cross-origin
       const clone = svgEl.cloneNode(true);
@@ -4691,33 +4696,42 @@ function _capturarGanttImg(cb) {
         }
       });
 
-      const svgStr = new XMLSerializer().serializeToString(clone);
-      const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgStr);
+      // garante dimensões explícitas no clone (D3 às vezes usa só viewBox)
+      clone.setAttribute("width", svgW); clone.setAttribute("height", svgH);
+      // Blob URL (não data-URI): evita falha de carga em SVG grande
+      const svgStr = '<?xml version="1.0" encoding="UTF-8"?>' + new XMLSerializer().serializeToString(clone);
+      const blob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const _cleanup = function(){ try { URL.revokeObjectURL(url); } catch(e){} };
       const img = new Image();
       var _timedOut = false;
       const _timer = setTimeout(function() {
-        _timedOut = true;
+        _timedOut = true; _cleanup();
         if (wasH && tabG) tabG.style.display = "none";
+        console.warn("Gantt PDF: captura excedeu o tempo limite — usando tabela.");
         cb(null);
-      }, 8000);
+      }, 14000);
       img.onload = function() {
         if (_timedOut) return;
         clearTimeout(_timer);
         if (wasH && tabG) tabG.style.display = "none";
         try {
           const canv = document.createElement("canvas");
-          canv.width = svgW * SCALE; canv.height = svgH * SCALE;
+          canv.width = Math.round(svgW * SCALE); canv.height = Math.round(svgH * SCALE);
           const ctx  = canv.getContext("2d");
           ctx.fillStyle = "#ffffff";
           ctx.fillRect(0, 0, canv.width, canv.height);
-          ctx.scale(SCALE, SCALE);
+          ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
           ctx.drawImage(img, 0, 0, svgW, svgH);
-          cb(canv.toDataURL("image/png"));
-        } catch(e) { cb(null); }
+          const out = canv.toDataURL("image/png");
+          _cleanup();
+          cb(out && out.length > 2000 ? out : null);
+        } catch(e) { _cleanup(); console.warn("Gantt PDF: canvas falhou —", e.message); cb(null); }
       };
       img.onerror = function() {
-        clearTimeout(_timer);
+        clearTimeout(_timer); _cleanup();
         if (wasH && tabG) tabG.style.display = "none";
+        console.warn("Gantt PDF: SVG não carregou como imagem — usando tabela.");
         cb(null);
       };
       img.src = url;
