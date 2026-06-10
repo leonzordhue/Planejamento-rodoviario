@@ -4883,15 +4883,40 @@ async function _gerarPDFCompleto() {
   const doc = new jsPDF({orientation:"portrait",unit:"mm",format:"a4"});
   let pg = 1, y = Y0;
 
+  /* ── Geometria PAISAGEM (só para o Gantt) ── */
+  const PW_L=297, PH_L=210, ML_L=12, MR_L=12, HDRL=20, FTRL=11;
+  const CW_L = PW_L-ML_L-MR_L;
+  const Y0_L = HDRL+5, YM_L = PH_L-FTRL-3;
+  const _imgToDataURL = (src) => new Promise(res => {
+    const im = new Image(); im.crossOrigin = "anonymous";
+    im.onload = () => { try { const c=document.createElement("canvas"); c.width=im.naturalWidth; c.height=im.naturalHeight; c.getContext("2d").drawImage(im,0,0); res(c.toDataURL("image/png")); } catch(e){ res(null); } };
+    im.onerror = () => res(null); im.src = src;
+  });
+  const _MARCA_PDF = await _imgToDataURL("assets/marca-gov-seinfra-azul.png");
+  const _HDR_NEW   = await _imgToDataURL("assets/timbrado-cabecalho.png");
+  const _HDR_SRC   = _HDR_NEW || ("data:image/png;base64,"+_TIMBRADO_HDR);
+
   /* ── Utilitários ── */
   const timbrado = () => {
-    doc.addImage("data:image/png;base64,"+_TIMBRADO_HDR,"PNG",0,0,PW,HDR,"_hdr","FAST");
+    doc.addImage(_HDR_SRC,"PNG",0,0,PW,HDR,"_hdr","FAST");
     doc.addImage("data:image/png;base64,"+_TIMBRADO_FTR,"PNG",0,PH-FTR,PW,FTR,"_ftr","FAST");
-    // Texto institucional fixo — numeração será sobrescrita no loop final (Página X de Y)
     doc.setFontSize(7); doc.setTextColor(150); doc.setFont("helvetica","normal");
     doc.text("Plataforma de Planejamento de Obras · DMOB/SEINFRA", ML, PH-FTR+3.5);
   };
-  const addPage = () => { pg++; doc.addPage(); timbrado(); y = Y0; };
+  const addPage = () => { pg++; doc.addPage([PW,PH],"portrait"); timbrado(); y = Y0; };
+  // Página em PAISAGEM (Gantt): cabeçalho slim com marca + título "4."
+  const timbradoL = (subtitulo) => {
+    if (_MARCA_PDF) doc.addImage(_MARCA_PDF, "PNG", ML_L, 4, 66, 10.5, "_marca", "FAST");
+    doc.setFillColor(0,45,114); doc.rect(86, 4, PW_L-MR_L-86, 8, "F");
+    doc.setFontSize(10); doc.setTextColor(255,255,255); doc.setFont("helvetica","bold");
+    doc.text("4. CRONOGRAMA FISICO — GRAFICO DE GANTT", 89, 9.6);
+    if (subtitulo){ doc.setFontSize(7.5); doc.setTextColor(120); doc.setFont("helvetica","normal"); doc.text(subtitulo, PW_L-MR_L, 16.5, {align:"right"}); }
+    doc.setDrawColor(245,166,35); doc.setLineWidth(0.6); doc.line(ML_L, HDRL-1, PW_L-MR_L, HDRL-1);
+    doc.setDrawColor(210); doc.setLineWidth(0.3); doc.line(ML_L, PH_L-FTRL+2, PW_L-MR_L, PH_L-FTRL+2);
+    doc.setFontSize(7); doc.setTextColor(150); doc.setFont("helvetica","normal");
+    doc.text("Plataforma de Planejamento de Obras · DMOB/SEINFRA · Governo do Amazonas", ML_L, PH_L-FTRL+6);
+  };
+  const addPageL = (subtitulo) => { pg++; doc.addPage([PW_L,PH_L],"landscape"); timbradoL(subtitulo); };
   const chkBrk  = (h=8) => { if (y+h > YM) addPage(); };
   const titulo  = (txt) => {
     chkBrk(12);
@@ -4917,7 +4942,7 @@ async function _gerarPDFCompleto() {
   };
   const didDrawPageFn = () => {
     // Apenas re-aplica os timbrados (imagens) — textos serão escritos no loop final
-    doc.addImage("data:image/png;base64,"+_TIMBRADO_HDR,"PNG",0,0,PW,HDR,"_hdr","FAST");
+    doc.addImage(_HDR_SRC,"PNG",0,0,PW,HDR,"_hdr","FAST");
     doc.addImage("data:image/png;base64,"+_TIMBRADO_FTR,"PNG",0,PH-FTR,PW,FTR,"_ftr","FAST");
   };
 
@@ -5163,176 +5188,66 @@ async function _gerarPDFCompleto() {
     y += 14;
   }
 
-  /* ── GANTT ── imagem SVG capturada + tabela fallback ── */
+  /* ── GANTT ── imagem em PAISAGEM (fatiada) ou tabela fallback (retrato) ── */
   if (chk("gantt") && GANTT_DATA.length) {
-    addPage();
-    titulo("4. CRONOGRAMA FÍSICO");
-
     const ganttAtivs = GANTT_DATA.filter(function(a){ return !a.isHeader; });
-    // Se não há imagem E não há atividades — sai sem deixar página vazia
-    if (!_PDF_GANTT_IMG && !ganttAtivs.length) {
-      // remove a página vazia recém-adicionada
-      doc.deletePage(doc.internal.getNumberOfPages());
-    } else {
     const _nFrentesGantt = usarFrentesAtivo() ? FRENTES.length : 1;
-    doc.setFontSize(7.5); doc.setTextColor(80); doc.setFont("helvetica","normal");
-    doc.text(
-      "Duracao: " + maxDia + " dias  ·  " + ganttAtivs.length + " atividades  ·  " +
-      getV("obra-extensao") + " km  ·  " + _nFrentesGantt + " frente" + (_nFrentesGantt!==1?"s":"") + "  ·  def. " +
-      getV("obra-defasagem") + " dias",
-      ML, y
-    );
-    y += 6;
+    const _subGantt = "Duracao: " + maxDia + " dias  -  " + ganttAtivs.length + " atividades  -  " +
+      getV("obra-extensao") + " km  -  " + _nFrentesGantt + " frente" + (_nFrentesGantt!==1?"s":"") + "  -  def. " +
+      getV("obra-defasagem") + " dias";
+    const _legendaEtapas = [
+      {cor:[0,45,114],label:"Canteiro / Mob."},{cor:[46,125,50],label:"Limpeza de Faixa"},
+      {cor:[93,64,55],label:"Terraplenagem"},{cor:[2,119,189],label:"Drenagem"},
+      {cor:[106,27,154],label:"Sub-Base / Base"},{cor:[198,40,40],label:"Pavimentacao"},
+      {cor:[249,168,37],label:"Sinalizacao Viaria"},{cor:[0,131,143],label:"Meio-fio / Sarjeta"},
+      {cor:[43,53,80],label:"Resumo (frente)"},{cor:[69,90,100],label:"Administracao Local"},
+    ];
+    const _drawLegenda = (x0, yy, maxW, cols) => {
+      doc.setFontSize(6.8); doc.setTextColor(80); doc.setFont("helvetica","bold");
+      doc.text("LEGENDA DE ETAPAS:", x0, yy); yy += 4; doc.setFont("helvetica","normal");
+      const w = maxW / cols;
+      _legendaEtapas.forEach((item, idx) => {
+        const c = idx % cols, r = Math.floor(idx / cols), lx = x0 + c*w, ly = yy + r*5;
+        doc.setFillColor(item.cor[0],item.cor[1],item.cor[2]); doc.rect(lx, ly-2.5, 4.5, 3.2, "F");
+        doc.setTextColor(60); doc.text(item.label, lx+6, ly);
+      });
+      return yy + Math.ceil(_legendaEtapas.length/cols)*5 + 4;
+    };
 
     if (_PDF_GANTT_IMG) {
-      /* ── REV-15b FIX: Gantt multipágina — fatiamento VERTICAL por pixels acumulados
-         BUG REV-15a: y0px calculado como HDR_H_PX + pg*linhasPorPag*ROW_H_PX
-           → para pg=1: pulava além de img.height → slice vazio → página em branco
-           → para pg=2: mostrava atividades mas deslocadas
-         CAUSA RAIZ: pág 0 consome altaUtilPx pixels (≠ linhasPorPag*ROW_H_PX porque
-           inclui HDR_H_PX), então as págs seguintes calculavam offset errado.
-         SOLUÇÃO: rastrear cursorPx acumulado diretamente — sem multiplicação por pg.
-           pág 0: cursorPx=0, fatia=[0 .. altaUtilPx]
-           pág N: cursorPx = fim da fatia anterior, fatia=[cursorPx .. cursorPx+altaUtilPx]
-         VICIO_EVITAR: nunca calcular offset de slice por pg*constante quando a pág 0
-           tem tamanho diferente das demais (HDR incluso só na pág 0). ── */
-      const _sliceGanttVertical = () => new Promise(resolve => {
+      await new Promise(resolve => {
         const img = new Image();
         img.onload = () => {
-          const svgEl = document.getElementById("gantt-svg");
-          const svgW  = svgEl ? (parseInt(svgEl.getAttribute("width"))  || img.width)  : img.width;
-          const svgH  = svgEl ? (parseInt(svgEl.getAttribute("height")) || img.height) : img.height;
-
-          const scaleY = img.height / svgH;
-          // px por mm: baseado na largura (imagem inserida em CW mm de largura)
-          const pxPorMm = img.width / CW;
-
-          const ganttAltTotalMm = img.height / pxPorMm;
-          const HDR_SECTION_MM  = 18; // altura do título de seção "4. CRONOGRAMA FISICO"
-          const espacoDispMm    = YM - y - 4;
-
-          if (ganttAltTotalMm <= espacoDispMm + 2) {
-            // Cabe inteiro — insere sem fatiar
-            doc.addImage(_PDF_GANTT_IMG, "PNG", ML, y, CW, ganttAltTotalMm);
-            y += ganttAltTotalMm + 4;
-            resolve();
-            return;
+          const imgW = img.width, imgH = img.height;
+          const pxPorMm = imgW / CW_L;
+          const pageHmm = YM_L - Y0_L;
+          const tmp = document.createElement("canvas"); tmp.width=imgW; tmp.height=imgH;
+          tmp.getContext("2d").drawImage(img,0,0);
+          const fullHmm = imgH / pxPorMm;
+          const totalParts = Math.max(1, Math.ceil(fullHmm / pageHmm));
+          let cursorPx = 0, part = 0, lastBottom = Y0_L;
+          while (cursorPx < imgH) {
+            addPageL(totalParts>1 ? (_subGantt + "   -   parte " + (part+1) + "/" + totalParts) : _subGantt);
+            const sliceMm = Math.min(pageHmm, (imgH - cursorPx)/pxPorMm);
+            const slicePx = Math.min(imgH - cursorPx, Math.max(1, Math.round(sliceMm * pxPorMm)));
+            const sc = document.createElement("canvas"); sc.width=imgW; sc.height=slicePx;
+            sc.getContext("2d").drawImage(tmp, 0, cursorPx, imgW, slicePx, 0, 0, imgW, slicePx);
+            const hmm = slicePx / pxPorMm;
+            doc.addImage(sc.toDataURL("image/png"), "PNG", ML_L, Y0_L, CW_L, hmm);
+            lastBottom = Y0_L + hmm; cursorPx += slicePx; part++;
           }
-
-          // Pixels disponíveis por página (pág nova tem espaço = YM - Y0 - HDR_SECTION_MM)
-          const altaPagMm = YM - Y0 - HDR_SECTION_MM;
-          const altaPagPx = altaPagMm * pxPorMm;
-
-          // Pág 0 pode ter menos espaço (título de seção já foi desenhado antes)
-          const altaPag0Mm = Math.min(YM - y - 4, altaPagMm);
-          const altaPag0Px = altaPag0Mm * pxPorMm;
-
-          // Canvas auxiliar
-          const tmpCanvas  = document.createElement("canvas");
-          tmpCanvas.width  = img.width;
-          tmpCanvas.height = img.height;
-          tmpCanvas.getContext("2d").drawImage(img, 0, 0);
-
-          // AKE REV-21: pré-calcular total de páginas para evitar "parte N de ?"
-          // Axioma REV-15: fatiar pelo eixo Y (cursorPx acumulado), não pelo eixo X
-          const _calcTotalPags = () => {
-            let px = 0, pg = 0;
-            // pág 0 pode ter menos espaço disponível
-            const altPag0Px = altaPag0Px;
-            while (px < img.height) {
-              const maxPx = pg === 0 ? altPag0Px : altaPagPx;
-              const slicePx = Math.min(Math.round(maxPx), img.height - px);
-              if (slicePx <= 0) break;
-              px += slicePx;
-              pg++;
-            }
-            return pg;
-          };
-          const totalPags = _calcTotalPags();
-
-          // Se espaço disponível na pág atual for pequeno (< 40mm), pular para nova
-          if (altaPag0Px / pxPorMm < 40) {
-            addPage();
-            titulo("4. CRONOGRAMA FISICO");
-            y += 4;
-          }
-
-          // AKE REV-22: cortar APENAS em limites exatos de linha do SVG
-          // rowPxReal = altura de 1 linha em pixels de imagem; hdrPxReal = cabeçalho
-          const SVG_ROW_H  = 30; // pixels SVG por linha (constante renderGantt)
-          const SVG_HDR_H  = 56; // pixels SVG do cabeçalho
-          const rowPxReal  = Math.round(SVG_ROW_H * scaleY); // px de imagem por linha
-          const hdrPxReal  = Math.round(SVG_HDR_H * scaleY); // px de imagem do cabeçalho
-
-          // Recalcular totalPags com snap de linha
-          const _snapSlice = (maxPx, isFirst) => {
-            if (isFirst) {
-              const linhas = Math.max(1, Math.floor((maxPx - hdrPxReal) / rowPxReal));
-              return hdrPxReal + linhas * rowPxReal;
-            }
-            const linhas = Math.max(1, Math.floor(maxPx / rowPxReal));
-            return linhas * rowPxReal;
-          };
-
-          const _calcTotalPagsSnap = () => {
-            let px = 0, pg = 0;
-            while (px < img.height) {
-              const maxPx  = pg === 0 ? altaPag0Px : altaPagPx;
-              const slicePx = Math.min(_snapSlice(maxPx, pg===0), img.height - px);
-              if (slicePx <= 0) break;
-              px += slicePx;
-              pg++;
-            }
-            return pg;
-          };
-          const totalPagsSnap = _calcTotalPagsSnap();
-
-          let cursorPx = 0;
-          let pgNum    = 0;
-
-          while (cursorPx < img.height) {
-            const isPag0     = pgNum === 0;
-            const slicePxMax = isPag0 ? altaPag0Px : altaPagPx;
-            // Snap: arredondar para múltiplo exato de linhas SVG
-            const sliceHpxSnap = _snapSlice(slicePxMax, isPag0);
-            const sliceHpx     = Math.min(sliceHpxSnap, img.height - cursorPx);
-            if (sliceHpx <= 0) break;
-
-            // Páginas 2+: nova página com título numerado correto
-            if (pgNum > 0) {
-              addPage();
-              titulo("4. CRONOGRAMA FISICO — parte " + (pgNum + 1) + " de " + totalPagsSnap);
-              y += 4;
-            }
-
-            const sliceMmH = Math.min(sliceHpx / pxPorMm, YM - y - 4);
-
-            const sc   = document.createElement("canvas");
-            sc.width   = img.width;
-            sc.height  = sliceHpx;
-            sc.getContext("2d").drawImage(
-              tmpCanvas,
-              0, cursorPx,
-              img.width, sliceHpx,
-              0, 0,
-              img.width, sliceHpx
-            );
-
-            doc.addImage(sc.toDataURL("image/png"), "PNG", ML, y, CW, sliceMmH);
-            y        += sliceMmH + 4;
-            cursorPx += sliceHpx;
-            pgNum++;
-          }
-
+          let ly = lastBottom + 6;
+          if (ly + 18 > PH_L - FTRL) { addPageL(_subGantt); ly = Y0_L + 4; }
+          _drawLegenda(ML_L, ly, CW_L, 5);
           resolve();
         };
         img.onerror = () => resolve();
         img.src = _PDF_GANTT_IMG;
       });
-      await _sliceGanttVertical();
-      // (bloco de fallback imediato removido — await garante execução síncrona)
-    } else {
-      /* Fallback: tabela com barras coloridas */
+    } else if (ganttAtivs.length) {
+      addPage(); titulo("4. CRONOGRAMA FISICO");
+      doc.setFontSize(7.5); doc.setTextColor(80); doc.setFont("helvetica","normal");
+      doc.text(_subGantt, ML, y); y += 6;
       const _cRGB = function(e) {
         var u = (e||"").toUpperCase();
         if (u.indexOf("CANTEIRO")  >= 0) return [0,45,114];
@@ -5347,7 +5262,7 @@ async function _gerarPDFCompleto() {
       };
       doc.autoTable({
         head: [["KM","Atividade / Etapa","Inicio","Dur.","Termino"]],
-        body: ganttAtivs.map(function(a){ return [a.km||"—",a.atividade||"—","Dia "+a.inicio,a.duracao+"d","Dia "+a.termino]; }),
+        body: ganttAtivs.map(function(a){ return [a.km||"-",a.atividade||"-","Dia "+a.inicio,a.duracao+"d","Dia "+a.termino]; }),
         startY: y, margin:{left:ML,right:MR,top:Y0,bottom:PH-YM},
         styles:{fontSize:7.5,cellPadding:2,overflow:"linebreak"},
         headStyles:{fillColor:[0,45,114],textColor:255,fontStyle:"bold",fontSize:8,halign:"center"},
@@ -5362,39 +5277,9 @@ async function _gerarPDFCompleto() {
         didDrawPage: didDrawPageFn
       });
       y = doc.lastAutoTable.finalY + 8;
+      chkBrk(22);
+      y = _drawLegenda(ML, y, CW, 4);
     }
-
-    // ── Legenda de cores do Gantt ────────────────────────────────────────
-    chkBrk(22);
-    doc.setFontSize(6.5); doc.setTextColor(80); doc.setFont("helvetica","bold");
-    doc.text("LEGENDA DE ETAPAS:", ML, y); y += 4;
-    const _legendaEtapas = [
-      {cor:[0,45,114],   label:"Canteiro / Mob."},
-      {cor:[46,125,50],  label:"Limpeza de Faixa"},
-      {cor:[93,64,55],   label:"Terraplenagem"},
-      {cor:[2,119,189],  label:"Drenagem"},
-      {cor:[106,27,154], label:"Sub-Base / Base"},
-      {cor:[198,40,40],  label:"Pavimentação"},
-      {cor:[249,168,37], label:"Sinalização Viária"},
-      {cor:[0,131,143],  label:"Meio-fio / Sarjeta"},
-      {cor:[69,90,100],   label:"Administracao Local"},
-    ];
-    const _legCols = 4;
-    const _legW = CW / _legCols;
-    doc.setFont("helvetica","normal");
-    _legendaEtapas.forEach(function(item, idx) {
-      const col = idx % _legCols;
-      const row = Math.floor(idx / _legCols);
-      const lx  = ML + col * _legW;
-      const ly  = y + row * 5.5;
-      doc.setFillColor(item.cor[0], item.cor[1], item.cor[2]);
-      doc.rect(lx, ly - 2.5, 5, 3.5, "F");
-      doc.setTextColor(60);
-      doc.text(item.label, lx + 6.5, ly);
-    });
-    const _legRows = Math.ceil(_legendaEtapas.length / _legCols);
-    y += _legRows * 5.5 + 6;
-    } // fecha o else (há imagem ou há atividades)
   }
 
   _finalizarPDF2(doc,chk,addPage,titulo,linha,didDrawPageFn,{y:y},ML,MR,CW,YM,pg,moTotal,pico,dataIni,maxDia,dataFim,durMes,nomeObra,PW,PH,FTR,HDR);
