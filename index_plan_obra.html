@@ -1673,8 +1673,16 @@
         <div class="card-header-icon">🗺️</div>
         <div class="card-header-title">Localização Geográfica da Obra</div>
         <div id="mapa-status" style="margin-left:auto;font-size:0.65rem;color:rgba(255,255,255,0.85);background:rgba(0,0,0,0.25);border-radius:4px;padding:0.15rem 0.5rem;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis"></div>
+        <button class="btn btn-outline btn-sm" id="btn-marcar-trecho" onclick="toggleModoMarcar()" title="Clique nos trechos do traçado que serão executados"
+          style="margin-left:0.6rem;border-color:rgba(255,255,255,0.35);color:white;font-size:0.68rem;padding:0.2rem 0.55rem;white-space:nowrap">
+          ✏️ Marcar trechos
+        </button>
+        <button class="btn btn-outline btn-sm" onclick="limparMarcacao()" title="Limpar marcação de trechos"
+          style="margin-left:0.4rem;border-color:rgba(255,255,255,0.35);color:white;font-size:0.68rem;padding:0.2rem 0.55rem;white-space:nowrap">
+          ✕ Limpar
+        </button>
         <button class="btn btn-outline btn-sm" onclick="recarregarMapa()" title="Recarregar traçado do mapa"
-          style="margin-left:0.6rem;color:white;border-color:rgba(255,255,255,0.35);font-size:0.68rem;padding:0.2rem 0.55rem;white-space:nowrap">
+          style="margin-left:0.4rem;color:white;border-color:rgba(255,255,255,0.35);font-size:0.68rem;padding:0.2rem 0.55rem;white-space:nowrap">
           🔄 Recarregar
         </button>
       </div>
@@ -5581,6 +5589,10 @@ let _leafletMap = null;
 let _layerAll = null;
 let _layerSelected = null;
 let _geojsonCache = {};
+// ── Marcação de trechos em execução no mapa ──────────────────────
+let _execTrechos = new Set();   // índices de features marcados como "em execução"
+let _modoMarcar  = false;       // quando true, clique no traçado marca/desmarca
+let _featLayers  = [];          // referências às camadas (layer, props) por índice
 
 // ── CSV parser simples ─────────────────────────────────────────────
 function parseCSV(text) {
@@ -6122,21 +6134,22 @@ async function highlightRoadOnMap(road) {
     return;
   }
 
+  _execTrechos = new Set();
+  _featLayers = [];
+  const _sitCor = f => {
+    const sit = norm((f.properties||{})["SITUAÇÃO"] || (f.properties||{}).SITUACAO || (f.properties||{}).situacao || "");
+    let cor = sheet.cor;
+    if (sit.startsWith("PAV")) cor = "#007B3E";
+    if (sit.startsWith("DUP")) cor = "#1565C0";
+    if (sit.startsWith("LEI")) cor = "#F5A623";
+    if (sit.startsWith("PLA")) cor = "#8896A8";
+    return cor;
+  };
   _layerSelected = L.geoJSON(matching, {
-    style: f => {
-      const sit = norm(
-        (f.properties || {})["SITUAÇÃO"] ||
-        (f.properties || {}).SITUACAO   ||
-        (f.properties || {}).situacao   || ""
-      );
-      let cor = sheet.cor;
-      if (sit.startsWith("PAV")) cor = "#007B3E";
-      if (sit.startsWith("DUP")) cor = "#1565C0";
-      if (sit.startsWith("LEI")) cor = "#F5A623";
-      if (sit.startsWith("PLA")) cor = "#8896A8";
-      return { color: cor, weight: 5, opacity: 0.95, lineJoin: "round", lineCap: "round" };
-    },
+    style: f => ({ color: _sitCor(f), weight: 5, opacity: 0.92, lineJoin: "round", lineCap: "round" }),
     onEachFeature: (feature, layer) => {
+      const idx = _featLayers.length;
+      _featLayers.push({ layer, base: _sitCor(feature), props: feature.properties || {} });
       const p   = feature.properties || {};
       const rod = p.RODOVIA || p.rodovia || p.nome || p.NOME || road.nome || "";
       const cod = p["CÓDIGO S."] || p.CODIGO_S_ || p.codigo || p.CODIGO || road.codigo || "";
@@ -6152,9 +6165,10 @@ async function highlightRoadOnMap(road) {
           ${sit ? `<div style="color:#4A5568;margin-bottom:2px;"><strong>Situação:</strong> ${sit}</div>` : ""}
           ${rev ? `<div style="color:#4A5568;margin-bottom:2px;"><strong>Revestimento:</strong> ${rev}</div>` : ""}
           ${ext ? `<div style="color:#4A5568;margin-bottom:2px;"><strong>Extensão:</strong> ${typeof ext === "number" ? ext.toFixed(2) : ext} km</div>` : ""}
-          ${(ini||fim) ? `<div style="color:#8896A8;font-size:0.75rem;margin-top:4px;">${ini}${fim ? " → "+fim : ""}</div>` : ""}
+          <div style="margin-top:6px;font-size:0.72rem;color:#C0392B;font-weight:700;cursor:pointer" onclick="toggleTrechoExec(${idx})">⬤ Marcar/desmarcar como trecho EM EXECUÇÃO</div>
         </div>
       `, { maxWidth: 280 });
+      layer.on("click", () => { if (_modoMarcar) toggleTrechoExec(idx); });
     }
   }).addTo(_leafletMap);
 
@@ -6162,9 +6176,46 @@ async function highlightRoadOnMap(road) {
 
   const badge = document.getElementById("mapa-badge");
   if (badge) { badge.textContent = road.nome || road.codigo; badge.style.display = "block"; }
+  _restyleTrechos();
   addMapaLegenda(tipo, sheet.cor, road.nome || road.codigo);
   setMapaStatus(`✅ ${matching.features.length} trecho(s) mapeado(s)`);
 }
+
+// Marca/desmarca um trecho como "em execução" e reestiliza
+function toggleTrechoExec(idx) {
+  if (_execTrechos.has(idx)) _execTrechos.delete(idx); else _execTrechos.add(idx);
+  _restyleTrechos();
+  const tipo = (_selectedRoad && _selectedRoad.tipo) || getV("obra-tipo");
+  addMapaLegenda(tipo, (SHEETS[tipo]||{}).cor || "#1F285B", (_selectedRoad||{}).nome || (_selectedRoad||{}).codigo || "");
+  if (_leafletMap) _leafletMap.closePopup();
+}
+
+// Reestiliza: trechos em execução = destaque vermelho grosso; demais = cor da situação (muted)
+function _restyleTrechos() {
+  let somaExec = 0;
+  _featLayers.forEach((f, i) => {
+    if (_execTrechos.has(i)) {
+      f.layer.setStyle({ color: "#C0392B", weight: 8, opacity: 1, dashArray: null });
+      if (f.layer.bringToFront) f.layer.bringToFront();
+      const ex = parseFloat(f.props.EXTENSÃO || f.props.EXTENSAO || f.props.extensao || 0);
+      if (ex > 0) somaExec += ex;
+    } else {
+      const muted = _execTrechos.size > 0;
+      f.layer.setStyle({ color: f.base, weight: muted ? 3 : 5, opacity: muted ? 0.45 : 0.92 });
+    }
+  });
+  window._EXEC_EXT_KM = somaExec;
+}
+
+// Botão da barra: alterna o modo de marcação por clique
+function toggleModoMarcar() {
+  _modoMarcar = !_modoMarcar;
+  const b = document.getElementById("btn-marcar-trecho");
+  if (b) { b.style.background = _modoMarcar ? "var(--vermelho)" : ""; b.style.color = _modoMarcar ? "#fff" : ""; b.textContent = _modoMarcar ? "✓ Clique nos trechos…" : "✏️ Marcar trechos"; }
+  setMapaStatus(_modoMarcar ? "✏️ Modo marcação ON — clique nos trechos a executar" : "Modo marcação desligado");
+}
+
+function limparMarcacao() { _execTrechos.clear(); _restyleTrechos(); const tipo=(_selectedRoad&&_selectedRoad.tipo)||getV("obra-tipo"); addMapaLegenda(tipo,(SHEETS[tipo]||{}).cor||"#1F285B",(_selectedRoad||{}).nome||""); }
 
 // Fallback: centraliza o mapa no município/localização usando Nominatim
 async function _fallbackCentroide(road) {
@@ -6201,11 +6252,13 @@ function setMapaStatus(msg) {
 function addMapaLegenda(tipo, cor, label) {
   const el = document.getElementById("mapa-legenda");
   if (!el) return;
-  el.innerHTML = `<div style="display:flex;align-items:center;gap:5px">
-    <div style="width:20px;height:4px;background:${cor};border-radius:2px"></div>
-    <span style="font-size:0.72rem;font-weight:600">${label}</span>
-  </div>
-  <div style="margin-left:auto;font-size:0.65rem;color:var(--cinza-aux)">© OpenStreetMap contributors</div>`;
+  const nExec = _execTrechos ? _execTrechos.size : 0;
+  const item = (c, txt, h=4) => `<div style="display:flex;align-items:center;gap:5px"><div style="width:20px;height:${h}px;background:${c};border-radius:2px"></div><span style="font-size:0.7rem;font-weight:600">${txt}</span></div>`;
+  el.innerHTML =
+    item(cor, label) +
+    item("#007B3E","Pavimentada") + item("#1565C0","Duplicada") + item("#F5A623","Leito Natural") + item("#8896A8","Planejada") +
+    (nExec ? item("#C0392B", `Em execução (${nExec}${window._EXEC_EXT_KM?` · ${window._EXEC_EXT_KM.toFixed(1)} km`:""})`, 6) : "") +
+    `<div style="margin-left:auto;font-size:0.65rem;color:var(--cinza-aux)">© OpenStreetMap</div>`;
 }
 
 function recarregarMapa() {
