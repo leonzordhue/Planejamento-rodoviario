@@ -4440,10 +4440,13 @@ async function _gerarPDFCompleto() {
     im.src = src;
   });
   const _MARCA_PDF = await _imgToDataURL("assets/marca-gov-seinfra-azul.png");
+  // Cabeçalho 2026 (azul) — substitui o antigo; rodapé mantém o atual (com contatos)
+  const _HDR_NEW = await _imgToDataURL("assets/timbrado-cabecalho.png");
+  const _HDR_SRC = _HDR_NEW || ("data:image/png;base64,"+_TIMBRADO_HDR);
 
   /* ── Utilitários ── */
   const timbrado = () => {
-    doc.addImage("data:image/png;base64,"+_TIMBRADO_HDR,"PNG",0,0,PW,HDR,"_hdr","FAST");
+    doc.addImage(_HDR_SRC,"PNG",0,0,PW,HDR,"_hdr","FAST");
     doc.addImage("data:image/png;base64,"+_TIMBRADO_FTR,"PNG",0,PH-FTR,PW,FTR,"_ftr","FAST");
     // Texto institucional fixo — numeração será sobrescrita no loop final (Página X de Y)
     doc.setFontSize(7); doc.setTextColor(150); doc.setFont("helvetica","normal");
@@ -4489,7 +4492,7 @@ async function _gerarPDFCompleto() {
   };
   const didDrawPageFn = () => {
     // Apenas re-aplica os timbrados (imagens) — textos serão escritos no loop final
-    doc.addImage("data:image/png;base64,"+_TIMBRADO_HDR,"PNG",0,0,PW,HDR,"_hdr","FAST");
+    doc.addImage(_HDR_SRC,"PNG",0,0,PW,HDR,"_hdr","FAST");
     doc.addImage("data:image/png;base64,"+_TIMBRADO_FTR,"PNG",0,PH-FTR,PW,FTR,"_ftr","FAST");
   };
 
