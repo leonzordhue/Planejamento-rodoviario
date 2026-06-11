@@ -3775,10 +3775,18 @@ function renderGantt() {
     const y = HDR_H + i * ROW_H;
     const cpm = _cpm.get(act.id);
     const isHeader = act.isHeader || act.isAdmin;
+    // Mudança de KM (entre atividades reais) → faixa + separador forte (divisão KM a KM)
+    const _pv = i>0 ? acts[i-1] : null;
+    const _kmChanged = !isHeader && _pv && !_pv.isHeader && !_pv.isAdmin && _pv.km !== act.km;
     rowsG.append("rect")
       .attr("x",0).attr("y",y)
       .attr("width",SVG_W).attr("height",ROW_H)
-      .attr("fill", isHeader ? "#EBF0FA" : (i%2===0?"#FAFBFD":"#fff"));
+      .attr("fill", isHeader ? "#EBF0FA" : (_kmChanged ? "#EEF2FB" : (i%2===0?"#FAFBFD":"#fff")));
+    if (_kmChanged) {
+      rowsG.append("line")
+        .attr("x1",0).attr("y1",y).attr("x2",SVG_W).attr("y2",y)
+        .attr("stroke","#6E80AB").attr("stroke-width","1.6");
+    }
     // Linha separadora
     rowsG.append("line")
       .attr("x1",0).attr("y1",y+ROW_H).attr("x2",SVG_W).attr("y2",y+ROW_H)
