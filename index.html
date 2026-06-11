@@ -5172,11 +5172,17 @@ async function _gerarPDFCompleto() {
   const _MARCA_PDF = await _imgToDataURL("assets/marca-gov-seinfra-azul.png");
   const _HDR_NEW   = await _imgToDataURL("assets/timbrado-cabecalho.png");
   const _HDR_SRC   = _HDR_NEW || ("data:image/png;base64,"+_TIMBRADO_HDR);
+  const _FTR_NEW   = await _imgToDataURL("assets/timbrado-rodape.png");
+  const _FTR_SRC   = _FTR_NEW || ("data:image/png;base64,"+_TIMBRADO_FTR);
+  // expõe p/ _finalizarPDF2 (função separada) usar o mesmo timbrado 2026
+  window._PDF_HDR = _HDR_SRC; window._PDF_FTR = _FTR_SRC;
+  // altura natural do rodapé novo (ratio ~8.1) ancorado ao fundo, sem distorção
+  const _FTRH = _FTR_NEW ? Math.min(FTR, PW/8.1) : FTR;
 
   /* ── Utilitários ── */
   const timbrado = () => {
     doc.addImage(_HDR_SRC,"PNG",0,0,PW,HDR,"_hdr","FAST");
-    doc.addImage("data:image/png;base64,"+_TIMBRADO_FTR,"PNG",0,PH-FTR,PW,FTR,"_ftr","FAST");
+    doc.addImage(_FTR_SRC,"PNG",0,PH-_FTRH,PW,_FTRH,"_ftr","FAST");
     doc.setFontSize(7); doc.setTextColor(150); doc.setFont("helvetica","normal");
     doc.text("Plataforma de Planejamento de Obras · DMOB/SEINFRA", ML, PH-FTR+3.5);
   };
@@ -5220,7 +5226,7 @@ async function _gerarPDFCompleto() {
   const didDrawPageFn = () => {
     // Apenas re-aplica os timbrados (imagens) — textos serão escritos no loop final
     doc.addImage(_HDR_SRC,"PNG",0,0,PW,HDR,"_hdr","FAST");
-    doc.addImage("data:image/png;base64,"+_TIMBRADO_FTR,"PNG",0,PH-FTR,PW,FTR,"_ftr","FAST");
+    doc.addImage(_FTR_SRC,"PNG",0,PH-_FTRH,PW,_FTRH,"_ftr","FAST");
   };
 
   /* ── Dados base ── */
@@ -5581,10 +5587,11 @@ function _finalizarPDF2(doc,chk,_addPageOuter,_tituloOuter,_linhaOuter,didDrawPa
      Closures addPage/titulo/linha recriadas localmente para operar em yRef.y */
   const Y0 = HDR + 8;
   const timbrado = () => {
-    doc.addImage("data:image/png;base64,"+_TIMBRADO_HDR,"PNG",0,0,PW,HDR,"_hdr","FAST");
-    doc.addImage("data:image/png;base64,"+_TIMBRADO_FTR,"PNG",0,PH-FTR,PW,FTR,"_ftr","FAST");
+    const _fh = window._PDF_FTR ? Math.min(FTR, PW/8.1) : FTR;
+    doc.addImage(window._PDF_HDR||("data:image/png;base64,"+_TIMBRADO_HDR),"PNG",0,0,PW,HDR,"_hdr","FAST");
+    doc.addImage(window._PDF_FTR||("data:image/png;base64,"+_TIMBRADO_FTR),"PNG",0,PH-_fh,PW,_fh,"_ftr","FAST");
   };
-  const addPage = () => { doc.addPage(); timbrado(); yRef.y = Y0; };
+  const addPage = () => { doc.addPage([PW,PH],"portrait"); timbrado(); yRef.y = Y0; };
   const chkBrk  = (h=8) => { if (yRef.y+h > YM) { addPage(); } };
   const titulo  = (txt) => {
     chkBrk(12);
